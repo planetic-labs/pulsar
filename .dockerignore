@@ -1,0 +1,13 @@
+.git
+.gitignore
+.venv
+__pycache__
+*.pyc
+
+data
+downloads
+audio
+transcripts
+
+server.log
+

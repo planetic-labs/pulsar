@@ -1,0 +1,48 @@
+services:
+  db:
+    image: pgvector/pgvector:pg16
+    ports:
+      # Разрешаем подключения только с локального хоста, чтобы боты из интернета не спамили в логи
+      - "127.0.0.1:5432:5432"
+    networks:
+      - homelab-net
+    environment:
+      POSTGRES_DB: search_ui
+      POSTGRES_USER: devman
+      POSTGRES_PASSWORD: password
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      # Явно указываем базу данных -d search_ui
+      test: ["CMD-SHELL", "pg_isready -U devman -d search_ui"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  app:
+    build: .
+    command: ["uv", "run", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+    ports:
+      - "8000:8000"
+    networks:
+      - homelab-net
+    environment:
+      - HF_HOME=/srv/search-ui/models_cache
+      - HF_TOKEN=${HF_TOKEN:-}
+    env_file: .env
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - .:/srv/search-ui
+      - ./downloads:/srv/search-ui/downloads
+      - ./data:/srv/search-ui/data
+      - ./storage:/srv/search-ui/storage
+      - ./models_cache:/srv/search-ui/models_cache
+
+volumes:
+  pgdata:
+
+networks:
+  homelab-net:
+    external: true

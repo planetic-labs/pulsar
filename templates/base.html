@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="ru" class="h-full bg-[#FAF9F6]">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}VideoDB AI{% endblock %}</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: { sans: ['Plus Jakarta Sans', 'sans-serif'] },
+                    colors: {
+                        warm: {
+                            50: '#FAF9F6', 100: '#F2F0EB', 200: '#E5E1D8', 300: '#D6D0C2',
+                            400: '#BDB4A3', 500: '#9E9282', 600: '#7F7362',
+                        },
+                        brand: {
+                            50: '#F4F5F7', 100: '#E9EAEF', 200: '#D3D5DF', 300: '#A7ABBF',
+                            400: '#7B819F', 500: '#5F6683', 600: '#4A5168', 700: '#3A4053',
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        body { font-family: 'Plus Jakarta Sans', sans-serif; background-color: #FAF9F6; color: #4A453E; }
+        .sidebar-active { background-color: #F2F0EB; color: #5F6683; font-weight: 700; }
+        ::-webkit-scrollbar { width: 4px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: #E5E1D8; border-radius: 10px; }
+        .soft-card { background: #FFFFFF; border: 1px solid #E5E1D8; border-radius: 1.5rem; }
+        .muted-text { color: #8C867A; }
+    </style>
+</head>
+<body class="h-full antialiased overflow-hidden text-[#4A453E]">
+    <div class="flex h-full flex-col lg:flex-row">
+        <!-- Mobile Header -->
+        <header class="lg:hidden h-16 bg-[#F2F0EB] border-b border-[#E5E1D8] flex items-center justify-between px-6 z-[60] shrink-0">
+            <div class="flex items-center gap-2">
+                <div class="w-8 h-8 bg-brand-500 rounded-xl flex items-center justify-center shadow-sm opacity-80">
+                    <svg class="w-5 h-5 text-[#FAF9F6]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v7.764a1 1 0 01-1.447.894L15 15M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"></path></svg>
+                </div>
+                <span class="text-lg font-bold tracking-tight text-[#3A3630]">VideoDB <span class="text-brand-500 font-medium">AI</span></span>
+            </div>
+            <button onclick="toggleMobileMenu()" class="p-2 text-warm-500 hover:text-brand-500 transition-colors">
+                <svg id="menu-icon" class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"></path></svg>
+                <svg id="close-icon" class="w-6 h-6 hidden" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+            </button>
+        </header>
+
+        <!-- Sidebar (Desktop and Mobile Overlay) -->
+        <aside id="sidebar" class="fixed inset-0 lg:static lg:w-72 bg-[#F2F0EB] border-r border-[#E5E1D8] flex flex-col shrink-0 z-50 transition-transform duration-300 -translate-x-full lg:translate-x-0">
+            <!-- Mobile Close Overlay -->
+            <div class="absolute inset-0 bg-black/20 lg:hidden -z-10" onclick="toggleMobileMenu()"></div>
+            
+            <div class="bg-[#F2F0EB] h-full flex flex-col w-72 lg:w-full">
+                <div class="p-8">
+                    <div class="hidden lg:flex items-center gap-3 mb-10">
+                        <div class="w-10 h-10 bg-brand-500 rounded-2xl flex items-center justify-center shadow-md opacity-80">
+                            <svg class="w-6 h-6 text-[#FAF9F6]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v7.764a1 1 0 01-1.447.894L15 15M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"></path></svg>
+                        </div>
+                        <span class="text-xl font-bold tracking-tight text-[#3A3630]">VideoDB <span class="text-brand-500 font-medium">AI</span></span>
+                    </div>
+                    
+                    <nav class="space-y-1">
+                        <a href="/" class="flex items-center gap-3 px-4 py-3 rounded-xl transition-all group {% if request.url.path == '/' %} sidebar-active {% else %} muted-text hover:bg-white/50 hover:text-slate-900 {% endif %}">
+                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
+                            <span class="text-sm">Поиск по архиву</span>
+                        </a>
+                        <a href="/editor" class="flex items-center gap-3 px-4 py-3 rounded-xl transition-all group {% if request.url.path == '/editor' %} sidebar-active {% else %} muted-text hover:bg-white/50 hover:text-slate-900 {% endif %}">
+                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"></path></svg>
+                            <span class="text-sm">Редактор</span>
+                        </a>
+                        <a href="/status" class="flex items-center gap-3 px-4 py-3 rounded-xl transition-all group {% if request.url.path == '/status' %} sidebar-active {% else %} muted-text hover:bg-white/50 hover:text-slate-900 {% endif %}">
+                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"></path></svg>
+                            <span class="text-sm">Мониторинг</span>
+                        </a>
+                    </nav>
+                </div>
+
+                <div class="mt-auto p-8 border-t border-[#E5E1D8]">
+                    <div class="flex items-center gap-4 p-4 rounded-2xl bg-white/40 border border-white/60 mb-6">
+                        <div class="w-10 h-10 rounded-full bg-brand-100 flex items-center justify-center text-brand-600 font-bold text-xs">AD</div>
+                        <div>
+                            <div class="text-sm font-bold text-[#3A3630] leading-none mb-1">Administrator</div>
+                            <div class="text-[10px] text-brand-400 uppercase tracking-widest font-black">Private Cloud</div>
+                        </div>
+                    </div>
+                    <a href="/logout" class="flex items-center gap-3 px-4 py-2 text-rose-400/70 hover:text-rose-500 transition-colors font-bold text-sm uppercase tracking-widest">
+                        Выйти
+                    </a>
+                </div>
+            </div>
+        </aside>
+
+        <!-- Main Content -->
+        <main class="flex-1 flex flex-col min-w-0 relative h-full">
+            {% block content %}{% endblock %}
+        </main>
+    </div>
+
+    <script>
+        function toggleMobileMenu() {
+            const sidebar = document.getElementById('sidebar');
+            const menuIcon = document.getElementById('menu-icon');
+            const closeIcon = document.getElementById('close-icon');
+            
+            const isOpen = sidebar.classList.contains('translate-x-0');
+            
+            if (isOpen) {
+                sidebar.classList.replace('translate-x-0', '-translate-x-full');
+                menuIcon.classList.remove('hidden');
+                closeIcon.classList.add('hidden');
+            } else {
+                sidebar.classList.replace('-translate-x-full', 'translate-x-0');
+                menuIcon.classList.add('hidden');
+                closeIcon.classList.remove('hidden');
+            }
+        }
+    </script>
+</body>
+</html>
