@@ -2,6 +2,11 @@ import os
 import torch
 import torchaudio
 import logging
+import subprocess
+import tempfile
+import imageio_ffmpeg
+import soundfile as sf
+import gc
 from speechbrain.inference.speaker import EncoderClassifier
 from pathlib import Path
 
@@ -13,38 +18,53 @@ _encoder = None
 def get_voice_encoder():
     global _encoder
     if _encoder is None:
-        # Note: In a real app we might want to broadcast this via WebSocket, 
-        # but for now we'll just log it clearly.
-        logger.info("Initializing Speaker Recognition model (ECAPA-TDNN). This may take a minute on first run...")
+        # Crucial: clean up memory before loading heavy model
+        logger.info("Cleaning up memory before loading voice model...")
+        gc.collect()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+            
+        logger.info("Initializing Speaker Recognition model (ECAPA-TDNN)...")
         cache_dir = Path("/srv/search-ui/models_cache/voice")
         cache_dir.mkdir(parents=True, exist_ok=True)
         
         _encoder = EncoderClassifier.from_hparams(
             source="speechbrain/spkrec-ecapa-voxceleb",
             savedir=cache_dir,
-            run_opts={"device": "cpu"} # Force CPU for stability on servers
+            run_opts={"device": "cpu"}
         )
+        logger.info("Voice model loaded successfully.")
     return _encoder
 
 def extract_speaker_embedding(audio_path: Path, start_sec: float, end_sec: float) -> list[float]:
     """Extracts a voice fingerprint from a specific segment of audio."""
     encoder = get_voice_encoder()
     
+    # We use ffmpeg to extract and resample to ensure it is in the 16kHz mono format SpeechBrain prefers.
+    with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
+        tmp_path = tmp.name
+        
     try:
-        # 1. Load the specific segment (using torchaudio for efficiency)
-        info = torchaudio.info(str(audio_path))
-        sample_rate = info.sample_rate
+        duration = end_sec - start_sec
+        ffmpeg_path = imageio_ffmpeg.get_ffmpeg_exe()
+        # Extract segment: -ss (start), -t (duration), -ar (16kHz), -ac (mono)
+        cmd = [
+            ffmpeg_path, "-y", "-loglevel", "error",
+            "-ss", str(start_sec),
+            "-i", str(audio_path),
+            "-t", str(duration),
+            "-ar", "16000",
+            "-ac", "1",
+            tmp_path
+        ]
+        subprocess.run(cmd, check=True)
         
-        frame_offset = int(start_sec * sample_rate)
-        num_frames = int((end_sec - start_sec) * sample_rate)
-        
-        waveform, sr = torchaudio.load(str(audio_path), frame_offset=frame_offset, num_frames=num_frames)
-        
-        # 2. Convert to mono if needed
-        if waveform.shape[0] > 1:
-            waveform = torch.mean(waveform, dim=0, keepdim=True)
+        # Load with soundfile instead of torchaudio
+        audio_data, samplerate = sf.read(tmp_path)
+        # Convert to torch tensor: [batch, frames]
+        waveform = torch.from_numpy(audio_data).float().unsqueeze(0)
             
-        # 3. Generate embedding
+        # Generate embedding
         with torch.no_grad():
             embeddings = encoder.encode_batch(waveform)
             # The output is [batch, 1, 192], we need [192]
@@ -54,3 +74,6 @@ def extract_speaker_embedding(audio_path: Path, start_sec: float, end_sec: float
     except Exception as e:
         logger.error(f"Failed to extract voice embedding: {e}")
         return []
+    finally:
+        if os.path.exists(tmp_path):
+            os.unlink(tmp_path)

@@ -2,6 +2,8 @@ import json
 import logging
 import asyncio
 import traceback
+import gc
+import torch
 from pathlib import Path
 from datetime import datetime
 from app.config import get_sqlite_settings
@@ -68,6 +70,11 @@ class Worker:
                     
                     with db_connection(settings) as conn:
                         conn.execute("UPDATE tasks SET status = 'completed', updated_at = CURRENT_TIMESTAMP WHERE id = ?", (task_id,))
+                    
+                    # Clean up memory after a heavy task
+                    gc.collect()
+                    if torch.cuda.is_available():
+                        torch.cuda.empty_cache()
                 else:
                     raise ValueError(f"Unknown task type: {task_type}")
 

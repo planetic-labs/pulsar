@@ -19,7 +19,8 @@ def get_sparse_embedding_model() -> SparseTextEmbedding:
     global _sparse_model
     if _sparse_model is None:
         # BM25 model for sparse vectors
-        _sparse_model = SparseTextEmbedding(model_name="Qdrant/bm25")
+        # Explicitly setting language to 'russian' to optimize tokenization
+        _sparse_model = SparseTextEmbedding(model_name="Qdrant/bm25", language="russian")
     return _sparse_model
 
 def init_qdrant():

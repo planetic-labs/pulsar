@@ -127,7 +127,7 @@
 <script>
     const logConsole = document.getElementById('log-console');
     const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const wsUrl = `${wsProtocol}//${window.location.host}/ws/logs`;
+    const wsUrl = `${wsProtocol}//${window.location.host}/api/v1/logs/stream`;
     let ws;
 
     function connectLogs() {
