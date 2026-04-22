@@ -60,6 +60,11 @@ class LocalAISettings:
     embedding_dimension: int
 
 @dataclass(frozen=True)
+class VoiceSettings:
+    voice_api_token: str
+    voice_api_url: str
+
+@dataclass(frozen=True)
 class QdrantSettings:
     url: str
     collection_name: str = "chunks"
@@ -142,6 +147,12 @@ def get_app_settings() -> AppSettings:
         port=int(os.getenv("APP_PORT", "8000")),
         results_limit=int(os.getenv("APP_RESULTS_LIMIT", "20")),
         download_concurrency=int(os.getenv("INGEST_DOWNLOAD_CONCURRENCY", "1")),
-        process_concurrency=int(os.getenv("INGEST_PROCESS_CONCURRENCY", "2")),
+        process_concurrency=int(os.getenv("INGEST_PROCESS_CONCURRENCY", "1")),
         storage_dir=Path(os.getenv("APP_STORAGE_DIR", "/srv/search-ui/storage"))
+    )
+
+def get_voice_settings() -> VoiceSettings:
+    return VoiceSettings(
+        voice_api_token=os.getenv("VOICE_API_TOKEN", ""),
+        voice_api_url=os.getenv("VOICE_API_URL", "")
     )

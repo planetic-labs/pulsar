@@ -94,6 +94,122 @@ async def websocket_logs_get():
     logger.info("HTTP GET request to log stream endpoint")
     return {"status": "log_stream_active", "transport": "websocket_required", "fallback_available": "/api/v1/logs/poll"}
 
+from fastapi.staticfiles import StaticFiles
+from app.qdrant import get_qdrant_client
+from qdrant_client import models
+import uuid
+import subprocess
+import imageio_ffmpeg
+
+# ... (после инициализации app)
+app.mount("/audio", StaticFiles(directory="/srv/search-ui/storage/voice_samples"), name="voice_audio")
+
+# --- SPEAKERS ROUTES ---
+
+@app.get("/speakers", response_class=HTMLResponse)
+async def speakers_page(request: Request, _: str = Depends(require_access_token)):
+    q_client = get_qdrant_client()
+    try:
+        res = q_client.scroll(collection_name="speaker_registry", limit=100)[0]
+        speakers = []
+        for p in res:
+            speakers.append({
+                "id": p.id,
+                "name": p.payload.get("name", "Unknown"),
+                "audio_url": f"/audio/{p.payload.get('sample_file')}" if p.payload.get("sample_file") else None
+            })
+        return templates.TemplateResponse(request, "speakers.html", {"speakers": speakers})
+    except Exception as e:
+        logger.error(f"Error fetching speakers: {e}")
+        return templates.TemplateResponse(request, "speakers.html", {"speakers": [], "error": str(e)})
+
+@app.post("/api/speakers/register")
+async def api_register_speaker(
+    video_id: int = Form(...),
+    start_sec: float = Form(...),
+    end_sec: float = Form(...),
+    name: str = Form(...),
+    _: str = Depends(require_access_token)
+):
+    from app.voice import extract_speaker_embedding
+    settings = get_sqlite_settings()
+    
+    # 1. Получаем путь к видео
+    with db_connection(settings) as conn:
+        video = conn.execute("SELECT local_audio_path FROM videos WHERE id = ?", (video_id,)).fetchone()
+        if not video or not video["local_audio_path"]:
+            raise HTTPException(status_code=404, detail="Audio file not found for this video")
+        audio_path = Path(video["local_audio_path"])
+
+    # 2. Извлекаем эмбеддинг
+    embedding = extract_speaker_embedding(audio_path, start_sec, end_sec)
+    if not embedding:
+        raise HTTPException(status_code=500, detail="Failed to extract voice embedding")
+
+    # 3. Вырезаем и сохраняем аудио-фрагмент
+    sample_id = str(uuid.uuid4())
+    filename = f"{sample_id}.wav"
+    save_path = Path("/srv/search-ui/storage/voice_samples") / filename
+    
+    try:
+        duration = end_sec - start_sec
+        ffmpeg_path = imageio_ffmpeg.get_ffmpeg_exe()
+        cmd = [
+            ffmpeg_path, "-y", "-loglevel", "error",
+            "-ss", str(start_sec),
+            "-i", str(audio_path),
+            "-t", str(duration),
+            "-ar", "16000",
+            "-ac", "1",
+            str(save_path)
+        ]
+        subprocess.run(cmd, check=True)
+    except Exception as e:
+        logger.error(f"Failed to save audio sample: {e}")
+        # Продолжаем без файла, если эмбеддинг есть
+
+    # 4. Сохраняем в Qdrant
+    q_client = get_qdrant_client()
+    q_client.upsert(
+        collection_name="speaker_registry",
+        points=[
+            models.PointStruct(
+                id=sample_id,
+                vector=embedding,
+                payload={
+                    "name": name,
+                    "sample_file": filename if save_path.exists() else None,
+                    "source_video_id": video_id,
+                    "source_start": start_sec
+                }
+            )
+        ]
+    )
+    
+    return {"status": "success", "id": sample_id, "name": name}
+
+@app.delete("/api/speakers/{speaker_id}")
+async def api_delete_speaker(speaker_id: str, _: str = Depends(require_access_token)):
+    q_client = get_qdrant_client()
+    
+    # Пытаемся найти инфу о файле перед удалением
+    try:
+        points = q_client.retrieve(collection_name="speaker_registry", ids=[speaker_id])
+        if points:
+            filename = points[0].payload.get("sample_file")
+            if filename:
+                file_path = Path("/srv/search-ui/storage/voice_samples") / filename
+                if file_path.exists():
+                    file_path.unlink()
+    except Exception as e:
+        logger.warning(f"Could not delete audio file for speaker {speaker_id}: {e}")
+
+    q_client.delete(
+        collection_name="speaker_registry",
+        points_selector=models.PointIdsList(points=[speaker_id])
+    )
+    return {"status": "deleted"}
+
 @app.post("/api/tasks/ingest")
 async def api_add_ingest_task(
     file_id: str = Form(...),
@@ -239,8 +355,6 @@ async def api_save_speaker(
         )
         
         # 2. Global Enrollment (Voice Fingerprinting)
-        # Find a chunk for this speaker to extract audio. 
-        # If tag is 'primary' and no tags exist, take the best available chunk.
         if tag == "primary":
             chunk = conn.execute(
                 "SELECT start_sec, end_sec FROM chunks WHERE video_id = ? ORDER BY (end_sec - start_sec) DESC LIMIT 1",
@@ -259,21 +373,57 @@ async def api_save_speaker(
             from app.qdrant import get_qdrant_client
             from qdrant_client import models
             import uuid
+            import subprocess
+            import imageio_ffmpeg
             
-            # Limit duration to 10s to avoid OOM
-            start = chunk["start_sec"]
-            end = min(chunk["end_sec"], start + 10.0)
+            # Use centered 20s window for better quality
+            chunk_start = chunk["start_sec"]
+            chunk_end = chunk["end_sec"]
+            chunk_duration = chunk_end - chunk_start
             
-            emb = extract_speaker_embedding(Path(video["local_audio_path"]), start, end)
+            if chunk_duration > 20.0:
+                mid = chunk_start + (chunk_duration / 2)
+                start = max(chunk_start, mid - 10.0)
+                end = min(chunk_end, start + 20.0)
+            else:
+                start = chunk_start
+                end = chunk_end
+            
+            audio_path = Path(video["local_audio_path"])
+            emb = extract_speaker_embedding(audio_path, start, end)
+            
             if emb:
+                sample_id = str(uuid.uuid4())
+                filename = f"{sample_id}.wav"
+                save_path = Path("/srv/search-ui/storage/voice_samples") / filename
+                
+                # Save audio segment
+                try:
+                    ffmpeg_path = imageio_ffmpeg.get_ffmpeg_exe()
+                    subprocess.run([
+                        ffmpeg_path, "-y", "-loglevel", "error",
+                        "-ss", str(start),
+                        "-i", str(audio_path),
+                        "-t", str(end - start),
+                        "-ar", "16000", "-ac", "1",
+                        str(save_path)
+                    ], check=True)
+                except Exception as e:
+                    logger.error(f"Failed to save audio sample in api_save_speaker: {e}")
+
                 qdrant = get_qdrant_client()
                 qdrant.upsert(
                     collection_name="speaker_registry",
                     points=[
                         models.PointStruct(
-                            id=str(uuid.uuid4()),
+                            id=sample_id,
                             vector=emb,
-                            payload={"name": name}
+                            payload={
+                                "name": name,
+                                "sample_file": filename if save_path.exists() else None,
+                                "source_video_id": video_id,
+                                "source_start": start
+                            }
                         )
                     ]
                 )

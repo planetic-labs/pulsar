@@ -1,0 +1,85 @@
+{% extends "base.html" %}
+
+{% block title %}Реестр голосов - VideoDB{% endblock %}
+
+{% block content %}
+<div class="max-w-6xl mx-auto">
+    <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
+        <div>
+            <h1 class="text-3xl font-extrabold text-brand-900 tracking-tight">Реестр голосов</h1>
+            <p class="mt-1 text-brand-600">Управление эталонами для автоматического распознавания спикеров.</p>
+        </div>
+    </div>
+
+    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+        {% if speakers %}
+            {% for s in speakers %}
+            <div class="bg-white rounded-2xl shadow-sm border border-brand-100 p-6 flex flex-col hover:shadow-md transition-shadow">
+                <div class="flex items-start justify-between mb-4">
+                    <div class="flex items-center gap-3">
+                        <div class="w-12 h-12 rounded-full bg-brand-100 flex items-center justify-center text-brand-600">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
+                            </svg>
+                        </div>
+                        <div>
+                            <h3 class="font-bold text-lg text-brand-900">{{ s.name }}</h3>
+                            <p class="text-xs text-brand-400">ID: {{ s.id[:8] }}...</p>
+                        </div>
+                    </div>
+                    <button onclick="deleteSpeaker('{{ s.id }}')" class="text-warm-400 hover:text-warm-600 transition-colors p-2" title="Удалить">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                            <path fill-rule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clip-rule="evenodd" />
+                        </svg>
+                    </button>
+                </div>
+
+                {% if s.audio_url %}
+                <div class="mt-auto pt-4 border-t border-brand-50">
+                    <audio controls class="w-full h-10 accent-brand-500">
+                        <source src="{{ s.audio_url }}" type="audio/wav">
+                        Ваш браузер не поддерживает аудио.
+                    </audio>
+                </div>
+                {% else %}
+                <div class="mt-auto pt-4 border-t border-brand-50 text-brand-300 text-sm italic">
+                    Аудио-файл отсутствует
+                </div>
+                {% endif %}
+            </div>
+            {% endfor %}
+        {% else %}
+            <div class="col-span-full py-20 text-center bg-white rounded-3xl border border-dashed border-brand-200">
+                <div class="w-20 h-20 rounded-full bg-brand-50 flex items-center justify-center text-brand-300 mx-auto mb-4">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-10 w-10" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
+                    </svg>
+                </div>
+                <h3 class="text-xl font-bold text-brand-900">Реестр пуст</h3>
+                <p class="text-brand-500 mt-2 max-w-sm mx-auto">Добавьте первый образец голоса из результатов поиска, чтобы начать автоматическое распознавание.</p>
+            </div>
+        {% endif %}
+    </div>
+</div>
+
+<script>
+async function deleteSpeaker(speakerId) {
+    if (!confirm('Вы уверены, что хотите удалить этот образец голоса? Автоматическое распознавание для этого человека перестанет работать.')) return;
+    
+    try {
+        const response = await fetch(`/api/speakers/${speakerId}`, {
+            method: 'DELETE'
+        });
+        
+        if (response.ok) {
+            window.location.reload();
+        } else {
+            const err = await response.json();
+            alert('Ошибка при удалении: ' + (err.detail || 'Неизвестная ошибка'));
+        }
+    } catch (e) {
+        alert('Сетевая ошибка: ' + e.message);
+    }
+}
+</script>
+{% endblock %}
