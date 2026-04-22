@@ -7,7 +7,7 @@ import logging
 import re
 from pathlib import Path
 import sys
-from typing import Any
+from typing import Any, Callable
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
 if str(ROOT_DIR) not in sys.path:
@@ -44,15 +44,24 @@ def ingest_drive_file(
     diarize: bool = True,
     clip_duration_sec: float | None = None,
     clip_start_sec: float = 0.0,
-    download_progress_callback: callable[[int, int], None] | None = None,
+    download_progress_callback: Callable[[int, int], None] | None = None,
+    status_callback: Callable[[str], None] | None = None,
     keep_files: bool = False,
 ) -> dict[str, Any]:
+    
+    def set_status(msg: str):
+        if status_callback:
+            status_callback(msg)
+        logger.info(msg)
+
     drive_settings = get_google_drive_settings()
     app_settings = get_app_settings()
     pg_settings = get_sqlite_settings()
 
     drive = GoogleDriveClient(drive_settings)
     file_meta = drive.get_file(file_id)
+    
+    set_status(f"[1/6] Подготовка: '{file_meta.name}'")
 
     with db_connection(pg_settings) as connection:
         init_db(connection)
@@ -62,15 +71,14 @@ def ingest_drive_file(
             source_file_id=file_id,
         )
     
-    # Deepgram settings
     dg_settings = get_deepgram_settings()
     engine_id = f"deepgram:{dg_settings.model}"
 
     if existing and existing.get("processing_status") == "indexed_chunks_ready":
-        # Check if we already have a transcript
         from app.repository import check_transcript_exists
         with db_connection(pg_settings) as connection:
             if check_transcript_exists(connection, existing["id"]):
+                set_status(f"--- Файл {file_id} уже проиндексирован.")
                 return {"video_id": int(existing["id"]), "status": "already_indexed"}
 
     # Paths
@@ -84,21 +92,22 @@ def ingest_drive_file(
     
     # 1. Download
     if not video_path.exists():
-        logger.info(f"Downloading video to {video_path}...")
+        set_status(f"[2/6] Скачивание из Google Drive...")
         drive.download_file(file_id, video_path, progress_callback=download_progress_callback)
     else:
-        logger.info("Video already exists locally, skipping download.")
+        set_status("[2/6] Видео уже есть локально.")
     
     # 2. Extract Audio
     if not audio_path.exists():
-        logger.info("Extracting audio track...")
+        set_status("[3/6] Извлечение аудио (FFmpeg)...")
         extract_audio(video_path, audio_path)
+    else:
+        set_status("[3/6] Аудио-файл уже существует.")
     
     # 3. Transcribe
-    logger.info(f"Starting transcription via Deepgram (diarize={diarize})...")
+    set_status(f"[4/6] Транскрибация (Deepgram)...")
     engine = DeepgramEngine(dg_settings)
     
-    # Storage paths
     raw_filename = f"{engine_id.replace(':', '_')}_{int(time.time())}.json"
     raw_path = app_settings.raw_transcripts_dir / file_id / raw_filename
     norm_filename = f"{file_id}_{engine_id.replace(':', '_')}.json"
@@ -108,19 +117,20 @@ def ingest_drive_file(
     norm_path.parent.mkdir(parents=True, exist_ok=True)
 
     if norm_path.exists():
+        set_status("--- Использование кэша транскрипции.")
         normalized_payload = json.loads(norm_path.read_text(encoding="utf-8"))
     else:
-        # Pass diarize flag to engine
         raw_payload = engine.transcribe_file(audio_path, diarize=diarize)
         normalized_payload = engine.normalize_response(raw_payload)
         
         raw_path.write_text(json.dumps(raw_payload, ensure_ascii=False, indent=2), encoding="utf-8")
         norm_path.write_text(json.dumps(normalized_payload, ensure_ascii=False, indent=2), encoding="utf-8")
 
-    # 4. Save to DB and Synchronize with Qdrant
+    # 4. Indexing
     from app.gemini import GeminiEmbeddingClient
     from app.config import get_gemini_settings
     
+    set_status("[5/6] Индексация в Qdrant...")
     embed_client = GeminiEmbeddingClient(get_gemini_settings())
     sparse_model = get_sparse_embedding_model()
     q_settings = get_qdrant_settings()
@@ -141,7 +151,7 @@ def ingest_drive_file(
             duration_sec=None,
             local_video_path=str(video_path),
             local_audio_path=str(audio_path),
-            processing_status="transcribed",
+            processing_status="transcribing", 
         )
         
         transcript_id = replace_transcript(
@@ -160,20 +170,16 @@ def ingest_drive_file(
             chunks=chunks,
         )
         
-        # After saving to Postgres, we get the real chunk IDs
         rows = connection.execute(
             "SELECT id, chunk_index, start_sec, end_sec, text, speaker_tags FROM chunks WHERE transcript_id = ? ORDER BY chunk_index ASC",
             (transcript_id,)
         ).fetchall()
 
-        # Batch generate embeddings and upsert to Qdrant
         if rows:
             texts = [row["text"] for row in rows]
             try:
-                # BATCH DENSE EMBEDDINGS (Up to 100 at once!)
+                set_status(f"--- Генерация эмбеддингов ({len(rows)} фрагментов)...")
                 dense_vectors = embed_client.embed_batch(texts)
-                
-                # BATCH SPARSE EMBEDDINGS
                 sparse_vectors_gen = list(sparse_model.embed(texts))
                 
                 points = []
@@ -186,10 +192,7 @@ def ingest_drive_file(
                     
                     points.append(models.PointStruct(
                         id=row["id"],
-                        vector={
-                            "default": dense_vectors[idx],
-                            "text-sparse": sparse_vec
-                        },
+                        vector={"default": dense_vectors[idx], "text-sparse": sparse_vec},
                         payload={
                             "chunk_id": row["id"],
                             "video_id": video_id,
@@ -198,7 +201,7 @@ def ingest_drive_file(
                             "start_sec": row["start_sec"],
                             "end_sec": row["end_sec"],
                             "text": row["text"],
-                            "speaker": row["speaker_tags"], # Unified field name
+                            "speaker": row["speaker_tags"], 
                             "title": title or file_meta.name,
                             "source_file_id": file_id,
                             "source_url": f"https://drive.google.com/file/d/{file_id}/view",
@@ -210,71 +213,49 @@ def ingest_drive_file(
                 if points:
                     qdrant.upsert(collection_name=q_settings.collection_name, points=points)
             except Exception as e:
-                logger.error(f"Failed to generate batch embeddings for video {video_id}: {e}")
-                raise e # Stop here, don't mark as ready
-        
-        update_video_status(
-            connection,
-            video_id=video_id,
-            processing_status="indexed_chunks_ready",
-        )
+                logger.error(f"Ошибка индексации: {e}")
+                raise e
 
-        # 6. Automatic Speaker Recognition (Voice Fingerprinting)
+        # 6. Automatic Speaker Recognition
         if diarize:
+            set_status("[6/6] Распознавание спикеров...")
             from app.voice import extract_speaker_embedding
             
-            # Group chunks by speaker to find representative samples
-            speaker_samples = {} # tag -> list of chunks
+            speaker_samples = {} 
             for row in rows:
                 if row["speaker_tags"]:
                     for tag in row["speaker_tags"].split(", "):
                         if tag not in speaker_samples: speaker_samples[tag] = []
                         speaker_samples[tag].append(row)
 
+            threshold = 0.96
             for tag, chunks_list in speaker_samples.items():
                 if not chunks_list: continue
-                
-                # Prefer chunks longer than 3 seconds for better quality
-                long_chunks = [c for c in chunks_list if (c["end_sec"] - c["start_sec"]) > 3]
-                best_chunk = max(long_chunks if long_chunks else chunks_list, key=lambda x: x["end_sec"] - x["start_sec"])
+                best_chunk = max(chunks_list, key=lambda x: x["end_sec"] - x["start_sec"])
+                start, end = best_chunk["start_sec"], best_chunk["end_sec"]
                 
                 try:
-                    embedding = extract_speaker_embedding(audio_path, best_chunk["start_sec"], best_chunk["end_sec"])
+                    embedding = extract_speaker_embedding(audio_path, start, end)
                     if embedding:
-                        matches = qdrant.query_points(
-                            collection_name="speaker_registry",
-                            query=embedding,
-                            limit=1,
-                            score_threshold=0.78 # Slightly more relaxed threshold
-                        ).points
-                        
-                        if matches:
-                            matched_name = matches[0].payload.get("name")
-                            logger.info(f"Auto-recognized speaker {tag} as '{matched_name}'")
-                            connection.execute(
-                                "INSERT INTO speakers (video_id, speaker_tag, name) VALUES (?, ?, ?) ON CONFLICT DO NOTHING",
-                                (video_id, tag, matched_name)
-                            )
-                except Exception as e:
-                    logger.warning(f"Failed to extract speaker embedding for tag {tag}: {e}")
+                        results = qdrant.query_points(collection_name="speaker_registry", query=embedding, limit=1).points
+                        if results and results[0].score >= threshold:
+                            connection.execute("INSERT INTO speakers (video_id, speaker_tag, name) VALUES (?, ?, ?) ON CONFLICT DO NOTHING", (video_id, tag, results[0].payload.get("name")))
+                except Exception: pass
 
-        # 5. Cleanup Local Files (Storage Lifecycle)
+        # Final Status Update
+        update_video_status(connection, video_id=video_id, processing_status="indexed_chunks_ready")
+
+        # Cleanup
         if not keep_files:
             try:
-                if video_path.exists():
-                    video_path.unlink()
-                    logger.info(f"Deleted local video: {video_path}")
-                connection.execute(
-                    "UPDATE videos SET local_video_path = NULL WHERE id = ?",
-                    (video_id,)
-                )
-            except Exception as e:
-                logger.warning(f"Failed to cleanup video: {e}")
+                if video_path.exists(): video_path.unlink()
+                connection.execute("UPDATE videos SET local_video_path = NULL WHERE id = ?", (video_id,))
+            except Exception: pass
 
+    set_status(f"=== ГОТОВО: {file_meta.name} ===")
     return {"video_id": video_id, "chunks_count": len(chunks)}
 
 if __name__ == "__main__":
-    # For standalone testing
     parser = argparse.ArgumentParser()
     parser.add_argument("file_id")
     parser.add_argument("--diarize", action="store_true")
