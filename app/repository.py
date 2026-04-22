@@ -3,10 +3,10 @@ from __future__ import annotations
 import json
 from pathlib import Path
 from typing import Any
-import psycopg
+import sqlite3
 
 def upsert_video(
-    connection: psycopg.Connection,
+    connection: sqlite3.Connection,
     *,
     source_type: str,
     source_file_id: str | None,
@@ -20,13 +20,13 @@ def upsert_video(
     processing_status: str,
 ) -> int:
     source_id = source_file_id or ""
-    row = connection.execute(
+    cursor = connection.execute(
         """
         INSERT INTO videos (
             source_type, source_file_id, title, source_url, 
             mime_type, size_bytes, duration_sec, 
             local_video_path, local_audio_path, processing_status
-        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT (source_type, source_file_id) DO UPDATE SET
             title = EXCLUDED.title,
             source_url = EXCLUDED.source_url,
@@ -42,82 +42,77 @@ def upsert_video(
         (source_type, source_id, title, source_url, 
          mime_type, size_bytes, duration_sec, 
          local_video_path, local_audio_path, processing_status)
-    ).fetchone()
-    
+    )
+    row = cursor.fetchone()
     return int(row["id"])
 
 def replace_transcript(
-    connection: psycopg.Connection,
+    connection: sqlite3.Connection,
     *,
     video_id: int,
-    engine: str,
     language: str,
-    transcript_text: str,
     confidence: float | None,
     raw_json_path: Path,
     normalized_json_path: Path,
-    is_primary: bool = False,
 ) -> int:
-    # If this is a primary transcript, unset any other primary for this video
-    if is_primary:
-        connection.execute(
-            "UPDATE transcripts SET is_primary = FALSE WHERE video_id = %s",
-            (video_id,)
-        )
+    # Always delete the previous transcript for this video
+    connection.execute("DELETE FROM transcripts WHERE video_id = ?", (video_id,))
     
-    # Only delete the previous transcript for the SAME engine for this video
-    connection.execute(
-        "DELETE FROM transcripts WHERE video_id = %s AND engine = %s",
-        (video_id, engine)
-    )
-    
-    row = connection.execute(
+    cursor = connection.execute(
         """
         INSERT INTO transcripts (
-            video_id, engine, language, transcript_text, 
-            confidence, raw_json_path, normalized_json_path, is_primary
-        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+            video_id, language, 
+            confidence, raw_json_path, normalized_json_path
+        ) VALUES (?, ?, ?, ?, ?)
         RETURNING id
         """,
-        (video_id, engine, language, transcript_text, 
-         confidence, str(raw_json_path), str(normalized_json_path), is_primary)
-    ).fetchone()
+        (video_id, language, confidence, str(raw_json_path), str(normalized_json_path))
+    )
+    row = cursor.fetchone()
     return int(row["id"])
 
+def check_transcript_exists(
+    connection: sqlite3.Connection,
+    video_id: int,
+) -> bool:
+    row = connection.execute(
+        "SELECT 1 FROM transcripts WHERE video_id = ?",
+        (video_id,)
+    ).fetchone()
+    return row is not None
+
 def replace_chunks(
-    connection: psycopg.Connection,
+    connection: sqlite3.Connection,
     *,
     video_id: int,
     transcript_id: int,
     chunks: list[dict[str, Any]],
 ) -> None:
-    connection.execute("DELETE FROM chunks WHERE transcript_id = %s", (transcript_id,))
+    connection.execute("DELETE FROM chunks WHERE transcript_id = ?", (transcript_id,))
     
-    # We use executemany for efficiency
-    with connection.cursor() as cur:
-        cur.executemany(
-            """
-            INSERT INTO chunks (
-                video_id, transcript_id, chunk_index, 
-                start_sec, end_sec, text, embedding
-            ) VALUES (%s, %s, %s, %s, %s, %s, %s)
-            """,
-            [
-                (
-                    video_id,
-                    transcript_id,
-                    int(c["chunk_index"]),
-                    float(c["start_sec"]),
-                    float(c["end_sec"]),
-                    c["text"],
-                    c.get("embedding") # This can be a list/ndarray or None
-                )
-                for c in chunks
-            ]
-        )
+    connection.executemany(
+        """
+        INSERT INTO chunks (
+            video_id, transcript_id, chunk_index, 
+            start_sec, end_sec, text, speaker_tags
+        ) VALUES (?, ?, ?, ?, ?, ?, ?)
+        """,
+        [
+            (
+                video_id,
+                transcript_id,
+                int(c["chunk_index"]),
+                float(c["start_sec"]),
+                float(c["end_sec"]),
+                c["text"],
+                c.get("speaker") 
+            )
+            for c in chunks
+        ]
+    )
 
 def update_video_status(
-    connection: psycopg.Connection,
+    connection: sqlite3.Connection,
     *,
     video_id: int,
     processing_status: str,
@@ -126,32 +121,22 @@ def update_video_status(
     connection.execute(
         """
         UPDATE videos
-        SET processing_status = %s,
-            local_audio_path = COALESCE(%s, local_audio_path),
+        SET processing_status = ?,
+            local_audio_path = COALESCE(?, local_audio_path),
             updated_at = CURRENT_TIMESTAMP
-        WHERE id = %s
+        WHERE id = ?
         """,
         (processing_status, local_audio_path, video_id),
     )
 
 def get_video_by_source_file_id(
-    connection: psycopg.Connection,
+    connection: sqlite3.Connection,
     *,
     source_type: str,
     source_file_id: str,
 ) -> dict[str, Any] | None:
-    return connection.execute(
-        "SELECT * FROM videos WHERE source_type = %s AND source_file_id = %s",
+    row = connection.execute(
+        "SELECT * FROM videos WHERE source_type = ? AND source_file_id = ?",
         (source_type, source_file_id)
     ).fetchone()
-
-def check_transcript_exists(
-    connection: psycopg.Connection,
-    video_id: int,
-    engine: str,
-) -> bool:
-    row = connection.execute(
-        "SELECT 1 FROM transcripts WHERE video_id = %s AND engine = %s",
-        (video_id, engine)
-    ).fetchone()
-    return row is not None
+    return dict(row) if row else None

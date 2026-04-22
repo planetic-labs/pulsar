@@ -18,6 +18,20 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Установка uv для быстрого управления пакетами
 RUN pip install --no-cache-dir uv
 
+# Добавляем аргументы для UID и GID (по умолчанию 1000)
+ARG USER_ID=1000
+ARG GROUP_ID=1000
+
+# Создаем группу и пользователя, если они не существуют
+RUN groupadd -g ${GROUP_ID} appuser || true && \
+    useradd -l -u ${USER_ID} -g ${GROUP_ID} -m appuser || true
+
+# Создаем папки для монтирования заранее, чтобы у пользователя были права
+RUN mkdir -p /srv/search-ui/downloads /srv/search-ui/data /srv/search-ui/storage /srv/search-ui/models_cache && \
+    chown -R ${USER_ID}:${GROUP_ID} /srv/search-ui
+
+USER appuser
+
 COPY pyproject.toml README.md ./
 # Синхронизация зависимостей
 RUN uv sync

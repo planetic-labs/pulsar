@@ -19,13 +19,12 @@ def _load_dotenv_file(dotenv_path: Path) -> None:
 _load_dotenv_file(Path(__file__).resolve().parents[1] / ".env")
 
 @dataclass(frozen=True)
-class PostgresSettings:
-    url: str
+class SQLiteSettings:
+    db_path: Path
 
     @property
-    def host(self) -> str:
-        # Quick hack to get host for display
-        return self.url.split("@")[1].split(":")[0]
+    def url(self) -> str:
+        return str(self.db_path)
 
 @dataclass(frozen=True)
 class GoogleDriveSettings:
@@ -33,12 +32,6 @@ class GoogleDriveSettings:
     token_path: Path
     download_dir: Path
     scopes: tuple[str, ...]
-
-@dataclass(frozen=True)
-class TranscriptionSettings:
-    engine: str
-    whisper_model: str
-    whisper_device: str
 
 @dataclass(frozen=True)
 class DeepgramSettings:
@@ -54,14 +47,22 @@ class DeepgramSettings:
     base_url: str
 
 @dataclass(frozen=True)
-class GoogleAISettings:
-    api_key: str
-    embedding_model: str = "models/gemini-embedding-2-preview"
+class GeminiSettings:
+    api_keys: list[str]
+    embedding_model: str = "models/text-embedding-004"
+    embedding_dimension: int = 768
+    embedding_rpm_limit: int = 100
+    max_retries: int = 5
 
 @dataclass(frozen=True)
 class LocalAISettings:
     embedding_model: str
     embedding_dimension: int
+
+@dataclass(frozen=True)
+class QdrantSettings:
+    url: str
+    collection_name: str = "chunks"
 
 @dataclass(frozen=True)
 class AppSettings:
@@ -87,19 +88,22 @@ def _env_bool(name: str, default: bool) -> bool:
         return default
     return raw.strip().lower() in {"1", "true", "yes", "on"}
 
-def get_postgres_settings() -> PostgresSettings:
-    return PostgresSettings(url=os.getenv("POSTGRES_URL", "postgresql://devman:password@db:5432/search_ui"))
+def get_sqlite_settings() -> SQLiteSettings:
+    default_db = Path("/srv/search-ui/data/search_ui.db")
+    return SQLiteSettings(db_path=Path(os.getenv("SQLITE_DB_PATH", str(default_db))))
 
-def get_transcription_settings() -> TranscriptionSettings:
-    return TranscriptionSettings(
-        engine=os.getenv("TRANSCRIPTION_ENGINE", "deepgram").lower(),
-        whisper_model=os.getenv("WHISPER_MODEL", "large-v3"),
-        whisper_device=os.getenv("WHISPER_DEVICE", "cpu")
+def get_gemini_settings() -> GeminiSettings:
+    raw_keys = os.getenv("GOOGLE_AI_API_KEY", "")
+    api_keys = [k.strip() for k in raw_keys.split(",") if k.strip()]
+    return GeminiSettings(
+        api_keys=api_keys,
+        embedding_model=os.getenv("GOOGLE_AI_MODEL", "text-embedding-004"),
+        embedding_rpm_limit=int(os.getenv("GOOGLE_AI_RPM", "100"))
     )
 
-def get_google_ai_settings() -> GoogleAISettings:
-    return GoogleAISettings(
-        api_key=os.getenv("GOOGLE_AI_API_KEY", "")
+def get_qdrant_settings() -> QdrantSettings:
+    return QdrantSettings(
+        url=os.getenv("QDRANT_URL", "http://qdrant:6333")
     )
 
 def get_local_ai_settings() -> LocalAISettings:
@@ -126,7 +130,7 @@ def get_deepgram_settings() -> DeepgramSettings:
         punctuate=_env_bool("DEEPGRAM_PUNCTUATE", True),
         utterances=_env_bool("DEEPGRAM_UTTERANCES", True),
         paragraphs=_env_bool("DEEPGRAM_PARAGRAPHS", True),
-        diarize=_env_bool("DEEPGRAM_DIARIZE", False),
+        diarize=_env_bool("DEEPGRAM_DIARIZE", True),
         filler_words=_env_bool("DEEPGRAM_FILLER_WORDS", False),
         base_url=os.getenv("DEEPGRAM_BASE_URL", "https://api.deepgram.com/v1/listen")
     )

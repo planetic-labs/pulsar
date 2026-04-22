@@ -2,15 +2,17 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import json
+import logging
 from pathlib import Path
 import secrets
 import time
 from urllib.error import HTTPError
-from urllib.parse import urlencode
+from urllib.parse import urlencode, quote
 from urllib.request import Request, urlopen
 
 from app.config import GoogleDriveSettings
 
+logger = logging.getLogger(__name__)
 
 @dataclass(frozen=True)
 class DriveFile:
@@ -71,8 +73,12 @@ class GoogleDriveClient:
             headers={"Content-Type": "application/x-www-form-urlencoded"},
             method="POST",
         )
-        with urlopen(request) as response:
-            return json.loads(response.read().decode("utf-8"))
+        try:
+            with urlopen(request) as response:
+                return json.loads(response.read().decode("utf-8"))
+        except HTTPError as e:
+            logger.error(f"HTTP Error during POST to {url}: {e.code} {e.reason}\nBody: {e.read().decode('utf-8')}")
+            raise
 
     def _refresh_access_token(self, refresh_token: str) -> dict:
         config = self._client_config()
@@ -212,7 +218,12 @@ class GoogleDriveClient:
         if order_by:
             params["orderBy"] = order_by
         query = urlencode(params)
-        return self._authorized_get_json(f"https://www.googleapis.com/drive/v3/files?{query}")
+        url = f"https://www.googleapis.com/drive/v3/files?{query}"
+        try:
+            return self._authorized_get_json(url)
+        except Exception as e:
+            logger.error(f"Google Drive API error at {url}: {e}")
+            raise
 
     def _to_drive_files(self, files: list[dict]) -> list[DriveFile]:
         return [
@@ -278,6 +289,52 @@ class GoogleDriveClient:
                 break
         return collected
 
+    def list_folder_contents(self, folder_id: str) -> list[dict]:
+        """Lists folders and videos. Minimal filtering to guarantee results."""
+        items = []
+        seen_ids = set()
+
+        if folder_id == "root":
+            # 1. Try to get Shared Drives separately
+            try:
+                sd_url = "https://www.googleapis.com/drive/v3/drives?pageSize=100"
+                drives_res = self._authorized_get_json(sd_url)
+                for d in drives_res.get("drives", []):
+                    items.append({
+                        "id": d["id"],
+                        "name": f"D: {d['name']}",
+                        "mime_type": "application/vnd.google-apps.folder",
+                        "is_folder": True
+                    })
+                    seen_ids.add(d["id"])
+            except Exception: pass
+
+            # 2. Get EVERYTHING (Folders and Videos) that is NOT trashed
+            # We don't use 'in parents' here to catch shared items and root items at once
+            query_filter = "trashed = false and (mimeType = 'application/vnd.google-apps.folder' or mimeType contains 'video/')"
+        else:
+            # Inside a folder, we MUST filter by parents
+            query_filter = f"'{folder_id}' in parents and trashed = false and (mimeType = 'application/vnd.google-apps.folder' or mimeType contains 'video/')"
+            
+        response = self._list_files_page(
+            page_size=1000,
+            query_filter=query_filter,
+            order_by="name"
+        )
+        
+        for f in response.get("files", []):
+            if f["id"] not in seen_ids:
+                items.append({
+                    "id": f["id"],
+                    "name": f["name"],
+                    "mime_type": f["mimeType"],
+                    "is_folder": f["mimeType"] == "application/vnd.google-apps.folder"
+                })
+                seen_ids.add(f["id"])
+
+        # Sort folders first, then by name
+        return sorted(items, key=lambda x: (not x["is_folder"], x["name"].lower()))
+
     def download_file(
         self,
         file_id: str,
@@ -287,7 +344,6 @@ class GoogleDriveClient:
         destination.parent.mkdir(parents=True, exist_ok=True)
         query = urlencode({"supportsAllDrives": "true", "fields": "id,size"})
         
-        # Get file size first for progress bar
         meta = self.get_file(file_id)
         total_size = int(meta.size) if meta.size else None
 

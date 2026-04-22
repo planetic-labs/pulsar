@@ -7,7 +7,7 @@ ROOT_DIR = Path(__file__).resolve().parents[1]
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
-from app.config import get_postgres_settings, get_google_drive_settings
+from app.config import get_sqlite_settings, get_google_drive_settings
 from app.db import db_connection
 from app.google_drive import GoogleDriveClient
 
@@ -15,7 +15,7 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 logger = logging.getLogger(__name__)
 
 def sync_titles():
-    pg_settings = get_postgres_settings()
+    pg_settings = get_sqlite_settings()
     drive_settings = get_google_drive_settings()
     drive_client = GoogleDriveClient(drive_settings)
 

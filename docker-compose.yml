@@ -1,38 +1,37 @@
 services:
-  db:
-    image: pgvector/pgvector:pg16
+  qdrant:
+    image: qdrant/qdrant:latest
+    restart: always
     ports:
-      # Разрешаем подключения только с локального хоста, чтобы боты из интернета не спамили в логи
-      - "127.0.0.1:5432:5432"
+      - "127.0.0.1:6333:6333"
+      - "127.0.0.1:6334:6334"
     networks:
       - homelab-net
-    environment:
-      POSTGRES_DB: search_ui
-      POSTGRES_USER: devman
-      POSTGRES_PASSWORD: password
     volumes:
-      - pgdata:/var/lib/postgresql/data
-    healthcheck:
-      # Явно указываем базу данных -d search_ui
-      test: ["CMD-SHELL", "pg_isready -U devman -d search_ui"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
+      - qdrant_data:/qdrant/storage
 
   app:
-    build: .
+    build:
+      context: .
+      args:
+        - USER_ID=${UID:-1000}
+        - GROUP_ID=${GID:-1000}
+    user: "${UID:-1000}:${GID:-1000}"
+    restart: always
     command: ["uv", "run", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
     ports:
-      - "8000:8000"
+      - "127.0.0.1:8000:8000"
     networks:
       - homelab-net
     environment:
       - HF_HOME=/srv/search-ui/models_cache
       - HF_TOKEN=${HF_TOKEN:-}
+      - QDRANT_URL=http://qdrant:6333
+      - SQLITE_DB_PATH=/srv/search-ui/data/search_ui.db
     env_file: .env
     depends_on:
-      db:
-        condition: service_healthy
+      qdrant:
+        condition: service_started
     volumes:
       - .:/srv/search-ui
       - ./downloads:/srv/search-ui/downloads
@@ -41,7 +40,7 @@ services:
       - ./models_cache:/srv/search-ui/models_cache
 
 volumes:
-  pgdata:
+  qdrant_data:
 
 networks:
   homelab-net:
