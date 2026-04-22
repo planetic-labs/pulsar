@@ -384,27 +384,50 @@
             const response = await fetch(`/api/videos/${videoId}/speakers`);
             const speakers = await response.json();
             
-            let html = '<div class="space-y-6">';
-            speakers.forEach(s => {
-                html += `
-                    <div class="group relative bg-[#FAF9F6] p-4 rounded-2xl border border-[#E5E1D8] transition-all hover:bg-white hover:shadow-md">
-                        <div class="flex justify-between items-center mb-2 px-1">
-                            <label class="text-[9px] font-black text-warm-400 uppercase tracking-widest">ID Спикера: ${s.tag}</label>
-                            <span class="text-[8px] text-brand-500 font-bold opacity-0 group-hover:opacity-100 transition-opacity uppercase tracking-tight">Автосохранение</span>
-                        </div>
-                        <div class="relative">
-                            <input type="text" value="${s.name}" 
-                                   onchange="saveSpeaker('${videoId}', '${s.tag}', this.value, this)"
-                                   class="w-full bg-white border border-[#E5E1D8] rounded-xl py-3 px-4 text-sm focus:outline-none focus:border-brand-500 transition-all"
-                                   placeholder="Имя человека...">
-                            <div class="absolute right-3 top-3.5 text-warm-300">
-                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"></path></svg>
+            let html = `
+                <div class="mb-6 p-4 bg-brand-50 border border-brand-100 rounded-2xl flex items-start gap-3">
+                    <div class="w-8 h-8 bg-brand-500 text-white rounded-lg flex items-center justify-center shrink-0 shadow-sm">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z"></path></svg>
+                    </div>
+                    <div>
+                        <h4 class="text-xs font-bold text-brand-700 mb-1 uppercase tracking-tight">Голосовые отпечатки</h4>
+                        <p class="text-[10px] text-brand-600 leading-relaxed italic">При сохранении имени система запоминает уникальный тембр голоса. В будущем этот человек будет распознаваться автоматически во всех новых видео.</p>
+                    </div>
+                </div>
+                <div class="space-y-4">
+            `;
+            
+            if (speakers.length === 0) {
+                html = '<div class="text-center py-10 text-warm-400 italic text-sm">В этом видео не обнаружено разных голосов.</div>';
+            } else {
+                speakers.forEach(s => {
+                    html += `
+                        <div class="group relative bg-[#FAF9F6] p-5 rounded-[1.5rem] border border-[#E5E1D8] transition-all hover:bg-white hover:shadow-xl hover:-translate-y-0.5">
+                            <div class="flex justify-between items-center mb-3">
+                                <div class="flex items-center gap-2">
+                                    <span class="w-6 h-6 bg-warm-200 text-warm-600 rounded-full flex items-center justify-center text-[10px] font-black tracking-tighter">${s.tag}</span>
+                                    <label class="text-[9px] font-black text-warm-400 uppercase tracking-widest">ID Группы</label>
+                                </div>
+                                <span class="text-[8px] text-emerald-500 font-bold opacity-0 group-hover:opacity-100 transition-opacity uppercase tracking-widest flex items-center gap-1">
+                                    <svg class="w-2.5 h-2.5" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"></path></svg>
+                                    Запомнить
+                                </span>
+                            </div>
+                            <div class="relative">
+                                <input type="text" value="${s.name}" 
+                                       onchange="saveSpeaker('${videoId}', '${s.tag}', this.value, this)"
+                                       class="w-full bg-white border border-[#E5E1D8] rounded-xl py-3.5 px-4 text-sm font-bold text-[#3A3630] focus:outline-none focus:border-brand-500 focus:ring-4 focus:ring-brand-500/5 transition-all shadow-sm"
+                                       placeholder="Введите ФИО или роль...">
+                                <div class="absolute right-4 top-4 text-warm-200">
+                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"></path></svg>
+                                </div>
                             </div>
                         </div>
-                    </div>
-                `;
-            });
-            speakerList.innerHTML = html + '</div>' || '<div class="text-center py-10 text-warm-400 italic text-sm">В этом видео не обнаружено разных голосов.</div>';
+                    `;
+                });
+                html += '</div>';
+            }
+            speakerList.innerHTML = html;
         } catch (e) {
             speakerList.innerHTML = '<div class="text-rose-400 py-10 text-center font-bold">Ошибка связи с сервером.</div>';
         }

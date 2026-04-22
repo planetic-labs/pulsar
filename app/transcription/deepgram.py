@@ -1,41 +1,70 @@
 from __future__ import annotations
 import json
+import logging
+import time
 from pathlib import Path
 from typing import Any
-from urllib.error import HTTPError
-from urllib.request import Request, urlopen
 
+import httpx
 from app.config import DeepgramSettings
 from app.transcription.base import TranscriptionEngine
+
+logger = logging.getLogger(__name__)
 
 class DeepgramEngine(TranscriptionEngine):
     def __init__(self, settings: DeepgramSettings) -> None:
         self.settings = settings
 
     def transcribe_file(self, audio_path: Path, **overrides) -> dict[str, Any]:
-        params = [
-            f"model={overrides.get('model', self.settings.model)}",
-            f"language={overrides.get('language', self.settings.language)}",
-            f"smart_format={str(overrides.get('smart_format', self.settings.smart_format)).lower()}",
-            f"punctuate={str(overrides.get('punctuate', self.settings.punctuate)).lower()}",
-            f"utterances={str(overrides.get('utterances', self.settings.utterances)).lower()}",
-            f"paragraphs={str(overrides.get('paragraphs', self.settings.paragraphs)).lower()}",
-            f"diarize={str(overrides.get('diarize', self.settings.diarize)).lower()}",
-            f"filler_words={str(overrides.get('filler_words', self.settings.filler_words)).lower()}",
-        ]
-        url = f"{self.settings.base_url}?{'&'.join(params)}"
+        params = {
+            "model": overrides.get("model", self.settings.model),
+            "language": overrides.get("language", self.settings.language),
+            "smart_format": str(overrides.get("smart_format", self.settings.smart_format)).lower(),
+            "punctuate": str(overrides.get("punctuate", self.settings.punctuate)).lower(),
+            "utterances": str(overrides.get("utterances", self.settings.utterances)).lower(),
+            "paragraphs": str(overrides.get("paragraphs", self.settings.paragraphs)).lower(),
+            "diarize": str(overrides.get("diarize", self.settings.diarize)).lower(),
+            "filler_words": str(overrides.get("filler_words", self.settings.filler_words)).lower(),
+        }
         
-        request = Request(
-            url,
-            data=audio_path.read_bytes(),
-            headers={
-                "Authorization": f"Token {self.settings.api_key}",
-                "Content-Type": "audio/wav",
-            },
-            method="POST",
-        )
-        with urlopen(request, timeout=300) as response:
-            return json.loads(response.read().decode("utf-8"))
+        file_size = audio_path.stat().st_size
+        logger.info(f"Starting Deepgram transcription for {audio_path.name} ({file_size / 1024 / 1024:.2f} MB)")
+        
+        headers = {
+            "Authorization": f"Token {self.settings.api_key}",
+            "Content-Type": "audio/wav",
+        }
+
+        start_time = time.time()
+        try:
+            # Use httpx with streaming to handle large files memory-efficiently
+            with open(audio_path, "rb") as f:
+                with httpx.Client(timeout=httpx.Timeout(600.0, connect=60.0)) as client:
+                    response = client.post(
+                        self.settings.base_url,
+                        params=params,
+                        headers=headers,
+                        content=f, # Streaming content
+                    )
+                    
+            duration = time.time() - start_time
+            logger.info(f"Deepgram request finished in {duration:.2f}s with status {response.status_code}")
+            
+            if response.status_code != 200:
+                logger.error(f"Deepgram Error ({response.status_code}): {response.text}")
+                response.raise_for_status()
+                
+            return response.json()
+            
+        except httpx.TimeoutException:
+            logger.error(f"Deepgram request timed out after {time.time() - start_time:.2f}s")
+            raise RuntimeError("Deepgram transcription timed out")
+        except httpx.HTTPStatusError as e:
+            logger.error(f"Deepgram HTTP Error: {e.response.text}")
+            raise RuntimeError(f"Deepgram API returned error {e.response.status_code}") from e
+        except Exception as e:
+            logger.error(f"Unexpected error during Deepgram transcription: {str(e)}")
+            raise
 
     def normalize_response(self, raw_payload: dict[str, Any]) -> dict[str, Any]:
         results = raw_payload.get("results", {})

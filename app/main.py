@@ -63,16 +63,36 @@ async def on_startup() -> None:
     
     logger.info("Application initialized with background worker.")
 
-@app.websocket("/ws/logs")
+@app.websocket("/api/v1/logs/stream")
 async def websocket_logs(websocket: WebSocket):
     await websocket.accept()
+    logger.info(f"WebSocket client connected from {websocket.client}")
     try:
         while True:
             # Get log from queue
             log_msg = await logs_queue.get()
             await websocket.send_text(log_msg)
     except WebSocketDisconnect:
+        logger.info("WebSocket client disconnected")
+    except Exception as e:
+        logger.error(f"WebSocket error: {e}")
+
+@app.get("/api/v1/logs/poll")
+async def api_poll_logs():
+    """Fallback endpoint for environments where WebSockets are blocked."""
+    msgs = []
+    # Collect all currently available messages without blocking
+    try:
+        while not logs_queue.empty():
+            msgs.append(logs_queue.get_nowait())
+    except Exception:
         pass
+    return {"logs": msgs}
+
+@app.get("/api/v1/logs/stream")
+async def websocket_logs_get():
+    logger.info("HTTP GET request to log stream endpoint")
+    return {"status": "log_stream_active", "transport": "websocket_required", "fallback_available": "/api/v1/logs/poll"}
 
 @app.post("/api/tasks/ingest")
 async def api_add_ingest_task(
@@ -180,6 +200,10 @@ def api_list_speakers(
                 for t in r["speaker_tags"].split(", "):
                     tags.add(t)
         
+        # If no tags detected (old video or single speaker), provide a default tag 'primary'
+        if not tags:
+            tags.add("primary")
+        
         # Get existing names from speakers table
         names_rows = conn.execute(
             "SELECT speaker_tag, name FROM speakers WHERE video_id = ?",
@@ -187,7 +211,7 @@ def api_list_speakers(
         ).fetchall()
         name_map = {r["speaker_tag"]: r["name"] for r in names_rows}
         
-        return [{"tag": t, "name": name_map.get(t, f"Speaker {t}")} for t in sorted(list(tags))]
+        return [{"tag": t, "name": name_map.get(t, f"Speaker {t}" if t != "primary" else "Основной голос")} for t in sorted(list(tags))]
 
 @app.post("/api/videos/{video_id}/speakers")
 async def api_save_speaker(
@@ -215,11 +239,18 @@ async def api_save_speaker(
         )
         
         # 2. Global Enrollment (Voice Fingerprinting)
-        # Find a chunk for this speaker to extract audio
-        chunk = conn.execute(
-            "SELECT start_sec, end_sec FROM chunks WHERE video_id = ? AND speaker_tags LIKE ? ORDER BY (end_sec - start_sec) DESC LIMIT 1",
-            (video_id, f"%{tag}%")
-        ).fetchone()
+        # Find a chunk for this speaker to extract audio. 
+        # If tag is 'primary' and no tags exist, take the best available chunk.
+        if tag == "primary":
+            chunk = conn.execute(
+                "SELECT start_sec, end_sec FROM chunks WHERE video_id = ? ORDER BY (end_sec - start_sec) DESC LIMIT 1",
+                (video_id,)
+            ).fetchone()
+        else:
+            chunk = conn.execute(
+                "SELECT start_sec, end_sec FROM chunks WHERE video_id = ? AND speaker_tags LIKE ? ORDER BY (end_sec - start_sec) DESC LIMIT 1",
+                (video_id, f"%{tag}%")
+            ).fetchone()
         
         video = conn.execute("SELECT local_audio_path FROM videos WHERE id = ?", (video_id,)).fetchone()
         
@@ -229,7 +260,11 @@ async def api_save_speaker(
             from qdrant_client import models
             import uuid
             
-            emb = extract_speaker_embedding(Path(video["local_audio_path"]), chunk["start_sec"], chunk["end_sec"])
+            # Limit duration to 10s to avoid OOM
+            start = chunk["start_sec"]
+            end = min(chunk["end_sec"], start + 10.0)
+            
+            emb = extract_speaker_embedding(Path(video["local_audio_path"]), start, end)
             if emb:
                 qdrant = get_qdrant_client()
                 qdrant.upsert(

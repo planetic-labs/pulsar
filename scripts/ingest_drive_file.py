@@ -229,13 +229,14 @@ def ingest_drive_file(
                 if row["speaker_tags"]:
                     for tag in row["speaker_tags"].split(", "):
                         if tag not in speaker_samples: speaker_samples[tag] = []
-                        # Keep chunks longer than 3 seconds for better quality
-                        if (row["end_sec"] - row["start_sec"]) > 3:
-                            speaker_samples[tag].append(row)
+                        speaker_samples[tag].append(row)
 
             for tag, chunks_list in speaker_samples.items():
                 if not chunks_list: continue
-                best_chunk = max(chunks_list, key=lambda x: x["end_sec"] - x["start_sec"])
+                
+                # Prefer chunks longer than 3 seconds for better quality
+                long_chunks = [c for c in chunks_list if (c["end_sec"] - c["start_sec"]) > 3]
+                best_chunk = max(long_chunks if long_chunks else chunks_list, key=lambda x: x["end_sec"] - x["start_sec"])
                 
                 try:
                     embedding = extract_speaker_embedding(audio_path, best_chunk["start_sec"], best_chunk["end_sec"])
@@ -244,7 +245,7 @@ def ingest_drive_file(
                             collection_name="speaker_registry",
                             query=embedding,
                             limit=1,
-                            score_threshold=0.82
+                            score_threshold=0.78 # Slightly more relaxed threshold
                         ).points
                         
                         if matches:
