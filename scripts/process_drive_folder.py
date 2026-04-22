@@ -14,7 +14,6 @@ from app.config import get_app_settings
 from app.db import db_connection, init_db
 from app.file_dedupe import dedupe_gallery_variants
 from app.google_drive import GoogleDriveClient
-from app.search import build_semantic_index, rebuild_fts
 from scripts.ingest_drive_file import ingest_drive_file
 
 
@@ -68,7 +67,7 @@ def main() -> None:
     for index, file_meta in enumerate(files, start=1):
         print(f"Processing [{index}/{len(files)}]: {file_meta.name}")
         try:
-            ingest_drive_file(file_meta.file_id, rebuild_search_index=False)
+            ingest_drive_file(file_meta.file_id)
         except Exception as exc:  # noqa: BLE001
             print(f"FAILED [{index}/{len(files)}]: {file_meta.name}: {exc}")
             if not args.continue_on_error:
@@ -76,16 +75,7 @@ def main() -> None:
         else:
             print(f"DONE [{index}/{len(files)}]: {file_meta.name}")
 
-    app_settings = get_app_settings()
-    with db_connection(app_settings) as connection:
-        init_db(connection)
-        rebuild_fts(connection)
-        try:
-            build_semantic_index(connection, app_settings.semantic_index_path)
-        except Exception as exc:  # noqa: BLE001
-            print(f"Semantic index rebuild skipped due to error: {exc}")
-        else:
-            print("Rebuilt shared search index after batch processing.")
+    print("Batch processing finished.")
 
 
 if __name__ == "__main__":

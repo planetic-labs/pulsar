@@ -21,7 +21,9 @@ class SearchResultItem(BaseModel):
     semantic_score: float
     combined_score: float
     match_type: str
+    raw_text: str = ""
     engine: str = "unknown"
+    speaker: str | None = None
     alternative_texts: dict[str, str] | None = None
 
 
@@ -41,4 +43,5 @@ class VideoStatusItem(BaseModel):
     transcript_count: int
     chunk_count: int
     updated_at: datetime
-
+    created_at: datetime | None = None
+    primary_engine: str | None = None

@@ -6,13 +6,18 @@
 <div class="flex-1 flex flex-col min-h-0">
     <!-- Top Bar -->
     <header class="h-16 lg:h-20 flex items-center px-4 lg:px-10 shrink-0 bg-[#FAF9F6] border-b border-[#E5E1D8]">
-        <form action="/" method="get" class="flex-1 max-w-3xl relative group">
+        <form action="/" method="get" id="search-form" class="flex-1 max-w-3xl relative group">
             <div class="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none text-warm-400">
                 <svg class="w-5 h-5 transition-colors group-focus-within:text-brand-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
             </div>
-            <input type="text" name="q" value="{{ query }}" placeholder="Поиск по фрагментам..." 
-                   class="w-full bg-white border border-[#E5E1D8] rounded-2xl py-2.5 lg:py-3 pl-12 pr-12 text-sm text-[#4A453E] placeholder-warm-300 focus:outline-none focus:border-brand-400 transition-all shadow-sm">
+            <input type="text" name="q" id="search-input" value="{{ query }}" placeholder="Поиск по фрагментам..." 
+                   class="w-full bg-white border border-[#E5E1D8] rounded-2xl py-2.5 lg:py-3 pl-12 pr-16 text-sm text-[#4A453E] placeholder-warm-300 focus:outline-none focus:border-brand-400 transition-all shadow-sm">
             
+            <!-- Clear Button -->
+            <button type="button" id="clear-search" class="{% if not query %}hidden{% endif %} absolute inset-y-0 right-12 pr-2 flex items-center text-warm-300 hover:text-rose-500 transition-colors">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M6 18L18 6M6 6l12 12"></path></svg>
+            </button>
+
             <!-- Help Trigger -->
             <button type="button" onclick="toggleSearchHelp()" class="absolute inset-y-0 right-0 pr-4 flex items-center text-warm-300 hover:text-brand-500 transition-colors">
                 <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
@@ -26,14 +31,22 @@
                         <div class="space-y-3">
                             <span class="inline-block font-mono font-bold text-brand-600 bg-brand-50 px-2 py-0.5 rounded whitespace-nowrap">слово1 слово2</span>
                             <p class="text-xs text-[#5C574F] leading-relaxed">
-                                Система найдет фрагменты, содержащие все указанные слова, независимо от того, в каком порядке они произносятся в видео.
+                                Система найдет фрагменты, содержащие все указанные слова.
                             </p>
+                        </div>
+                        <div class="mt-4 space-y-3">
+                            <h4 class="text-[10px] font-black text-warm-400 uppercase tracking-widest mb-2">Фильтры</h4>
+                            <div class="flex flex-wrap gap-2">
+                                <span class="font-mono text-[10px] bg-warm-100 px-1.5 py-0.5 rounded">s:Имя</span>
+                                <span class="font-mono text-[10px] bg-warm-100 px-1.5 py-0.5 rounded">v:ID</span>
+                            </div>
+                            <p class="text-[10px] text-warm-400 italic">Например: "привет s:Алексей"</p>
                         </div>
                     </div>
                     <div class="md:pl-10 md:border-l border-[#F2F0EB]">
                         <h4 class="text-[10px] font-black text-warm-400 uppercase tracking-widest mb-3">Поиск по смыслу</h4>
                         <p class="text-xs text-[#5C574F] leading-relaxed italic">
-                            Система анализирует контекст запроса и находит фрагменты, подходящие по смыслу, даже если в них нет точных слов, которые вы ввели.
+                            Система анализирует контекст запроса и находит фрагменты, подходящие по смыслу, даже если в них нет точных слов.
                         </p>
                     </div>
                 </div>
@@ -46,7 +59,7 @@
         <div class="flex-1 overflow-y-auto lg:pr-4 custom-scrollbar order-2 lg:order-1">
             {% if not query %}
                 <div class="h-full min-h-[300px] flex flex-col items-center justify-center text-warm-300 opacity-60">
-                    <div class="w-16 lg:w-20 h-16 lg:h-20 rounded-[1.5rem] lg:rounded-[2rem] bg-white border border-[#E5E1D8] flex items-center justify-center mb-6">
+                    <div class="w-16 lg:w-20 h-16 lg:h-20 rounded-[1.5rem] lg:rounded-[2rem] bg-white border border-[#E5E1D8] flex items-center justify-center mb-6 shadow-sm">
                         <svg class="w-8 lg:w-10 h-8 lg:h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
                     </div>
                     <h2 class="text-lg lg:text-xl font-bold text-warm-500 mb-2">Начните работу</h2>
@@ -54,18 +67,22 @@
                 </div>
             {% elif not results %}
                 <div class="h-full min-h-[200px] flex flex-col items-center justify-center text-warm-400 opacity-60">
+                    <div class="w-16 h-16 bg-warm-100 rounded-full flex items-center justify-center mb-4">
+                        <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.172 9.172a4 4 0 015.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                    </div>
                     <h2 class="text-lg font-bold mb-2">Совпадений не найдено</h2>
                     <p class="text-sm italic">Попробуйте более общие ключевые слова</p>
                 </div>
             {% else %}
                 <div class="space-y-4 lg:space-y-6 pb-6">
                     <div class="flex items-center justify-between mb-2">
-                        <span class="text-[10px] font-bold text-warm-400 uppercase tracking-[0.2em]">Результатов: {{ results|length }}</span>
+                        <span class="text-[10px] font-bold text-warm-400 uppercase tracking-[0.2em]">Найдено результатов: {{ results|length }}</span>
                     </div>
                     
                     {% for item in results %}
-                    <div onclick="playFragment('{{ item.video_id }}', {{ item.start_sec }}, '{{ item.title }}', '{{ item.start_ts }}')" 
-                         class="result-card-ui group p-4 lg:p-6 bg-white border border-[#E5E1D8] rounded-[1.25rem] lg:rounded-[1.5rem] cursor-pointer hover:border-brand-300 hover:bg-[#FDFDFB] transition-all relative">
+                    <div onclick="playFragment('{{ item.video_id }}', {{ item.start_sec }}, '{{ item.title }}', '{{ item.start_ts }}', '{{ item.chunk_id }}')" 
+                         id="chunk-{{ item.chunk_id }}"
+                         class="result-card-ui group p-4 lg:p-6 bg-white border border-[#E5E1D8] rounded-[1.25rem] lg:rounded-[1.5rem] cursor-pointer hover:border-brand-300 hover:bg-[#FDFDFB] transition-all relative shadow-sm hover:shadow-md">
                         <div class="flex justify-between items-start gap-4 mb-3 lg:mb-4">
                             <div class="flex flex-col gap-2">
                                 <h3 class="font-bold text-sm lg:text-base text-[#3A3630] group-hover:text-brand-600 transition-colors leading-tight">{{ item.title }}</h3>
@@ -82,11 +99,11 @@
                                 <span class="px-2 lg:px-3 py-1 bg-warm-100 text-warm-600 text-[9px] lg:text-[11px] font-bold rounded-lg uppercase tracking-widest">
                                     {{ item.start_ts }}
                                 </span>
-                                <!-- Search Scores Stats - Hidden on very small screens, compact on mobile -->
+                                <!-- Search Scores Stats -->
                                 <div class="hidden sm:flex items-center gap-1.5 lg:gap-2 text-[8px] lg:text-[9px] font-mono font-bold bg-[#F2F0EB]/50 px-1.5 lg:px-2 py-0.5 lg:py-1 rounded-lg border border-[#E5E1D8]/50 opacity-60 group-hover:opacity-100 transition-opacity">
                                     <span class="text-blue-600" title="Keyword Score">K:{{ "%.2f"|format(item.lexical_score) }}</span>
                                     <div class="w-px h-2 bg-[#E5E1D8]"></div>
-                                    <span class="text-purple-600" title="Semantic Score">S:{{ "%.2f"|format(item.vector_score) }}</span>
+                                    <span class="text-purple-600" title="Semantic Score">S:{{ "%.2f"|format(item.semantic_score) }}</span>
                                     <div class="w-px h-2 bg-[#E5E1D8]"></div>
                                     <span class="text-[#3A3630]" title="Total RRF Score">T:{{ "%.2f"|format(item.combined_score) }}</span>
                                 </div>
@@ -98,15 +115,27 @@
                         
                         <div class="mt-3 lg:mt-4 flex items-center justify-between border-t border-[#F2F0EB] pt-3 lg:pt-4">
                             <div class="flex items-center gap-4 text-[9px] lg:text-[10px] font-bold text-warm-400 uppercase tracking-widest">
-                                <span>{{ item.engine }}</span>
+                                {% if item.speaker %}
+                                <button onclick="event.stopPropagation(); manageSpeakers('{{ item.video_id }}', '{{ item.title }}')" 
+                                        class="flex items-center gap-1.5 px-2 py-1 bg-brand-50 border border-brand-100 rounded-lg text-brand-600 hover:bg-brand-100 hover:border-brand-300 transition-all shadow-sm">
+                                    <svg class="w-3 h-3" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z" clip-rule="evenodd"></path></svg>
+                                    <span>{{ item.speaker }}</span>
+                                </button>
+                                {% endif %}
                                 {% if item.source_url %}
-                                <a href="{{ item.source_url }}" target="_blank" onclick="event.stopPropagation()" class="hover:text-brand-500">Drive ↗</a>
+                                <a href="{{ item.source_url }}" target="_blank" onclick="event.stopPropagation()" class="hover:text-brand-500 transition-colors">Drive ↗</a>
                                 {% endif %}
                             </div>
-                            <button onclick="event.stopPropagation(); compareVersions('{{ item.video_id }}', {{ item.start_sec }}, '{{ item.title }}')" 
-                                    class="px-2 lg:px-3 py-1 lg:py-1.5 bg-[#FAF9F6] border border-[#E5E1D8] rounded-lg text-[8px] lg:text-[9px] font-black text-warm-500 hover:text-brand-600 hover:border-brand-200 uppercase tracking-widest transition-all">
-                                Сравнить
-                            </button>
+                            <div class="flex gap-2">
+                                <button onclick="event.stopPropagation(); editChunk('{{ item.chunk_id }}', `{{ item.raw_text.replace('`', '\\`') }}`, this)"
+                                   class="px-2 lg:px-3 py-1 lg:py-1.5 bg-[#FAF9F6] border border-[#E5E1D8] rounded-lg text-[8px] lg:text-[9px] font-black text-warm-500 hover:text-brand-600 hover:border-brand-200 uppercase tracking-widest transition-all">
+                                    Править
+                                </button>
+                                <a href="/api/videos/{{ item.video_id }}/export" target="_blank" onclick="event.stopPropagation()"
+                                   class="px-2 lg:px-3 py-1 lg:py-1.5 bg-[#FAF9F6] border border-[#E5E1D8] rounded-lg text-[8px] lg:text-[9px] font-black text-warm-500 hover:text-brand-600 hover:border-brand-200 uppercase tracking-widest transition-all">
+                                    Экспорт
+                                </a>
+                            </div>
                         </div>
                     </div>
                     {% endfor %}
@@ -116,9 +145,9 @@
 
         <!-- Video Player Column -->
         <div id="player-column" class="w-full lg:w-[400px] xl:w-[500px] shrink-0 order-1 lg:order-2">
-            <div class="bg-white rounded-[1.5rem] lg:rounded-[2.5rem] border border-[#E5E1D8] p-4 lg:p-8 sticky top-0 shadow-sm flex flex-col overflow-hidden min-h-[300px] lg:min-h-[600px] max-h-[50vh] lg:max-h-[calc(100vh-120px)]">
+            <div class="bg-white rounded-[1.5rem] lg:rounded-[2.5rem] border border-[#E5E1D8] p-4 lg:p-8 sticky top-4 shadow-xl flex flex-col overflow-hidden min-h-[300px] lg:min-h-[600px] max-h-[50vh] lg:max-h-[calc(100vh-120px)] transition-all">
                 <div id="player-placeholder" class="flex-1 flex flex-col items-center justify-center text-center opacity-40">
-                    <div class="w-16 lg:w-20 h-16 lg:h-20 rounded-[1.5rem] lg:rounded-[2.5rem] bg-[#FAF9F6] border border-[#E5E1D8] flex items-center justify-center mb-4 lg:mb-6">
+                    <div class="w-16 lg:w-20 h-16 lg:h-20 rounded-[1.5rem] lg:rounded-[2.5rem] bg-[#FAF9F6] border border-[#E5E1D8] flex items-center justify-center mb-4 lg:mb-6 shadow-inner">
                         <svg class="w-8 lg:w-10 h-8 lg:h-10 text-warm-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"></path></svg>
                     </div>
                     <h3 class="text-xs lg:text-sm font-bold text-warm-500 uppercase tracking-widest mb-1 lg:mb-2">Видео не выбрано</h3>
@@ -131,21 +160,22 @@
                             <h2 class="text-[9px] lg:text-[10px] font-black text-brand-400 uppercase tracking-[0.2em] lg:tracking-[0.3em] mb-1">Source Stream</h2>
                             <h3 class="text-xs lg:text-sm font-bold text-[#3A3630]">Просмотр фрагмента</h3>
                         </div>
-                        <button onclick="closePlayer()" class="w-8 h-8 rounded-full bg-[#FAF9F6] border border-[#E5E1D8] flex items-center justify-center text-warm-400 hover:text-slate-900 transition-all">
+                        <button onclick="closePlayer()" class="w-8 h-8 rounded-full bg-[#FAF9F6] border border-[#E5E1D8] flex items-center justify-center text-warm-400 hover:text-slate-900 transition-all shadow-sm">
                             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M6 18L18 6M6 6l12 12"></path></svg>
                         </button>
                     </div>
 
                     <div class="aspect-video bg-black rounded-xl lg:rounded-2xl overflow-hidden ring-1 ring-[#E5E1D8] mb-4 lg:mb-8 video-shadow relative group">
                         <video id="main-video" controls class="w-full h-full object-contain"></video>
+                        <div id="video-overlay" class="absolute inset-0 pointer-events-none bg-brand-500/10 opacity-0 transition-opacity"></div>
                     </div>
 
-                    <div class="space-y-3 lg:space-y-4 overflow-y-auto">
+                    <div class="space-y-3 lg:space-y-4 overflow-y-auto custom-scrollbar flex-1">
                         <h4 id="player-title" class="text-base lg:text-xl font-bold text-[#3A3630] leading-tight"></h4>
                         <div id="player-meta" class="inline-flex items-center gap-2 px-3 lg:px-4 py-1.5 lg:py-2 rounded-xl bg-brand-500/5 border border-brand-500/10 text-brand-500 font-bold text-[10px] lg:text-xs uppercase tracking-widest">
                         </div>
-                        <p class="hidden sm:block text-[10px] lg:text-xs text-slate-500 leading-relaxed pt-3 lg:pt-4 border-t border-[#F2F0EB]">
-                            Вы просматриваете фрагмент видео, синхронизированный с результатом поиска.
+                        <p class="text-[10px] lg:text-xs text-slate-500 leading-relaxed pt-3 lg:pt-4 border-t border-[#F2F0EB]">
+                            Вы просматриваете фрагмент видео, синхронизированный с результатом поиска. Система автоматически позиционирует плеер на нужной секунде.
                         </p>
                     </div>
                 </div>
@@ -154,131 +184,237 @@
     </div>
 </div>
 
-<!-- Comparison Modal -->
-<div id="compare-modal" class="fixed inset-0 z-[100] flex items-center justify-center p-4 lg:p-6 hidden">
-    <div class="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onclick="closeCompare()"></div>
-    <div class="relative w-full max-w-4xl bg-[#FAF9F6] border border-[#E5E1D8] rounded-[1.5rem] lg:rounded-[2.5rem] shadow-2xl overflow-hidden flex flex-col max-h-[90vh] lg:max-h-[80vh]">
-        <div class="p-6 lg:p-8 border-b border-[#E5E1D8] flex items-center justify-between">
+<!-- Speaker Management Modal -->
+<div id="speaker-modal" class="fixed inset-0 z-[100] flex items-center justify-center p-4 lg:p-6 hidden">
+    <div class="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onclick="closeSpeakers()"></div>
+    <div class="relative w-full max-w-md bg-white border border-[#E5E1D8] rounded-[2rem] shadow-2xl overflow-hidden flex flex-col max-h-[80vh] animate-in zoom-in-95 duration-200">
+        <div class="p-6 lg:p-8 border-b border-[#E5E1D8] bg-[#FAF9F6] flex justify-between items-start">
             <div>
-                <h2 class="text-[9px] lg:text-[10px] font-black text-brand-500 uppercase tracking-[0.3em] mb-1">Transcription Audit</h2>
-                <h3 id="compare-video-title" class="text-base lg:text-lg font-bold text-[#3A3630] leading-tight"></h3>
+                <h2 class="text-[10px] font-black text-brand-500 uppercase tracking-[0.3em] mb-1">Speaker Reference</h2>
+                <h3 id="speaker-video-title" class="text-base font-bold text-[#3A3630]"></h3>
             </div>
-            <button onclick="closeCompare()" class="w-8 h-8 lg:w-10 lg:h-10 rounded-full bg-white border border-[#E5E1D8] flex items-center justify-center text-warm-400 hover:text-brand-500 transition-all">
-                <svg class="w-4 h-4 lg:w-5 lg:h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M6 18L18 6M6 6l12 12"></path></svg>
+            <button onclick="closeSpeakers()" class="p-2 text-warm-400 hover:text-[#3A3630] transition-colors">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M6 18L18 6M6 6l12 12"></path></svg>
             </button>
         </div>
-        <div id="compare-content" class="p-4 lg:p-8 overflow-y-auto custom-scrollbar space-y-4 lg:space-y-6">
-            <!-- Content will be injected here -->
+        <div id="speaker-list" class="p-6 lg:p-8 overflow-y-auto space-y-6 custom-scrollbar">
+            <!-- Speakers will be loaded here -->
         </div>
     </div>
 </div>
 
 <script>
+    const searchInput = document.getElementById('search-input');
+    const clearSearchBtn = document.getElementById('clear-search');
+
+    searchInput.addEventListener('input', () => {
+        clearSearchBtn.classList.toggle('hidden', !searchInput.value);
+    });
+
+    clearSearchBtn.addEventListener('click', () => {
+        searchInput.value = '';
+        clearSearchBtn.classList.add('hidden');
+        searchInput.focus();
+    });
+
     function toggleSearchHelp() {
         const help = document.getElementById('search-help');
         help.classList.toggle('hidden');
-        event.stopPropagation();
     }
 
-    // Close help when clicking elsewhere
-    document.addEventListener('click', (e) => {
-        const help = document.getElementById('search-help');
-        if (help && !help.contains(e.target) && !e.target.closest('button')) {
-            help.classList.add('hidden');
+    let activeChunkId = null;
+
+    function playFragment(videoId, startSec, title, ts, chunkId) {
+        // Highlight active card
+        if (activeChunkId) {
+            const oldCard = document.getElementById(`chunk-${activeChunkId}`);
+            if (oldCard) oldCard.classList.remove('ring-2', 'ring-brand-400', 'bg-[#FDFDFB]');
         }
-    });
+        activeChunkId = chunkId;
+        const newCard = document.getElementById(`chunk-${chunkId}`);
+        if (newCard) newCard.classList.add('ring-2', 'ring-brand-400', 'bg-[#FDFDFB]');
 
-    const playerPlaceholder = document.getElementById('player-placeholder');
-    const playerContent = document.getElementById('player-content');
-    const video = document.getElementById('main-video');
-    const titleEl = document.getElementById('player-title');
-    const metaEl = document.getElementById('player-meta');
+        const video = document.getElementById('main-video');
+        const playerPlaceholder = document.getElementById('player-placeholder');
+        const playerContent = document.getElementById('player-content');
+        const playerTitle = document.getElementById('player-title');
+        const playerMeta = document.getElementById('player-meta');
 
-    function playFragment(id, start, title, ts) {
-        // UI Logic
         playerPlaceholder.classList.add('hidden');
         playerContent.classList.remove('hidden');
+
+        playerTitle.textContent = title;
+        playerMeta.textContent = ts;
+
+        video.src = `/videos/${videoId}/file#t=${startSec}`;
+        video.play();
         
-        document.querySelectorAll('.result-card-ui').forEach(c => {
-            c.classList.remove('bg-brand-500/10', 'border-brand-500/30', 'ring-4', 'ring-brand-500/5');
-        });
-        
-        const activeCard = window.event.currentTarget;
-        activeCard.classList.add('bg-brand-500/10', 'border-brand-500/30', 'ring-4', 'ring-brand-500/5');
+        // Visual cue on video
+        const overlay = document.getElementById('video-overlay');
+        overlay.classList.add('opacity-100');
+        setTimeout(() => overlay.classList.remove('opacity-100'), 500);
 
-        const src = `/videos/${id}/file`;
-        titleEl.textContent = title;
-        metaEl.innerHTML = `<svg class="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2C6.477 2 2 6.477 2 12s4.477 10 10 10 10-4.477 10-10S17.523 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zm.5-13H11v6l5.2 3.1.8-1.2-4.5-2.7V7z"/></svg> Начало: ${ts}`;
-
-        if (video.dataset.currentId !== id) {
-            video.src = src;
-            video.dataset.currentId = id;
-            video.load();
-            video.onloadedmetadata = () => {
-                video.currentTime = start;
-                video.play();
-            };
-        } else {
-            video.currentTime = start;
-            video.play();
-        }
-
-        // On mobile, scroll to player if it's below
+        // Scroll player into view on mobile
         if (window.innerWidth < 1024) {
             document.getElementById('player-column').scrollIntoView({ behavior: 'smooth' });
         }
     }
 
     function closePlayer() {
+        if (activeChunkId) {
+            const card = document.getElementById(`chunk-${activeChunkId}`);
+            if (card) card.classList.remove('ring-2', 'ring-brand-400', 'bg-[#FDFDFB]');
+            activeChunkId = null;
+        }
+
+        const video = document.getElementById('main-video');
+        const playerPlaceholder = document.getElementById('player-placeholder');
+        const playerContent = document.getElementById('player-content');
+
+        video.pause();
+        video.src = "";
+        
         playerContent.classList.add('hidden');
         playerPlaceholder.classList.remove('hidden');
-        video.pause();
-        document.querySelectorAll('.result-card-ui').forEach(c => {
-            c.classList.remove('bg-brand-500/10', 'border-brand-500/30', 'ring-4', 'ring-brand-500/5');
-        });
     }
 
-    const compareModal = document.getElementById('compare-modal');
-    const compareContent = document.getElementById('compare-content');
-    const compareTitle = document.getElementById('compare-video-title');
-
-    async function compareVersions(videoId, startSec, title) {
-        compareModal.classList.remove('hidden');
-        compareTitle.textContent = title;
-        compareContent.innerHTML = '<div class="flex justify-center py-10 animate-pulse text-slate-500 font-bold uppercase tracking-widest text-xs">Анализ всех доступных транскрипций...</div>';
+    async function editChunk(chunkId, currentText, btn) {
+        const card = btn.closest('.result-card-ui');
+        const textP = card.querySelector('p');
         
-        try {
-            const response = await fetch(`/api/videos/${videoId}/alternatives?start_sec=${startSec}`);
-            const data = await response.json();
+        const originalOnClick = card.onclick;
+        card.onclick = null;
+
+        const textarea = document.createElement('textarea');
+        textarea.className = "w-full bg-[#FAF9F6] border border-brand-300 rounded-xl py-3 px-4 text-sm focus:outline-none focus:bg-white transition-all shadow-inner mb-3 italic";
+        textarea.rows = 4;
+        textarea.value = currentText;
+        
+        const actionsDiv = document.createElement('div');
+        actionsDiv.className = "flex gap-2 mb-3";
+        actionsDiv.innerHTML = `
+            <button class="px-4 py-2 bg-brand-500 text-white text-[10px] font-black rounded-lg uppercase tracking-widest hover:bg-brand-600 transition-all shadow-md">Сохранить</button>
+            <button class="px-4 py-2 bg-warm-100 text-warm-500 text-[10px] font-black rounded-lg uppercase tracking-widest hover:bg-warm-200 transition-all">Отмена</button>
+        `;
+
+        const saveBtn = actionsDiv.children[0];
+        const cancelBtn = actionsDiv.children[1];
+
+        textP.style.display = 'none';
+        textP.after(actionsDiv);
+        textP.after(textarea);
+        textarea.focus();
+
+        cancelBtn.onclick = (e) => {
+            e.stopPropagation();
+            textarea.remove();
+            actionsDiv.remove();
+            textP.style.display = 'block';
+            card.onclick = originalOnClick;
+        };
+
+        saveBtn.onclick = async (e) => {
+            e.stopPropagation();
+            const newText = textarea.value;
+            saveBtn.disabled = true;
+            saveBtn.innerHTML = '<svg class="animate-spin h-3 w-3 text-white inline mr-1" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>...';
             
-            let html = '<div class="grid grid-cols-1 gap-4 lg:gap-8 max-w-2xl mx-auto">';
-            for (const [engine, text] of Object.entries(data)) {
-                html += `
-                    <div class="space-y-4 p-6 lg:p-8 bg-white border border-[#E5E1D8] rounded-[1.5rem] lg:rounded-[2rem] shadow-sm flex flex-col">
-                        <div class="flex items-center justify-between">
-                            <div class="flex items-center gap-2">
-                                <div class="w-2.5 h-2.5 rounded-full bg-brand-400 shadow-[0_0_10px_rgba(95,102,131,0.3)]"></div>
-                                <span class="text-[10px] font-black text-[#3A3630] uppercase tracking-[0.2em]">${engine}</span>
-                            </div>
-                            <a href="/api/videos/${videoId}/export?engine=${encodeURIComponent(engine)}" 
-                               class="px-2 lg:px-3 py-1 lg:py-1.5 bg-brand-50 hover:bg-brand-100 text-brand-600 rounded-xl text-[9px] font-black uppercase tracking-widest transition-all flex items-center gap-2">
-                                <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg>
-                                Скачать
-                            </a>
-                        </div>
-                        <p class="text-sm lg:text-[15px] text-[#5C574F] leading-relaxed italic">«${text}»</p>
-                    </div>
-                `;
+            try {
+                const res = await fetch(`/api/chunks/${chunkId}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ text: newText })
+                });
+                
+                if (res.ok) {
+                    textP.textContent = `«${newText}»`;
+                    textarea.remove();
+                    actionsDiv.remove();
+                    textP.style.display = 'block';
+                    card.onclick = originalOnClick;
+                    const editBtn = card.querySelector('button[onclick*="editChunk"]');
+                    editBtn.setAttribute('onclick', `event.stopPropagation(); editChunk('${chunkId}', \`${newText.replace(/`/g, '\\`')}\`, this)`);
+                    
+                    card.classList.add('ring-2', 'ring-green-400');
+                    setTimeout(() => card.classList.remove('ring-2', 'ring-green-400'), 1500);
+                } else {
+                    alert('Ошибка при сохранении');
+                    saveBtn.disabled = false;
+                    saveBtn.textContent = 'Сохранить';
+                }
+            } catch (err) {
+                alert('Ошибка связи');
+                saveBtn.disabled = false;
+                saveBtn.textContent = 'Сохранить';
             }
-            html += '</div>';
-            compareContent.innerHTML = html;
+        };
+    }
+
+    const speakerModal = document.getElementById('speaker-modal');
+    const speakerList = document.getElementById('speaker-list');
+    const speakerTitle = document.getElementById('speaker-video-title');
+
+    async function saveSpeaker(videoId, tag, name, inputEl) {
+        try {
+            inputEl.classList.add('ring-2', 'ring-brand-200');
+            const res = await fetch(`/api/videos/${videoId}/speakers`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ tag, name })
+            });
+            if (res.ok) {
+                inputEl.classList.remove('ring-brand-200');
+                inputEl.classList.add('ring-2', 'ring-green-400', 'bg-green-50');
+                setTimeout(() => {
+                    inputEl.classList.remove('ring-2', 'ring-green-400', 'bg-green-50');
+                }, 1000);
+            }
         } catch (e) {
-            compareContent.innerHTML = '<div class="text-rose-400 p-10 text-center font-bold">Ошибка загрузки.</div>';
+            inputEl.classList.add('ring-2', 'ring-red-400');
+            alert('Ошибка при сохранении имени');
         }
     }
 
-    function closeCompare() {
-        compareModal.classList.add('hidden');
+    async function manageSpeakers(videoId, title) {
+        speakerModal.classList.remove('hidden');
+        speakerTitle.textContent = title;
+        speakerList.innerHTML = '<div class="text-center py-10 animate-pulse text-warm-400 font-bold uppercase text-[10px] tracking-widest">Анализ аудио-профилей...</div>';
+        
+        try {
+            const response = await fetch(`/api/videos/${videoId}/speakers`);
+            const speakers = await response.json();
+            
+            let html = '<div class="space-y-6">';
+            speakers.forEach(s => {
+                html += `
+                    <div class="group relative bg-[#FAF9F6] p-4 rounded-2xl border border-[#E5E1D8] transition-all hover:bg-white hover:shadow-md">
+                        <div class="flex justify-between items-center mb-2 px-1">
+                            <label class="text-[9px] font-black text-warm-400 uppercase tracking-widest">ID Спикера: ${s.tag}</label>
+                            <span class="text-[8px] text-brand-500 font-bold opacity-0 group-hover:opacity-100 transition-opacity uppercase tracking-tight">Автосохранение</span>
+                        </div>
+                        <div class="relative">
+                            <input type="text" value="${s.name}" 
+                                   onchange="saveSpeaker('${videoId}', '${s.tag}', this.value, this)"
+                                   class="w-full bg-white border border-[#E5E1D8] rounded-xl py-3 px-4 text-sm focus:outline-none focus:border-brand-500 transition-all"
+                                   placeholder="Имя человека...">
+                            <div class="absolute right-3 top-3.5 text-warm-300">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"></path></svg>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            });
+            speakerList.innerHTML = html + '</div>' || '<div class="text-center py-10 text-warm-400 italic text-sm">В этом видео не обнаружено разных голосов.</div>';
+        } catch (e) {
+            speakerList.innerHTML = '<div class="text-rose-400 py-10 text-center font-bold">Ошибка связи с сервером.</div>';
+        }
+    }
+
+    function closeSpeakers() {
+        speakerModal.classList.add('hidden');
+        // Refresh search to show new names
+        const q = new URLSearchParams(window.location.search).get('q');
+        if (q) window.location.reload();
     }
 </script>
 {% endblock %}

@@ -3,9 +3,11 @@ from __future__ import annotations
 import argparse
 import json
 import time
+import logging
+import re
 from pathlib import Path
 import sys
-from urllib.parse import quote
+from typing import Any
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
 if str(ROOT_DIR) not in sys.path:
@@ -16,8 +18,8 @@ from app.chunking import chunk_from_utterances
 from app.config import (
     get_app_settings, 
     get_google_drive_settings, 
-    get_postgres_settings,
-    get_transcription_settings
+    get_sqlite_settings,
+    get_deepgram_settings
 )
 from app.db import db_connection, init_db
 from app.google_drive import GoogleDriveClient
@@ -28,21 +30,26 @@ from app.repository import (
     update_video_status,
     upsert_video,
 )
-from app.search import LocalEmbeddingClient
-from app.transcription.factory import get_transcription_engine
+from app.qdrant import get_qdrant_client, get_sparse_embedding_model, init_qdrant
+from qdrant_client import models
+from app.config import get_qdrant_settings
+from app.transcription.deepgram import DeepgramEngine
+
+logger = logging.getLogger(__name__)
 
 def ingest_drive_file(
     file_id: str,
     *,
     title: str | None = None,
+    diarize: bool = True,
     clip_duration_sec: float | None = None,
     clip_start_sec: float = 0.0,
     download_progress_callback: callable[[int, int], None] | None = None,
+    keep_files: bool = False,
 ) -> dict[str, Any]:
     drive_settings = get_google_drive_settings()
     app_settings = get_app_settings()
-    pg_settings = get_postgres_settings()
-    transcription_settings = get_transcription_settings()
+    pg_settings = get_sqlite_settings()
 
     drive = GoogleDriveClient(drive_settings)
     file_meta = drive.get_file(file_id)
@@ -55,42 +62,43 @@ def ingest_drive_file(
             source_file_id=file_id,
         )
     
-    # Create a unique ID for this specific engine+model combination
-    # We need it early now to check if THIS specific transcript exists
-    current_engine = transcription_settings.engine
-    if current_engine == "deepgram":
-        from app.config import get_deepgram_settings
-        dg_model = get_deepgram_settings().model
-        engine_id = f"deepgram:{dg_model}"
-    elif current_engine == "local":
-        engine_id = f"whisper:{transcription_settings.whisper_model}"
-    else:
-        engine_id = current_engine
+    # Deepgram settings
+    dg_settings = get_deepgram_settings()
+    engine_id = f"deepgram:{dg_settings.model}"
 
     if existing and existing.get("processing_status") == "indexed_chunks_ready":
-        # Check if we already have a transcript for THIS specific engine+model
+        # Check if we already have a transcript
         from app.repository import check_transcript_exists
         with db_connection(pg_settings) as connection:
-            if check_transcript_exists(connection, existing["id"], engine_id):
+            if check_transcript_exists(connection, existing["id"]):
                 return {"video_id": int(existing["id"]), "status": "already_indexed"}
 
     # Paths
-    safe_name = quote(file_meta.name, safe="._-() ").replace("%20", "_")
+    clean_name = re.sub(r'[^а-яА-ЯёЁa-zA-Z0-9._-]', '_', file_meta.name)
+    base_name = clean_name[:60]
+    extension = Path(file_meta.name).suffix or ".mp4"
+    safe_name = f"{base_name}_{file_id}{extension}"
+    
     video_path = drive_settings.download_dir / safe_name
-    audio_path = ROOT_DIR / "audio" / f"{Path(safe_name).stem}.wav"
+    audio_path = ROOT_DIR / "audio" / f"{base_name}_{file_id}.wav"
     
     # 1. Download
     if not video_path.exists():
+        logger.info(f"Downloading video to {video_path}...")
         drive.download_file(file_id, video_path, progress_callback=download_progress_callback)
+    else:
+        logger.info("Video already exists locally, skipping download.")
     
     # 2. Extract Audio
     if not audio_path.exists():
+        logger.info("Extracting audio track...")
         extract_audio(video_path, audio_path)
-
-    # 3. Transcribe
-    engine = get_transcription_engine()
     
-    # Storage paths for "Eternal" transcripts
+    # 3. Transcribe
+    logger.info(f"Starting transcription via Deepgram (diarize={diarize})...")
+    engine = DeepgramEngine(dg_settings)
+    
+    # Storage paths
     raw_filename = f"{engine_id.replace(':', '_')}_{int(time.time())}.json"
     raw_path = app_settings.raw_transcripts_dir / file_id / raw_filename
     norm_filename = f"{file_id}_{engine_id.replace(':', '_')}.json"
@@ -102,35 +110,25 @@ def ingest_drive_file(
     if norm_path.exists():
         normalized_payload = json.loads(norm_path.read_text(encoding="utf-8"))
     else:
-        raw_payload = engine.transcribe_file(audio_path)
+        # Pass diarize flag to engine
+        raw_payload = engine.transcribe_file(audio_path, diarize=diarize)
         normalized_payload = engine.normalize_response(raw_payload)
         
         raw_path.write_text(json.dumps(raw_payload, ensure_ascii=False, indent=2), encoding="utf-8")
         norm_path.write_text(json.dumps(normalized_payload, ensure_ascii=False, indent=2), encoding="utf-8")
 
-    # 4. Save to DB and Generate Embeddings
-    embed_client = LocalEmbeddingClient()
+    # 4. Save to DB and Synchronize with Qdrant
+    from app.gemini import GeminiEmbeddingClient
+    from app.config import get_gemini_settings
+    
+    embed_client = GeminiEmbeddingClient(get_gemini_settings())
+    sparse_model = get_sparse_embedding_model()
+    q_settings = get_qdrant_settings()
+    init_qdrant()
+    qdrant = get_qdrant_client()
+
     chunks = chunk_from_utterances(normalized_payload.get("utterances", []))
     
-    # Determine if this engine should be primary for indexing (matches app config)
-    def get_default_engine_id():
-        s = get_transcription_settings()
-        if s.engine == "deepgram":
-            from app.config import get_deepgram_settings
-            return f"deepgram:{get_deepgram_settings().model}"
-        elif s.engine == "local":
-            return f"whisper:{s.whisper_model}"
-        return s.engine
-
-    is_primary = (engine_id == get_default_engine_id())
-
-    # Batch generate embeddings ONLY for primary transcript
-    for chunk in chunks:
-        if is_primary:
-            chunk["embedding"] = embed_client.embed_text(chunk["text"], is_query=False)
-        else:
-            chunk["embedding"] = None
-
     with db_connection(pg_settings) as connection:
         video_id = upsert_video(
             connection,
@@ -149,13 +147,10 @@ def ingest_drive_file(
         transcript_id = replace_transcript(
             connection,
             video_id=video_id,
-            engine=engine_id,
-            language="ru", # Should come from engine
-            transcript_text=normalized_payload.get("transcript", ""),
+            language="ru",
             confidence=normalized_payload.get("confidence", 1.0),
             raw_json_path=raw_path,
             normalized_json_path=norm_path,
-            is_primary=is_primary,
         )
         
         replace_chunks(
@@ -165,10 +160,122 @@ def ingest_drive_file(
             chunks=chunks,
         )
         
+        # After saving to Postgres, we get the real chunk IDs
+        rows = connection.execute(
+            "SELECT id, chunk_index, start_sec, end_sec, text, speaker_tags FROM chunks WHERE transcript_id = ? ORDER BY chunk_index ASC",
+            (transcript_id,)
+        ).fetchall()
+
+        # Batch generate embeddings and upsert to Qdrant
+        if rows:
+            texts = [row["text"] for row in rows]
+            try:
+                # BATCH DENSE EMBEDDINGS (Up to 100 at once!)
+                dense_vectors = embed_client.embed_batch(texts)
+                
+                # BATCH SPARSE EMBEDDINGS
+                sparse_vectors_gen = list(sparse_model.embed(texts))
+                
+                points = []
+                for idx, row in enumerate(rows):
+                    sparse_gen = sparse_vectors_gen[idx]
+                    sparse_vec = models.SparseVector(
+                        indices=sparse_gen.indices.tolist(),
+                        values=sparse_gen.values.tolist()
+                    )
+                    
+                    points.append(models.PointStruct(
+                        id=row["id"],
+                        vector={
+                            "default": dense_vectors[idx],
+                            "text-sparse": sparse_vec
+                        },
+                        payload={
+                            "chunk_id": row["id"],
+                            "video_id": video_id,
+                            "transcript_id": transcript_id,
+                            "chunk_index": row["chunk_index"],
+                            "start_sec": row["start_sec"],
+                            "end_sec": row["end_sec"],
+                            "text": row["text"],
+                            "speaker": row["speaker_tags"], # Unified field name
+                            "title": title or file_meta.name,
+                            "source_file_id": file_id,
+                            "source_url": f"https://drive.google.com/file/d/{file_id}/view",
+                            "engine": engine_id,
+                            "is_primary": True
+                        }
+                    ))
+                
+                if points:
+                    qdrant.upsert(collection_name=q_settings.collection_name, points=points)
+            except Exception as e:
+                logger.error(f"Failed to generate batch embeddings for video {video_id}: {e}")
+                raise e # Stop here, don't mark as ready
+        
         update_video_status(
             connection,
             video_id=video_id,
             processing_status="indexed_chunks_ready",
         )
 
+        # 6. Automatic Speaker Recognition (Voice Fingerprinting)
+        if diarize:
+            from app.voice import extract_speaker_embedding
+            
+            # Group chunks by speaker to find representative samples
+            speaker_samples = {} # tag -> list of chunks
+            for row in rows:
+                if row["speaker_tags"]:
+                    for tag in row["speaker_tags"].split(", "):
+                        if tag not in speaker_samples: speaker_samples[tag] = []
+                        # Keep chunks longer than 3 seconds for better quality
+                        if (row["end_sec"] - row["start_sec"]) > 3:
+                            speaker_samples[tag].append(row)
+
+            for tag, chunks_list in speaker_samples.items():
+                if not chunks_list: continue
+                best_chunk = max(chunks_list, key=lambda x: x["end_sec"] - x["start_sec"])
+                
+                try:
+                    embedding = extract_speaker_embedding(audio_path, best_chunk["start_sec"], best_chunk["end_sec"])
+                    if embedding:
+                        matches = qdrant.query_points(
+                            collection_name="speaker_registry",
+                            query=embedding,
+                            limit=1,
+                            score_threshold=0.82
+                        ).points
+                        
+                        if matches:
+                            matched_name = matches[0].payload.get("name")
+                            logger.info(f"Auto-recognized speaker {tag} as '{matched_name}'")
+                            connection.execute(
+                                "INSERT INTO speakers (video_id, speaker_tag, name) VALUES (?, ?, ?) ON CONFLICT DO NOTHING",
+                                (video_id, tag, matched_name)
+                            )
+                except Exception as e:
+                    logger.warning(f"Failed to extract speaker embedding for tag {tag}: {e}")
+
+        # 5. Cleanup Local Files (Storage Lifecycle)
+        if not keep_files:
+            try:
+                if video_path.exists():
+                    video_path.unlink()
+                    logger.info(f"Deleted local video: {video_path}")
+                connection.execute(
+                    "UPDATE videos SET local_video_path = NULL WHERE id = ?",
+                    (video_id,)
+                )
+            except Exception as e:
+                logger.warning(f"Failed to cleanup video: {e}")
+
     return {"video_id": video_id, "chunks_count": len(chunks)}
+
+if __name__ == "__main__":
+    # For standalone testing
+    parser = argparse.ArgumentParser()
+    parser.add_argument("file_id")
+    parser.add_argument("--diarize", action="store_true")
+    args = parser.parse_args()
+    ingest_drive_file(args.file_id, diarize=args.diarize)
