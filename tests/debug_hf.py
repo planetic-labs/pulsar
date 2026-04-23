@@ -1,8 +1,7 @@
-
 import sys
-import os
-import httpx
 from pathlib import Path
+
+import httpx
 
 # Добавляем корень проекта в путь
 ROOT_DIR = Path(__file__).resolve().parents[0]
@@ -10,13 +9,14 @@ sys.path.insert(0, str(ROOT_DIR))
 
 from app.config import get_embedding_settings
 
+
 def debug_hf_endpoints():
     settings = get_embedding_settings()
-    url_base = settings.api_url.rstrip('/')
+    url_base = settings.api_url.rstrip("/")
     headers = {"Authorization": f"Bearer {settings.api_token}"}
-    
+
     print(f"--- Отладка эндпоинтов для {url_base} ---")
-    
+
     with httpx.Client(timeout=10.0) as client:
         # 1. Пробуем список моделей
         try:
@@ -45,6 +45,7 @@ def debug_hf_endpoints():
                 print("✅ /v2/embeddings работает!")
         except Exception as e:
             print(f"POST /v2/embeddings failed: {e}")
+
 
 if __name__ == "__main__":
     debug_hf_endpoints()

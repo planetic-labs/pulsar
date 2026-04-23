@@ -4,7 +4,6 @@ import re
 
 from app.google_drive import DriveFile
 
-
 GALLERY_PATTERN = re.compile(r"\b(gallery|галерея)\b", re.IGNORECASE)
 WHITESPACE_PATTERN = re.compile(r"\s+")
 

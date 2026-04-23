@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from pathlib import Path
 import subprocess
+from pathlib import Path
 
 
 def extract_audio(
@@ -48,11 +48,6 @@ def extract_audio(
         text=True,
     )
     if completed.returncode != 0:
-        raise RuntimeError(
-            "Audio extraction failed.\n"
-            f"stdout:\n{completed.stdout}\n"
-            f"stderr:\n{completed.stderr}"
-        )
+        raise RuntimeError(f"Audio extraction failed.\nstdout:\n{completed.stdout}\nstderr:\n{completed.stderr}")
 
     return output_path
-

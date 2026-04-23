@@ -1,7 +1,7 @@
-
 import sys
-import httpx
 from pathlib import Path
+
+import httpx
 
 # Добавляем корень проекта в путь
 ROOT_DIR = Path(__file__).resolve().parents[0]
@@ -9,16 +9,17 @@ sys.path.insert(0, str(ROOT_DIR))
 
 from app.config import get_embedding_settings
 
+
 def final_test():
     settings = get_embedding_settings()
-    url_base = settings.api_url.rstrip('/')
+    url_base = settings.api_url.rstrip("/")
     headers = {"Authorization": f"Bearer {settings.api_token}"}
     payload = {"model": "BAAI/bge-m3", "input": ["test sentence"]}
-    
+
     endpoints = ["/v2/embeddings", "/v1/embeddings", "/embeddings", "/embed"]
-    
-    print(f"--- Тестирование различных эндпоинтов ---")
-    
+
+    print("--- Тестирование различных эндпоинтов ---")
+
     with httpx.Client(timeout=20.0) as client:
         for ep in endpoints:
             try:
@@ -35,6 +36,7 @@ def final_test():
                     return
             except Exception as e:
                 print(f"POST {ep} failed: {e}")
+
 
 if __name__ == "__main__":
     final_test()

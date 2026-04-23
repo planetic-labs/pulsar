@@ -1,26 +1,21 @@
 from __future__ import annotations
 
 import argparse
-from pathlib import Path
 import sys
-
+from pathlib import Path
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
 from app.config import get_google_drive_settings
-from app.config import get_app_settings
-from app.db import db_connection, init_db
 from app.file_dedupe import dedupe_gallery_variants
 from app.google_drive import GoogleDriveClient
 from scripts.ingest_drive_file import ingest_drive_file
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(
-        description="Download and process the oldest files from a Google Drive folder"
-    )
+    parser = argparse.ArgumentParser(description="Download and process the oldest files from a Google Drive folder")
     parser.add_argument("folder_id", help="Google Drive folder ID")
     parser.add_argument("--limit", type=int, default=10)
     parser.add_argument("--mime-prefix", default="video/")
@@ -59,10 +54,7 @@ def main() -> None:
 
     print(f"Selected {len(files)} file(s) from folder {args.folder_id}")
     for index, file_meta in enumerate(files, start=1):
-        print(
-            f"[{index}/{len(files)}] {file_meta.file_id} "
-            f"{file_meta.created_time or '-'} {file_meta.name}"
-        )
+        print(f"[{index}/{len(files)}] {file_meta.file_id} {file_meta.created_time or '-'} {file_meta.name}")
 
     for index, file_meta in enumerate(files, start=1):
         print(f"Processing [{index}/{len(files)}]: {file_meta.name}")
