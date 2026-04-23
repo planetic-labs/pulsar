@@ -1,22 +1,38 @@
 from __future__ import annotations
 
-from pathlib import Path
-import logging
 import asyncio
 import json
+import logging
+import subprocess
+import uuid
+from contextlib import asynccontextmanager
+from pathlib import Path
+from typing import Any
 
-from fastapi import Depends, FastAPI, HTTPException, Request, Form, WebSocket, WebSocketDisconnect
-from fastapi.responses import FileResponse, HTMLResponse, Response, StreamingResponse, RedirectResponse
+import imageio_ffmpeg
+from fastapi import Depends, FastAPI, Form, HTTPException, Request, WebSocket, WebSocketDisconnect
+from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, Response, StreamingResponse
+from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from qdrant_client import models
 from starlette.middleware.sessions import SessionMiddleware
 
-from app.auth import require_access_token, login_user, logout_user, get_session_token
-from app.config import get_app_settings, get_google_drive_settings, get_sqlite_settings
+from app.auth import get_session_token, login_user, logout_user, require_access_token
+from app.config import (
+    get_app_settings,
+    get_embedding_settings,
+    get_google_drive_settings,
+    get_qdrant_settings,
+    get_sqlite_settings,
+)
 from app.db import db_connection, init_db
+from app.gemini import UnifiedEmbeddingClient
 from app.google_drive import GoogleDriveClient
-from app.schemas import SearchResponse, SearchResultItem, VideoStatusItem
+from app.qdrant import get_qdrant_client, init_qdrant
+from app.schemas import VideoStatusItem
 from app.search import hybrid_search
-from app.worker import get_worker, logs_queue
+from app.voice import extract_speaker_embedding
+from app.worker import get_worker, logs_queue, set_main_loop
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -24,12 +40,42 @@ logger = logging.getLogger(__name__)
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
 templates = Jinja2Templates(directory=str(ROOT_DIR / "templates"))
-app = FastAPI(title="VideoDB")
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup logic
+    settings = get_sqlite_settings()
+    with db_connection(settings) as connection:
+        init_db(connection)
+
+    init_qdrant()
+
+    # Enable thread-safe logging to WebSocket
+    set_main_loop(asyncio.get_running_loop())
+
+    # Start background worker
+    worker = get_worker()
+    asyncio.create_task(worker.run())
+
+    logger.info("Application initialized with background worker.")
+
+    yield
+
+    # Shutdown logic (if any)
+    logger.info("Shutting down...")
+
+
+app = FastAPI(title="VideoDB", lifespan=lifespan)
 
 # Session Middleware for Auth
 app.add_middleware(SessionMiddleware, secret_key="super-secret-key")
 
-def _status_rows(connection) -> list[VideoStatusItem]:
+# Static files for voice samples
+app.mount("/audio", StaticFiles(directory="/srv/search-ui/storage/voice_samples"), name="voice_audio")
+
+
+def _status_rows(connection: Any) -> list[VideoStatusItem]:
     rows = connection.execute(
         """
         SELECT
@@ -44,24 +90,6 @@ def _status_rows(connection) -> list[VideoStatusItem]:
     ).fetchall()
     return [VideoStatusItem(**dict(row)) for row in rows]
 
-@app.on_event("startup")
-async def on_startup() -> None:
-    settings = get_sqlite_settings()
-    with db_connection(settings) as connection:
-        init_db(connection)
-    
-    from app.qdrant import init_qdrant
-    init_qdrant()
-    
-    # Enable thread-safe logging to WebSocket
-    from app.worker import get_worker, set_main_loop
-    set_main_loop(asyncio.get_running_loop())
-    
-    # Start background worker
-    worker = get_worker()
-    asyncio.create_task(worker.run())
-    
-    logger.info("Application initialized with background worker.")
 
 @app.websocket("/api/v1/logs/stream")
 async def websocket_logs(websocket: WebSocket):
@@ -77,6 +105,7 @@ async def websocket_logs(websocket: WebSocket):
     except Exception as e:
         logger.error(f"WebSocket error: {e}")
 
+
 @app.get("/api/v1/logs/poll")
 async def api_poll_logs():
     """Fallback endpoint for environments where WebSockets are blocked."""
@@ -89,22 +118,15 @@ async def api_poll_logs():
         pass
     return {"logs": msgs}
 
+
 @app.get("/api/v1/logs/stream")
 async def websocket_logs_get():
     logger.info("HTTP GET request to log stream endpoint")
     return {"status": "log_stream_active", "transport": "websocket_required", "fallback_available": "/api/v1/logs/poll"}
 
-from fastapi.staticfiles import StaticFiles
-from app.qdrant import get_qdrant_client
-from qdrant_client import models
-import uuid
-import subprocess
-import imageio_ffmpeg
-
-# ... (после инициализации app)
-app.mount("/audio", StaticFiles(directory="/srv/search-ui/storage/voice_samples"), name="voice_audio")
 
 # --- SPEAKERS ROUTES ---
+
 
 @app.get("/speakers", response_class=HTMLResponse)
 async def speakers_page(request: Request, _: str = Depends(require_access_token)):
@@ -113,15 +135,19 @@ async def speakers_page(request: Request, _: str = Depends(require_access_token)
         res = q_client.scroll(collection_name="speaker_registry", limit=100)[0]
         speakers = []
         for p in res:
-            speakers.append({
-                "id": p.id,
-                "name": p.payload.get("name", "Unknown"),
-                "audio_url": f"/audio/{p.payload.get('sample_file')}" if p.payload.get("sample_file") else None
-            })
+            if p.payload:
+                speakers.append(
+                    {
+                        "id": p.id,
+                        "name": p.payload.get("name", "Unknown"),
+                        "audio_url": f"/audio/{p.payload.get('sample_file')}" if p.payload.get("sample_file") else None,
+                    }
+                )
         return templates.TemplateResponse(request, "speakers.html", {"speakers": speakers})
     except Exception as e:
         logger.error(f"Error fetching speakers: {e}")
         return templates.TemplateResponse(request, "speakers.html", {"speakers": [], "error": str(e)})
+
 
 @app.post("/api/speakers/register")
 async def api_register_speaker(
@@ -129,11 +155,10 @@ async def api_register_speaker(
     start_sec: float = Form(...),
     end_sec: float = Form(...),
     name: str = Form(...),
-    _: str = Depends(require_access_token)
+    _: str = Depends(require_access_token),
 ):
-    from app.voice import extract_speaker_embedding
     settings = get_sqlite_settings()
-    
+
     # 1. Получаем путь к видео
     with db_connection(settings) as conn:
         video = conn.execute("SELECT local_audio_path FROM videos WHERE id = ?", (video_id,)).fetchone()
@@ -150,18 +175,26 @@ async def api_register_speaker(
     sample_id = str(uuid.uuid4())
     filename = f"{sample_id}.wav"
     save_path = Path("/srv/search-ui/storage/voice_samples") / filename
-    
+
     try:
         duration = end_sec - start_sec
         ffmpeg_path = imageio_ffmpeg.get_ffmpeg_exe()
         cmd = [
-            ffmpeg_path, "-y", "-loglevel", "error",
-            "-ss", str(start_sec),
-            "-i", str(audio_path),
-            "-t", str(duration),
-            "-ar", "16000",
-            "-ac", "1",
-            str(save_path)
+            ffmpeg_path,
+            "-y",
+            "-loglevel",
+            "error",
+            "-ss",
+            str(start_sec),
+            "-i",
+            str(audio_path),
+            "-t",
+            str(duration),
+            "-ar",
+            "16000",
+            "-ac",
+            "1",
+            str(save_path),
         ]
         subprocess.run(cmd, check=True)
     except Exception as e:
@@ -180,59 +213,61 @@ async def api_register_speaker(
                     "name": name,
                     "sample_file": filename if save_path.exists() else None,
                     "source_video_id": video_id,
-                    "source_start": start_sec
-                }
+                    "source_start": start_sec,
+                },
             )
-        ]
+        ],
     )
-    
+
     return {"status": "success", "id": sample_id, "name": name}
+
 
 @app.delete("/api/speakers/{speaker_id}")
 async def api_delete_speaker(speaker_id: str, _: str = Depends(require_access_token)):
     q_client = get_qdrant_client()
-    
+
     # Пытаемся найти инфу о файле перед удалением
     try:
         points = q_client.retrieve(collection_name="speaker_registry", ids=[speaker_id])
         if points:
-            filename = points[0].payload.get("sample_file")
-            if filename:
-                file_path = Path("/srv/search-ui/storage/voice_samples") / filename
-                if file_path.exists():
-                    file_path.unlink()
+            if points[0].payload:
+                filename = points[0].payload.get("sample_file")
+                if filename:
+                    file_path = Path("/srv/search-ui/storage/voice_samples") / filename
+                    if file_path.exists():
+                        file_path.unlink()
     except Exception as e:
         logger.warning(f"Could not delete audio file for speaker {speaker_id}: {e}")
 
-    q_client.delete(
-        collection_name="speaker_registry",
-        points_selector=models.PointIdsList(points=[speaker_id])
-    )
+    q_client.delete(collection_name="speaker_registry", points_selector=models.PointIdsList(points=[speaker_id]))
     return {"status": "deleted"}
+
 
 @app.post("/api/tasks/ingest")
 async def api_add_ingest_task(
-    file_id: str = Form(...),
-    diarize: bool = Form(True),
-    _: str = Depends(require_access_token)
+    file_id: str = Form(...), diarize: bool = Form(True), _: str = Depends(require_access_token)
 ):
     settings = get_sqlite_settings()
     with db_connection(settings) as conn:
         conn.execute(
             "INSERT INTO tasks (task_type, payload) VALUES (?, ?)",
-            ("ingest_video", json.dumps({"file_id": file_id, "diarize": diarize}))
+            ("ingest_video", json.dumps({"file_id": file_id, "diarize": diarize})),
         )
     return {"status": "queued", "file_id": file_id}
+
 
 @app.get("/health")
 def health() -> dict[str, str]:
     return {"status": "ok"}
 
+
 # --- AUTH ROUTES ---
+
 
 @app.get("/login", response_class=HTMLResponse)
 def login_page(request: Request, error: str | None = None):
     return templates.TemplateResponse(request, "login.html", {"error": error})
+
 
 @app.post("/login")
 def login_post(request: Request, response: Response, token: str = Form(...)):
@@ -240,23 +275,26 @@ def login_post(request: Request, response: Response, token: str = Form(...)):
         return RedirectResponse(url="/", status_code=303)
     return templates.TemplateResponse(request, "login.html", {"error": "Invalid access token"})
 
+
 @app.get("/logout")
 def logout(request: Request, response: Response):
     logout_user(response, request)
     return RedirectResponse(url="/login")
 
+
 # --- UI ROUTES ---
+
 
 @app.get("/", response_class=HTMLResponse)
 def index_page(request: Request, q: str | None = None):
     app_settings = get_app_settings()
     pg_settings = get_sqlite_settings()
-    
+
     # URL Token Auth
     token_param = request.query_params.get("token")
     if token_param == app_settings.access_token:
         response = RedirectResponse(url=f"/?q={q or ''}")
-        login_user(response, request, token_param)
+        login_user(response, request, str(token_param))
         return response
 
     current_token = get_session_token(request)
@@ -269,11 +307,10 @@ def index_page(request: Request, q: str | None = None):
             items = hybrid_search(connection, q, limit=app_settings.results_limit)
             results = items
             if results:
-                logger.info(f"DEBUG: First result chunk_id={results[0].chunk_id}, fields={dir(results[0])}")
+                logger.info(f"DEBUG: First result chunk_id={results[0].chunk_id}")
 
-    return templates.TemplateResponse(
-        request, "index.html", {"query": q or "", "results": results}
-    )
+    return templates.TemplateResponse(request, "index.html", {"query": q or "", "results": results})
+
 
 @app.get("/import", response_class=HTMLResponse)
 def import_page(request: Request):
@@ -283,11 +320,12 @@ def import_page(request: Request):
         return RedirectResponse(url="/login")
     return templates.TemplateResponse(request, "import.html", {})
 
+
 @app.get("/status", response_class=HTMLResponse)
 def status_page(request: Request):
     app_settings = get_app_settings()
     pg_settings = get_sqlite_settings()
-    
+
     current_token = get_session_token(request)
     if current_token != app_settings.access_token:
         return RedirectResponse(url="/login")
@@ -297,90 +335,82 @@ def status_page(request: Request):
 
     return templates.TemplateResponse(request, "status.html", {"statuses": statuses})
 
+
 @app.get("/api/videos/{video_id}/speakers")
-def api_list_speakers(
-    video_id: int,
-    _: str = Depends(require_access_token)
-):
+def api_list_speakers(video_id: int, _: str = Depends(require_access_token)):
     settings = get_sqlite_settings()
     with db_connection(settings) as conn:
         # Find all unique speaker tags in chunks
-        rows = conn.execute(
-            "SELECT DISTINCT speaker_tags FROM chunks WHERE video_id = ?",
-            (video_id,)
-        ).fetchall()
-        
+        rows = conn.execute("SELECT DISTINCT speaker_tags FROM chunks WHERE video_id = ?", (video_id,)).fetchall()
+
         tags = set()
         for r in rows:
             if r["speaker_tags"]:
                 for t in r["speaker_tags"].split(", "):
                     tags.add(t)
-        
+
         # If no tags detected (old video or single speaker), provide a default tag 'primary'
         if not tags:
             tags.add("primary")
-        
+
         # Get existing names from speakers table
-        names_rows = conn.execute(
-            "SELECT speaker_tag, name FROM speakers WHERE video_id = ?",
-            (video_id,)
-        ).fetchall()
+        names_rows = conn.execute("SELECT speaker_tag, name FROM speakers WHERE video_id = ?", (video_id,)).fetchall()
         name_map = {r["speaker_tag"]: r["name"] for r in names_rows}
-        
-        return [{"tag": t, "name": name_map.get(t, f"Speaker {t}" if t != "primary" else "Основной голос")} for t in sorted(list(tags))]
+
+        return [
+            {"tag": t, "name": name_map.get(t, f"Speaker {t}" if t != "primary" else "Основной голос")}
+            for t in sorted(tags)
+        ]
+
 
 @app.post("/api/videos/{video_id}/speakers")
-async def api_save_speaker(
-    video_id: int,
-    request: Request,
-    _: str = Depends(require_access_token)
-):
+async def api_save_speaker(video_id: int, request: Request, _: str = Depends(require_access_token)):
     data = await request.json()
     tag = data.get("tag")
     name = data.get("name")
-    
+
     if not tag or not name:
         raise HTTPException(status_code=400, detail="Missing tag or name")
-        
+
     settings = get_sqlite_settings()
     with db_connection(settings) as conn:
         # 1. Save to local SQLite
         conn.execute(
             """
-            INSERT INTO speakers (video_id, speaker_tag, name) 
+            INSERT INTO speakers (video_id, speaker_tag, name)
             VALUES (?, ?, ?)
             ON CONFLICT(video_id, speaker_tag) DO UPDATE SET name = EXCLUDED.name
             """,
-            (video_id, str(tag), name)
+            (video_id, str(tag), name),
         )
-        
+
         # 2. Global Enrollment (Voice Fingerprinting)
         if tag == "primary":
             chunk = conn.execute(
-                "SELECT start_sec, end_sec FROM chunks WHERE video_id = ? ORDER BY (end_sec - start_sec) DESC LIMIT 1",
-                (video_id,)
+                """
+                SELECT start_sec, end_sec FROM chunks WHERE video_id = ?
+                ORDER BY (end_sec - start_sec) DESC LIMIT 1
+                """,
+                (video_id,),
             ).fetchone()
         else:
             chunk = conn.execute(
-                "SELECT start_sec, end_sec FROM chunks WHERE video_id = ? AND speaker_tags LIKE ? ORDER BY (end_sec - start_sec) DESC LIMIT 1",
-                (video_id, f"%{tag}%")
+                """
+                SELECT start_sec, end_sec FROM chunks
+                WHERE video_id = ? AND speaker_tags LIKE ?
+                ORDER BY (end_sec - start_sec) DESC LIMIT 1
+                """,
+                (video_id, f"%{tag}%"),
             ).fetchone()
-        
+
         video = conn.execute("SELECT local_audio_path FROM videos WHERE id = ?", (video_id,)).fetchone()
-        
+
         if chunk and video and video["local_audio_path"]:
-            from app.voice import extract_speaker_embedding
-            from app.qdrant import get_qdrant_client
-            from qdrant_client import models
-            import uuid
-            import subprocess
-            import imageio_ffmpeg
-            
             # Use centered 20s window for better quality
             chunk_start = chunk["start_sec"]
             chunk_end = chunk["end_sec"]
             chunk_duration = chunk_end - chunk_start
-            
+
             if chunk_duration > 20.0:
                 mid = chunk_start + (chunk_duration / 2)
                 start = max(chunk_start, mid - 10.0)
@@ -388,26 +418,39 @@ async def api_save_speaker(
             else:
                 start = chunk_start
                 end = chunk_end
-            
+
             audio_path = Path(video["local_audio_path"])
             emb = extract_speaker_embedding(audio_path, start, end)
-            
+
             if emb:
                 sample_id = str(uuid.uuid4())
                 filename = f"{sample_id}.wav"
-                save_path = Path("/srv/search-ui/storage/voice_samples") / filename
-                
+                save_path_str = f"/srv/search-ui/storage/voice_samples/{filename}"
+                save_path = Path(save_path_str)
+
                 # Save audio segment
                 try:
                     ffmpeg_path = imageio_ffmpeg.get_ffmpeg_exe()
-                    subprocess.run([
-                        ffmpeg_path, "-y", "-loglevel", "error",
-                        "-ss", str(start),
-                        "-i", str(audio_path),
-                        "-t", str(end - start),
-                        "-ar", "16000", "-ac", "1",
-                        str(save_path)
-                    ], check=True)
+                    subprocess.run(
+                        [
+                            ffmpeg_path,
+                            "-y",
+                            "-loglevel",
+                            "error",
+                            "-ss",
+                            str(start),
+                            "-i",
+                            str(audio_path),
+                            "-t",
+                            str(end - start),
+                            "-ar",
+                            "16000",
+                            "-ac",
+                            "1",
+                            str(save_path),
+                        ],
+                        check=True,
+                    )
                 except Exception as e:
                     logger.error(f"Failed to save audio sample in api_save_speaker: {e}")
 
@@ -422,34 +465,32 @@ async def api_save_speaker(
                                 "name": name,
                                 "sample_file": filename if save_path.exists() else None,
                                 "source_video_id": video_id,
-                                "source_start": start
-                            }
+                                "source_start": start,
+                            },
                         )
-                    ]
+                    ],
                 )
-    
+
     return {"status": "saved", "enrolled": True}
 
+
 @app.get("/api/videos/{video_id}/export")
-def api_video_export(
-    video_id: int,
-    _: str = Depends(require_access_token)
-):
+def api_video_export(video_id: int, _: str = Depends(require_access_token)):
     settings = get_sqlite_settings()
     with db_connection(settings) as connection:
         rows = connection.execute(
             """
-            SELECT c.text, c.speaker_tags 
+            SELECT c.text, c.speaker_tags
             FROM chunks c
             WHERE c.video_id = ?
             ORDER BY c.chunk_index ASC
             """,
-            (video_id,)
+            (video_id,),
         ).fetchall()
-        
+
         if not rows:
             raise HTTPException(status_code=404, detail="Transcript not found")
-        
+
         # Get speaker names for this video
         s_rows = connection.execute("SELECT speaker_tag, name FROM speakers WHERE video_id = ?", (video_id,)).fetchall()
         s_map = {r["speaker_tag"]: r["name"] for r in s_rows}
@@ -461,31 +502,34 @@ def api_video_export(
                 names = [s_map.get(t, f"Speaker {t}") for t in r["speaker_tags"].split(", ")]
                 speaker_info = f"[{', '.join(names)}]: "
             full_text_lines.append(f"{speaker_info}{r['text']}")
-            
+
         full_text = "\n\n".join(full_text_lines)
         v_row = connection.execute("SELECT title FROM videos WHERE id = ?", (video_id,)).fetchone()
         filename = f"{v_row['title']}.txt" if v_row else f"transcript_{video_id}.txt"
-        
-        return Response(content=full_text, media_type="text/plain", headers={"Content-Disposition": f"attachment; filename={filename}"})
+
+        return Response(
+            content=full_text,
+            media_type="text/plain",
+            headers={"Content-Disposition": f"attachment; filename={filename}"},
+        )
+
 
 @app.get("/api/videos/{video_id}/chunks")
-def api_video_chunks(
-    video_id: int,
-    _: str = Depends(require_access_token)
-):
+def api_video_chunks(video_id: int, _: str = Depends(require_access_token)):
     settings = get_sqlite_settings()
     with db_connection(settings) as connection:
         rows = connection.execute(
             """
-            SELECT c.id, c.start_sec, c.end_sec, c.text 
+            SELECT c.id, c.start_sec, c.end_sec, c.text
             FROM chunks c
             JOIN transcripts t ON t.id = c.transcript_id
             WHERE c.video_id = ?
             ORDER BY c.chunk_index ASC
             """,
-            (video_id,)
+            (video_id,),
         ).fetchall()
         return [dict(row) for row in rows]
+
 
 @app.get("/api/videos")
 def api_list_videos(_: str = Depends(require_access_token)):
@@ -494,23 +538,15 @@ def api_list_videos(_: str = Depends(require_access_token)):
         rows = connection.execute("SELECT id, title FROM videos ORDER BY title ASC").fetchall()
         return [dict(row) for row in rows]
 
+
 @app.post("/api/chunks/{chunk_id}")
-async def api_update_chunk(
-    chunk_id: int,
-    request: Request,
-    _: str = Depends(require_access_token)
-):
+async def api_update_chunk(chunk_id: int, request: Request, _: str = Depends(require_access_token)):
     data = await request.json()
     new_text = data.get("text")
     if new_text is None:
         raise HTTPException(status_code=400, detail="Missing text")
-    
+
     settings = get_sqlite_settings()
-    from app.gemini import UnifiedEmbeddingClient
-    from app.qdrant import get_qdrant_client, get_sparse_embedding_model
-    from app.config import get_qdrant_settings, get_embedding_settings
-    from qdrant_client import models
-    
     embed_client = UnifiedEmbeddingClient(get_embedding_settings())
     qdrant = get_qdrant_client()
     q_settings = get_qdrant_settings()
@@ -519,7 +555,7 @@ async def api_update_chunk(
         # 1. Получаем информацию о чанке (нужна для payload в Qdrant)
         row = connection.execute(
             """
-            SELECT 
+            SELECT
                 c.chunk_index, c.video_id, c.transcript_id, c.start_sec, c.end_sec,
                 t.normalized_json_path,
                 v.title, v.source_file_id, v.source_url
@@ -528,29 +564,30 @@ async def api_update_chunk(
             JOIN videos v ON v.id = c.video_id
             WHERE c.id = ?
             """,
-            (chunk_id,)
+            (chunk_id,),
         ).fetchone()
-        
+
         if not row:
             raise HTTPException(status_code=404, detail="Chunk not found")
-        
+
         # 2. Обновляем PostgreSQL (только текст, векторы ушли в Qdrant)
         connection.execute("UPDATE chunks SET text = ? WHERE id = ?", (new_text, chunk_id))
 
         # 3. Генерируем НОВЫЕ векторы
         try:
             dense_vec, sparse_vec = embed_client.embed_text(new_text, task_type="RETRIEVAL_DOCUMENT")
-            
+
             # 4. Обновляем Qdrant
+            vectors: dict[str, Any] = {"default": dense_vec}
+            if sparse_vec:
+                vectors["text-sparse"] = sparse_vec
+
             qdrant.upsert(
                 collection_name=q_settings.collection_name,
                 points=[
                     models.PointStruct(
                         id=chunk_id,
-                        vector={
-                            "default": dense_vec,
-                            "text-sparse": sparse_vec
-                        },
+                        vector=vectors,
                         payload={
                             "chunk_id": chunk_id,
                             "video_id": row["video_id"],
@@ -562,10 +599,10 @@ async def api_update_chunk(
                             "title": row["title"],
                             "source_file_id": row["source_file_id"],
                             "source_url": row["source_url"],
-                            "is_primary": True
-                        }
+                            "is_primary": True,
+                        },
                     )
-                ]
+                ],
             )
             vector_updated = True
         except Exception as e:
@@ -578,47 +615,47 @@ async def api_update_chunk(
             path = Path(json_path_str)
             if path.exists():
                 try:
-                    import json
                     content = json.loads(path.read_text(encoding="utf-8"))
                     chunk_index = row["chunk_index"]
                     if "utterances" in content and len(content["utterances"]) > chunk_index:
                         content["utterances"][chunk_index]["text"] = new_text
                     elif "chunks" in content and len(content["chunks"]) > chunk_index:
                         content["chunks"][chunk_index]["text"] = new_text
-                    
+
                     if "utterances" in content:
                         content["transcript"] = " ".join(u["text"] for u in content["utterances"])
-                    
+
                     path.write_text(json.dumps(content, ensure_ascii=False, indent=2), encoding="utf-8")
                 except Exception as e:
                     logger.error(f"Failed to sync JSON file {path}: {e}")
 
     return {"status": "updated", "vector_updated": vector_updated}
 
+
 @app.get("/api/drive/ls")
-async def api_drive_ls(
-    folder_id: str | None = None,
-    _: str = Depends(require_access_token)
-):
+async def api_drive_ls(folder_id: str | None = None, _: str = Depends(require_access_token)):
     drive_client = GoogleDriveClient(get_google_drive_settings())
     target_id = folder_id or "root"
-    
+
     try:
         items = drive_client.list_folder_contents(target_id)
         return items
     except Exception as e:
         # If it's an auth error, we return a specific hint for the UI
         if "token" in str(e).lower() or "auth" in str(e).lower() or "400" in str(e).lower():
-            raise HTTPException(status_code=401, detail="Google Drive re-authentication required")
+            raise HTTPException(status_code=401, detail="Google Drive re-authentication required") from e
         import traceback
+
         logger.error(f"Error in drive_ls for folder {target_id}: {e}\n{traceback.format_exc()}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
 
 @app.get("/api/drive/auth/init")
 async def api_drive_auth_init(_: str = Depends(require_access_token)):
     drive_client = GoogleDriveClient(get_google_drive_settings())
-    auth_url, _ = drive_client.auth_init()
+    auth_url, _session_path = drive_client.auth_init()
     return {"auth_url": auth_url}
+
 
 @app.get("/api/drive/auth/callback")
 async def api_drive_auth_callback(request: Request):
@@ -627,11 +664,15 @@ async def api_drive_auth_callback(request: Request):
     try:
         full_url = str(request.url)
         drive_client.auth_exchange(full_url)
-        return HTMLResponse("<html><body><script>window.close();</script>Авторизация успешна! Это окно можно закрыть.</body></html>")
+        return HTMLResponse(
+            "<html><body><script>window.close();</script>Авторизация успешна! Это окно можно закрыть.</body></html>"
+        )
     except Exception as e:
         return HTMLResponse(f"<html><body>Ошибка авторизации: {e}</body></html>")
 
+
 # --- API & STREAMING ---
+
 
 @app.get("/videos/{video_id}/file")
 def video_file(video_id: int, request: Request, token: str | None = None) -> Response:
@@ -647,20 +688,28 @@ def video_file(video_id: int, request: Request, token: str | None = None) -> Res
             "SELECT local_video_path, title, mime_type, source_type, source_file_id FROM videos WHERE id = ?",
             (video_id,),
         ).fetchone()
-    
-    if not row: raise HTTPException(status_code=404)
+
+    if not row:
+        raise HTTPException(status_code=404)
 
     if row["source_type"] == "google_drive" and row["source_file_id"]:
         drive_client = GoogleDriveClient(get_google_drive_settings())
-        drive_response = drive_client.open_media_stream(row["source_file_id"], range_header=request.headers.get("range"))
+        drive_response = drive_client.open_media_stream(
+            row["source_file_id"], range_header=request.headers.get("range")
+        )
         if drive_response:
-            passthrough_headers = {h: drive_response.headers.get(h) for h in ("Content-Range", "Accept-Ranges", "Content-Length") if drive_response.headers.get(h)}
+            passthrough_headers = {
+                h: str(drive_response.headers.get(h))
+                for h in ("Content-Range", "Accept-Ranges", "Content-Length")
+                if drive_response.headers.get(h)
+            }
             return StreamingResponse(
-                (chunk for chunk in iter(lambda: drive_response.read(1024*1024), b'')),
+                (chunk for chunk in iter(lambda: drive_response.read(1024 * 1024), b"")),
                 status_code=getattr(drive_response, "status", 200),
                 media_type=row["mime_type"] or "video/mp4",
-                headers=passthrough_headers
+                headers=passthrough_headers,
             )
 
-    if not row["local_video_path"]: raise HTTPException(status_code=404)
+    if not row["local_video_path"]:
+        raise HTTPException(status_code=404)
     return FileResponse(row["local_video_path"], filename=row["title"], media_type=row["mime_type"] or "video/mp4")

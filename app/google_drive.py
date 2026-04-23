@@ -1,18 +1,21 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 import json
 import logging
-from pathlib import Path
 import secrets
 import time
+from collections.abc import Callable
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any
 from urllib.error import HTTPError
-from urllib.parse import urlencode, quote
+from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
 from app.config import GoogleDriveSettings
 
 logger = logging.getLogger(__name__)
+
 
 @dataclass(frozen=True)
 class DriveFile:
@@ -29,27 +32,25 @@ class GoogleDriveClient:
     def __init__(self, settings: GoogleDriveSettings) -> None:
         self.settings = settings
 
-    def _client_config(self) -> dict:
+    def _client_config(self) -> dict[str, Any]:
         payload = json.loads(self.settings.credentials_path.read_text(encoding="utf-8"))
         installed = payload.get("installed")
         if not installed:
-            raise ValueError(
-                "Expected OAuth installed-app credentials in google.json under 'installed'."
-            )
-        return installed
+            raise ValueError("Expected OAuth installed-app credentials in google.json under 'installed'.")
+        return dict(installed)
 
-    def _token_payload(self) -> dict | None:
+    def _token_payload(self) -> dict[str, Any] | None:
         if not self.settings.token_path.exists():
             return None
-        return json.loads(self.settings.token_path.read_text(encoding="utf-8"))
+        return dict(json.loads(self.settings.token_path.read_text(encoding="utf-8")))
 
-    def _write_token_payload(self, payload: dict) -> None:
+    def _write_token_payload(self, payload: dict[str, Any]) -> None:
         self.settings.token_path.write_text(
             json.dumps(payload, ensure_ascii=True, indent=2),
             encoding="utf-8",
         )
 
-    def _write_auth_session(self, payload: dict) -> Path:
+    def _write_auth_session(self, payload: dict[str, Any]) -> Path:
         session_path = self.settings.token_path.with_suffix(".auth.json")
         session_path.write_text(
             json.dumps(payload, ensure_ascii=True, indent=2),
@@ -57,15 +58,13 @@ class GoogleDriveClient:
         )
         return session_path
 
-    def _read_auth_session(self) -> dict:
+    def _read_auth_session(self) -> dict[str, Any]:
         session_path = self.settings.token_path.with_suffix(".auth.json")
         if not session_path.exists():
-            raise FileNotFoundError(
-                f"Auth session file not found: {session_path}. Run auth_init() first."
-            )
-        return json.loads(session_path.read_text(encoding="utf-8"))
+            raise FileNotFoundError(f"Auth session file not found: {session_path}. Run auth_init() first.")
+        return dict(json.loads(session_path.read_text(encoding="utf-8")))
 
-    def _post_form(self, url: str, data: dict) -> dict:
+    def _post_form(self, url: str, data: dict[str, Any]) -> dict[str, Any]:
         body = urlencode(data).encode("utf-8")
         request = Request(
             url,
@@ -75,12 +74,12 @@ class GoogleDriveClient:
         )
         try:
             with urlopen(request) as response:
-                return json.loads(response.read().decode("utf-8"))
+                return dict(json.loads(response.read().decode("utf-8")))
         except HTTPError as e:
             logger.error(f"HTTP Error during POST to {url}: {e.code} {e.reason}\nBody: {e.read().decode('utf-8')}")
             raise
 
-    def _refresh_access_token(self, refresh_token: str) -> dict:
+    def _refresh_access_token(self, refresh_token: str) -> dict[str, Any]:
         config = self._client_config()
         token_response = self._post_form(
             config["token_uri"],
@@ -102,21 +101,18 @@ class GoogleDriveClient:
         state = secrets.token_urlsafe(24)
         redirect_uri = config["redirect_uris"][0]
 
-        auth_url = (
-            f"{config['auth_uri']}?"
-            + urlencode(
-                {
-                    "client_id": config["client_id"],
-                    "redirect_uri": redirect_uri,
-                    "response_type": "code",
-                    "scope": " ".join(self.settings.scopes),
-                    "access_type": "offline",
-                    "prompt": "consent",
-                    "state": state,
-                    "code_challenge": code_verifier,
-                    "code_challenge_method": "plain",
-                }
-            )
+        auth_url = f"{config['auth_uri']}?" + urlencode(
+            {
+                "client_id": config["client_id"],
+                "redirect_uri": redirect_uri,
+                "response_type": "code",
+                "scope": " ".join(self.settings.scopes),
+                "access_type": "offline",
+                "prompt": "consent",
+                "state": state,
+                "code_challenge": code_verifier,
+                "code_challenge_method": "plain",
+            }
         )
 
         session_path = self._write_auth_session(
@@ -129,7 +125,7 @@ class GoogleDriveClient:
         )
         return auth_url, session_path
 
-    def auth_exchange(self, callback_url: str) -> dict:
+    def auth_exchange(self, callback_url: str) -> dict[str, Any]:
         config = self._client_config()
         session_payload = self._read_auth_session()
 
@@ -170,23 +166,25 @@ class GoogleDriveClient:
             expires_in = int(token_payload.get("expires_in", 0))
             expires_at = created_at + expires_in - 60
 
-            if token_payload.get("access_token") and time.time() < expires_at:
-                return token_payload["access_token"]
+            access_token = token_payload.get("access_token")
+            if access_token and time.time() < expires_at:
+                return str(access_token)
 
-            if token_payload.get("refresh_token"):
-                refreshed = self._refresh_access_token(token_payload["refresh_token"])
-                return refreshed["access_token"]
+            refresh_token = token_payload.get("refresh_token")
+            if refresh_token:
+                refreshed = self._refresh_access_token(str(refresh_token))
+                return str(refreshed["access_token"])
 
         raise RuntimeError(
             "No valid Google token found. Run auth-init, authorize in browser, "
             "then complete auth-exchange with the returned callback URL."
         )
 
-    def _authorized_get_json(self, url: str) -> dict:
+    def _authorized_get_json(self, url: str) -> dict[str, Any]:
         access_token = self._get_access_token()
         request = Request(url, headers={"Authorization": f"Bearer {access_token}"})
         with urlopen(request) as response:
-            return json.loads(response.read().decode("utf-8"))
+            return dict(json.loads(response.read().decode("utf-8")))
 
     def _authorized_request(self, url: str, headers: dict[str, str] | None = None) -> Request:
         request_headers = {"Authorization": f"Bearer {self._get_access_token()}"}
@@ -201,13 +199,10 @@ class GoogleDriveClient:
         page_token: str | None = None,
         query_filter: str | None = None,
         order_by: str | None = None,
-    ) -> dict:
+    ) -> dict[str, Any]:
         params = {
             "pageSize": page_size,
-            "fields": (
-                "nextPageToken,"
-                "files(id,name,mimeType,size,createdTime,modifiedTime,parents)"
-            ),
+            "fields": ("nextPageToken,files(id,name,mimeType,size,createdTime,modifiedTime,parents)"),
             "supportsAllDrives": "true",
             "includeItemsFromAllDrives": "true",
         }
@@ -225,7 +220,7 @@ class GoogleDriveClient:
             logger.error(f"Google Drive API error at {url}: {e}")
             raise
 
-    def _to_drive_files(self, files: list[dict]) -> list[DriveFile]:
+    def _to_drive_files(self, files: list[dict[str, Any]]) -> list[DriveFile]:
         return [
             DriveFile(
                 file_id=item["id"],
@@ -250,9 +245,7 @@ class GoogleDriveClient:
                 "supportsAllDrives": "true",
             }
         )
-        response = self._authorized_get_json(
-            f"https://www.googleapis.com/drive/v3/files/{file_id}?{query}"
-        )
+        response = self._authorized_get_json(f"https://www.googleapis.com/drive/v3/files/{file_id}?{query}")
         return self._to_drive_files([response])[0]
 
     def list_folder_files(
@@ -289,9 +282,9 @@ class GoogleDriveClient:
                 break
         return collected
 
-    def list_folder_contents(self, folder_id: str) -> list[dict]:
+    def list_folder_contents(self, folder_id: str) -> list[dict[str, Any]]:
         """Lists folders and videos. Minimal filtering to guarantee results."""
-        items = []
+        items: list[dict[str, Any]] = []
         seen_ids = set()
 
         if folder_id == "root":
@@ -300,56 +293,61 @@ class GoogleDriveClient:
                 sd_url = "https://www.googleapis.com/drive/v3/drives?pageSize=100"
                 drives_res = self._authorized_get_json(sd_url)
                 for d in drives_res.get("drives", []):
-                    items.append({
-                        "id": d["id"],
-                        "name": f"D: {d['name']}",
-                        "mime_type": "application/vnd.google-apps.folder",
-                        "is_folder": True
-                    })
+                    items.append(
+                        {
+                            "id": d["id"],
+                            "name": f"D: {d['name']}",
+                            "mime_type": "application/vnd.google-apps.folder",
+                            "is_folder": True,
+                        }
+                    )
                     seen_ids.add(d["id"])
-            except Exception: pass
+            except Exception:
+                pass
 
             # 2. Get EVERYTHING (Folders and Videos) that is NOT trashed
             # We don't use 'in parents' here to catch shared items and root items at once
-            query_filter = "trashed = false and (mimeType = 'application/vnd.google-apps.folder' or mimeType contains 'video/')"
+            query_filter = (
+                "trashed = false and (mimeType = 'application/vnd.google-apps.folder' or mimeType contains 'video/')"
+            )
         else:
             # Inside a folder, we MUST filter by parents
-            query_filter = f"'{folder_id}' in parents and trashed = false and (mimeType = 'application/vnd.google-apps.folder' or mimeType contains 'video/')"
-            
-        response = self._list_files_page(
-            page_size=1000,
-            query_filter=query_filter,
-            order_by="name"
-        )
-        
+            query_filter = (
+                f"'{folder_id}' in parents and trashed = false and "
+                "(mimeType = 'application/vnd.google-apps.folder' or mimeType contains 'video/')"
+            )
+
+        response = self._list_files_page(page_size=1000, query_filter=query_filter, order_by="name")
+
         for f in response.get("files", []):
             if f["id"] not in seen_ids:
-                items.append({
-                    "id": f["id"],
-                    "name": f["name"],
-                    "mime_type": f["mimeType"],
-                    "is_folder": f["mimeType"] == "application/vnd.google-apps.folder"
-                })
+                items.append(
+                    {
+                        "id": f["id"],
+                        "name": f["name"],
+                        "mime_type": f["mimeType"],
+                        "is_folder": f["mimeType"] == "application/vnd.google-apps.folder",
+                    }
+                )
                 seen_ids.add(f["id"])
 
         # Sort folders first, then by name
-        return sorted(items, key=lambda x: (not x["is_folder"], x["name"].lower()))
+        return sorted(items, key=lambda x: (not x["is_folder"], str(x["name"]).lower()))
 
     def download_file(
         self,
         file_id: str,
         destination: Path,
-        progress_callback: callable[[int, int], None] | None = None,
+        progress_callback: Callable[[int, int], None] | None = None,
     ) -> Path:
         destination.parent.mkdir(parents=True, exist_ok=True)
-        query = urlencode({"supportsAllDrives": "true", "fields": "id,size"})
-        
+
         meta = self.get_file(file_id)
         total_size = int(meta.size) if meta.size else None
 
         url = f"https://www.googleapis.com/drive/v3/files/{file_id}?alt=media&supportsAllDrives=true"
         request = self._authorized_request(url)
-        
+
         with urlopen(request) as response, destination.open("wb") as file_handle:
             downloaded = 0
             while True:

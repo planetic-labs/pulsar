@@ -1,7 +1,5 @@
-import json
-import os
-from pathlib import Path
 import sys
+from pathlib import Path
 
 # Add project root to path
 ROOT_DIR = Path(__file__).resolve().parents[0]
@@ -11,10 +9,11 @@ if str(ROOT_DIR) not in sys.path:
 from app.config import get_google_drive_settings
 from app.google_drive import GoogleDriveClient
 
+
 def test_drive():
     settings = get_google_drive_settings()
     client = GoogleDriveClient(settings)
-    
+
     print("Testing Google Drive connection...")
     try:
         # Try to list root
@@ -25,7 +24,9 @@ def test_drive():
     except Exception as e:
         print(f"Failed: {e}")
         import traceback
+
         traceback.print_exc()
+
 
 if __name__ == "__main__":
     test_drive()

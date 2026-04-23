@@ -1,9 +1,8 @@
 from __future__ import annotations
 
 import argparse
-from pathlib import Path
 import sys
-
+from pathlib import Path
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
 if str(ROOT_DIR) not in sys.path:
@@ -31,11 +30,7 @@ def main() -> None:
     args = parser.parse_args()
 
     input_path = Path(args.input_path)
-    output_path = (
-        Path(args.output)
-        if args.output
-        else ROOT_DIR / "audio" / f"{input_path.stem}.wav"
-    )
+    output_path = Path(args.output) if args.output else ROOT_DIR / "audio" / f"{input_path.stem}.wav"
 
     extracted = extract_audio(
         input_path,

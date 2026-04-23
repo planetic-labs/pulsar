@@ -1,28 +1,29 @@
 import logging
 import sqlite3
+from collections.abc import Generator
 from contextlib import contextmanager
-from typing import Generator
 from pathlib import Path
 
 from app.config import SQLiteSettings
 
 logger = logging.getLogger(__name__)
 
+
 @contextmanager
 def db_connection(settings: SQLiteSettings) -> Generator[sqlite3.Connection, None, None]:
     """Provide a transactional scope around a series of operations."""
     Path(settings.db_path).parent.mkdir(parents=True, exist_ok=True)
-    
+
     conn = sqlite3.connect(settings.db_path)
     conn.row_factory = sqlite3.Row
-    
+
     # --- PERFORMANCE TUNING ---
     conn.execute("PRAGMA journal_mode=WAL;")
     conn.execute("PRAGMA synchronous=NORMAL;")
     conn.execute("PRAGMA mmap_size=1073741824;")
     conn.execute("PRAGMA cache_size=-102400;")
     conn.execute("PRAGMA foreign_keys=ON;")
-    
+
     try:
         yield conn
         conn.commit()
@@ -31,6 +32,7 @@ def db_connection(settings: SQLiteSettings) -> Generator[sqlite3.Connection, Non
         raise
     finally:
         conn.close()
+
 
 def init_db(connection: sqlite3.Connection) -> None:
     """Initialize the SQLite database schema and indexes."""
@@ -105,10 +107,10 @@ def init_db(connection: sqlite3.Connection) -> None:
             updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
         )
     """)
-    
+
     # 6. Indexes for speed
     connection.execute("CREATE INDEX IF NOT EXISTS idx_chunks_video_id ON chunks(video_id)")
     connection.execute("CREATE INDEX IF NOT EXISTS idx_speakers_video_id ON speakers(video_id)")
-    
+
     connection.commit()
     logger.info("SQLite database simplified (only Deepgram support).")

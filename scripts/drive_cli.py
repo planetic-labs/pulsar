@@ -1,9 +1,8 @@
 from __future__ import annotations
 
 import argparse
-from pathlib import Path
 import sys
-
+from pathlib import Path
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
 if str(ROOT_DIR) not in sys.path:
@@ -61,26 +60,16 @@ def main() -> None:
     if args.command == "auth-exchange":
         token_payload = client.auth_exchange(args.callback_url)
         print(f"Saved token to: {settings.token_path}")
-        print(
-            "Refresh token present:"
-            f" {'yes' if token_payload.get('refresh_token') else 'no'}"
-        )
+        print(f"Refresh token present: {'yes' if token_payload.get('refresh_token') else 'no'}")
         return
 
     if args.command == "list":
         files = client.list_files(page_size=args.page_size)
         for item in files:
-            print(
-                f"id={item.file_id} name={item.name!r} "
-                f"mime_type={item.mime_type!r} size={item.size!r}"
-            )
+            print(f"id={item.file_id} name={item.name!r} mime_type={item.mime_type!r} size={item.size!r}")
         return
 
-    output_path = (
-        Path(args.output)
-        if args.output
-        else settings.download_dir / args.file_id
-    )
+    output_path = Path(args.output) if args.output else settings.download_dir / args.file_id
     saved_path = client.download_file(args.file_id, output_path)
     print(f"Downloaded to: {saved_path}")
 

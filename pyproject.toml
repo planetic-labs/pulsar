@@ -22,5 +22,61 @@ dependencies = [
     "fastembed>=0.5.1",
 ]
 
+[dependency-groups]
+dev = [
+    "pre-commit>=4.6.0",
+    "ruff>=0.15.11",
+    "ty>=0.0.32",
+]
+
 [tool.uv]
 package = false
+
+[tool.ruff]
+line-length = 120
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "W", "B", "C4", "UP"]
+ignore = [
+    "B008", # Allow function calls in argument defaults (FastAPI)
+]
+
+[tool.ruff.lint.per-file-ignores]
+# These files MUST modify sys.path before imports to work correctly as standalone scripts
+"scripts/*" = ["E402"]
+"tests/*" = ["E402"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+
+[tool.ty]
+
+[tool.ty.environment]
+python-version = "3.12"
+
+[tool.ty.analysis]
+# These subprojects have their own isolated environments and dependencies
+allowed-unresolved-imports = [
+    "FlagEmbedding",
+    "torch",
+    "torch.nn.functional",
+    "speechbrain.inference.speaker",
+    "soundfile"
+]
+
+[tool.mypy]
+python_version = "3.12"
+strict = false
+ignore_missing_imports = true
+check_untyped_defs = true
+disallow_untyped_defs = false
+warn_return_any = true
+warn_unused_configs = true
+exclude = [
+    "scripts/.*",
+    "tests/.*",
+    "hf_endpoint/.*",
+    "hf_embed_service/.*"
+]

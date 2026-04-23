@@ -2,9 +2,8 @@ from __future__ import annotations
 
 import argparse
 import json
-from pathlib import Path
 import sys
-
+from pathlib import Path
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
 if str(ROOT_DIR) not in sys.path:
@@ -43,12 +42,10 @@ def main() -> None:
     parser = build_parser()
     args = parser.parse_args()
 
-    normalized_payload = json.loads(
-        Path(args.normalized_transcript_path).read_text(encoding="utf-8")
-    )
+    normalized_payload = json.loads(Path(args.normalized_transcript_path).read_text(encoding="utf-8"))
     chunks = chunk_from_utterances(normalized_payload.get("utterances", []))
 
-    app_settings = get_app_settings()
+    get_app_settings()
     deepgram_settings = get_deepgram_settings()
 
     with db_connection(get_sqlite_settings()) as connection:
