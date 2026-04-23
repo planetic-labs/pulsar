@@ -3,7 +3,7 @@ import json
 import time
 from dataclasses import dataclass, field
 import sqlite3
-from app.config import get_gemini_settings, get_qdrant_settings, get_embedding_settings
+from app.config import get_qdrant_settings, get_embedding_settings
 from typing import Any
 from urllib.request import Request, urlopen
 from urllib.error import HTTPError
@@ -125,7 +125,7 @@ def hybrid_search(
         )[0]
     else:
         # Hybrid Search via Unified Client
-        client = UnifiedEmbeddingClient(get_gemini_settings(), get_embedding_settings())
+        client = UnifiedEmbeddingClient(get_embedding_settings())
         query_dense, query_sparse = client.embed_text(clean_query or "video", task_type="RETRIEVAL_QUERY")
 
         # Fetch candidates for merging
