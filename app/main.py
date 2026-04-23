@@ -289,7 +289,7 @@ async def api_indexed_ls(folder_id: str | None = None, _: str = Depends(require_
         # 2. Get videos in this folder with rich metadata
         video_sql = """
             SELECT
-                v.id, v.title, v.mime_type, v.duration_sec, v.updated_at,
+                v.id, v.title, v.mime_type, v.duration_sec, v.updated_at, v.source_file_id,
                 t.language, t.confidence,
                 (SELECT COUNT(*) FROM chunks c WHERE c.video_id = v.id) as chunk_count
             FROM videos v
@@ -314,7 +314,7 @@ async def api_indexed_ls(folder_id: str | None = None, _: str = Depends(require_
             row = connection.execute("SELECT id, name, parent_id FROM folders WHERE id = ?", (curr,)).fetchone()
             if row:
                 path.append({"id": row["id"], "name": row["name"]})
-                curr = row["parent_id"]
+                curr = str(row["parent_id"]) if row["parent_id"] else None
             else:
                 break
         path.reverse()
@@ -330,6 +330,7 @@ async def api_indexed_ls(folder_id: str | None = None, _: str = Depends(require_
                 "name": r["title"],
                 "is_folder": False,
                 "mime_type": r["mime_type"],
+                "source_file_id": r["source_file_id"],
                 "duration_sec": r["duration_sec"],
                 "chunk_count": r["chunk_count"],
                 "language": r["language"],
@@ -340,6 +341,21 @@ async def api_indexed_ls(folder_id: str | None = None, _: str = Depends(require_
         )
 
     return {"items": items, "path": path}
+
+
+@app.post("/api/v1/indexed/sync")
+async def api_indexed_sync(_: str = Depends(require_access_token)):
+    """Trigger metadata synchronization for all indexed files."""
+    from scripts.sync_titles import sync_indexed_metadata
+
+    try:
+        # Run in executor to avoid blocking the event loop
+        loop = asyncio.get_running_loop()
+        count = await loop.run_in_executor(None, sync_indexed_metadata)
+        return {"status": "success", "updated_count": count}
+    except Exception as e:
+        logger.error(f"Metadata sync failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 @app.get("/health")

@@ -10,10 +10,16 @@
             <h1 class="text-2xl lg:text-3xl font-black text-[#3A3630] tracking-tight">Архив файлов</h1>
             <p class="text-sm text-warm-500 mt-1">Список проиндексированных видео и папок</p>
         </div>
-        <a href="/import" class="bg-brand-500 hover:bg-brand-600 text-[#FAF9F6] px-5 py-2.5 rounded-2xl text-xs font-bold uppercase tracking-widest transition-all shadow-sm flex items-center gap-2">
-            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M12 4v16m8-8H4"></path></svg>
-            Импорт из Drive
-        </a>
+        <div class="flex items-center gap-3">
+            <button onclick="syncMetadata()" id="btn-sync" class="bg-white border border-[#E5E1D8] hover:bg-warm-50 text-warm-500 px-5 py-2.5 rounded-2xl text-xs font-bold uppercase tracking-widest transition-all shadow-sm flex items-center gap-2">
+                <svg id="sync-icon" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>
+                Синхронизировать
+            </button>
+            <a href="/import" class="bg-brand-500 hover:bg-brand-600 text-[#FAF9F6] px-5 py-2.5 rounded-2xl text-xs font-bold uppercase tracking-widest transition-all shadow-sm flex items-center gap-2">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M12 4v16m8-8H4"></path></svg>
+                Импорт из Drive
+            </a>
+        </div>
     </div>
 
     <!-- Toolbar & Breadcrumbs -->
@@ -35,7 +41,7 @@
                     <tr class="bg-[#FAF9F6] border-b border-[#E5E1D8]">
                         <th class="px-6 py-4 text-[10px] font-black text-warm-400 uppercase tracking-widest">Название</th>
                         <th class="px-6 py-4 text-[10px] font-black text-warm-400 uppercase tracking-widest">Длительность</th>
-                        <th class="px-6 py-4 text-[10px] font-black text-warm-400 uppercase tracking-widest">Чанки</th>
+                        <th class="px-6 py-4 text-[10px] font-black text-warm-400 uppercase tracking-widest">Фрагментов</th>
                         <th class="px-6 py-4 text-[10px] font-black text-warm-400 uppercase tracking-widest">Точность</th>
                         <th class="px-6 py-4 text-[10px] font-black text-warm-400 uppercase tracking-widest">Движок</th>
                         <th class="px-6 py-4 text-[10px] font-black text-warm-400 uppercase tracking-widest text-right">Действие</th>
@@ -65,6 +71,7 @@
 </div>
 
 <script>
+let currentFolderId = 'root';
 let currentPath = [];
 
 function formatDuration(seconds) {
@@ -122,6 +129,7 @@ function goUp() {
 }
 
 async function loadFolder(folderId = 'root') {
+    currentFolderId = folderId;
     const listBody = document.getElementById('file-list');
     const loading = document.getElementById('loading-state');
     const empty = document.getElementById('empty-state');
@@ -161,10 +169,16 @@ async function loadFolder(folderId = 'root') {
                         </td>
                     `;
                 } else {
-                    tr.onclick = () => window.location.href = `/?q=v:${item.id}`;
+                    tr.onclick = (e) => {
+                        if (e.target.tagName !== 'A' && !e.target.closest('a')) {
+                            window.location.href = `/?q=v:${item.id}`;
+                        }
+                    };
                     const conf = item.confidence ? Math.round(item.confidence * 100) : 0;
                     const confClass = conf > 90 ? 'text-green-600 bg-green-50 border-green-100' : 'text-warm-500 bg-warm-50 border-warm-100';
                     
+                    const driveLink = item.source_file_id ? `<a href="https://drive.google.com/file/d/${item.source_file_id}/view" target="_blank" class="p-1.5 hover:text-blue-600 transition-colors" title="Открыть в Google Drive"><svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"></path></svg></a>` : '';
+
                     tr.innerHTML = `
                         <td class="px-6 py-3">
                             <div class="flex items-center gap-3">
@@ -179,8 +193,9 @@ async function loadFolder(folderId = 'root') {
                         </td>
                         <td class="px-6 py-3 text-[10px] font-black text-brand-600/70 uppercase tracking-widest">${item.engine || '—'}</td>
                         <td class="px-6 py-3 text-right">
-                             <div class="flex items-center justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                                <span class="text-[9px] font-black text-brand-600 uppercase tracking-widest">Открыть →</span>
+                             <div class="flex items-center justify-end gap-1 text-warm-400">
+                                ${driveLink}
+                                <span class="text-[9px] font-black text-brand-600 uppercase tracking-widest ml-2 opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap">Поиск →</span>
                              </div>
                         </td>
                     `;
@@ -193,6 +208,34 @@ async function loadFolder(folderId = 'root') {
     } finally {
         listBody.style.opacity = '1';
         loading.classList.add('hidden');
+    }
+}
+
+async function syncMetadata() {
+    const btn = document.getElementById('btn-sync');
+    const icon = document.getElementById('sync-icon');
+    
+    btn.disabled = true;
+    icon.classList.add('animate-spin');
+    const originalText = btn.innerText;
+    btn.innerText = 'Синхронизация...';
+    
+    try {
+        const response = await fetch('/api/v1/indexed/sync', { method: 'POST' });
+        const data = await response.json();
+        
+        if (response.ok) {
+            alert(`Синхронизация завершена. Обновлено элементов: ${data.updated_count}`);
+            loadFolder(currentFolderId);
+        } else {
+            alert(`Ошибка: ${data.detail}`);
+        }
+    } catch (e) {
+        alert(`Ошибка сети: ${e}`);
+    } finally {
+        btn.disabled = false;
+        icon.classList.remove('animate-spin');
+        btn.innerHTML = `<svg id="sync-icon" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg> Синхронизировать`;
     }
 }
 

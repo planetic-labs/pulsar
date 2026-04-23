@@ -44,9 +44,9 @@ def rebuild_semantic_index(full_reindex: bool = False):
 
     # Automatically sync titles
     try:
-        from scripts.sync_titles import sync_titles
+        from scripts.sync_titles import sync_indexed_metadata
 
-        sync_titles()
+        sync_indexed_metadata()
     except Exception as e:
         logger.warning(f"Could not sync titles: {e}")
 
