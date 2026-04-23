@@ -70,9 +70,12 @@ class DeepgramEngine(TranscriptionEngine):
 
     def normalize_response(self, raw_payload: dict[str, Any]) -> dict[str, Any]:
         results = raw_payload.get("results", {})
+        metadata = raw_payload.get("metadata", {})
+        duration = metadata.get("duration", 0.0)
+
         channels = results.get("channels", [])
         if not channels:
-            return {"transcript": "", "confidence": 0.0, "utterances": []}
+            return {"transcript": "", "confidence": 0.0, "utterances": [], "duration": duration}
 
         alt = channels[0].get("alternatives", [{}])[0]
 
@@ -109,4 +112,5 @@ class DeepgramEngine(TranscriptionEngine):
             "transcript": alt.get("transcript", ""),
             "confidence": alt.get("confidence", 0.0),
             "utterances": normalized_utterances,
+            "duration": duration,
         }

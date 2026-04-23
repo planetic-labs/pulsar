@@ -153,7 +153,7 @@ def ingest_drive_file(
             source_url=f"https://drive.google.com/file/d/{file_id}/view",
             mime_type=file_meta.mime_type,
             size_bytes=None,
-            duration_sec=None,
+            duration_sec=float(normalized_payload.get("duration", 0.0)) or None,
             local_video_path=str(video_path),
             local_audio_path=str(audio_path),
             processing_status="transcribing",
