@@ -14,6 +14,7 @@ if str(ROOT_DIR) not in sys.path:
 from qdrant_client import models
 
 from app.audio import extract_audio
+from app.chunking import chunk_from_utterances
 from app.config import (
     get_app_settings,
     get_deepgram_settings,
@@ -31,6 +32,7 @@ from app.repository import (
     replace_chunks,
     replace_transcript,
     update_video_status,
+    upsert_folder,
     upsert_video,
 )
 from app.transcription.deepgram import DeepgramEngine
@@ -67,6 +69,19 @@ def ingest_drive_file(
 
     with db_connection(pg_settings) as connection:
         init_db(connection)
+
+        # 0. Сохраняем информацию о родительских папках
+        parent_folder_id = None
+        if file_meta.parents:
+            parent_folder_id = file_meta.parents[0]
+            # Пытаемся сохранить всю цепочку (упрощенно - только текущего родителя)
+            try:
+                p_meta = drive.get_file(parent_folder_id)
+                p_meta.parents[0] if p_meta.parents else None
+                upser_folder_chain(drive, connection, parent_folder_id)
+            except Exception as e:
+                logger.warning(f"Could not upsert folder chain: {e}")
+
         existing = connection.execute(
             "SELECT id, processing_status FROM videos WHERE source_file_id = ?", (file_id,)
         ).fetchone()
@@ -133,6 +148,7 @@ def ingest_drive_file(
             connection,
             source_type="google_drive",
             source_file_id=file_id,
+            parent_folder_id=parent_folder_id,
             title=title or file_meta.name,
             source_url=f"https://drive.google.com/file/d/{file_id}/view",
             mime_type=file_meta.mime_type,
@@ -152,9 +168,8 @@ def ingest_drive_file(
             normalized_json_path=Path(norm_path),
         )
 
-        chunks_data = normalized_payload.get("utterances") or normalized_payload.get("chunks")
-        if not chunks_data:
-            chunks_data = []
+        raw_chunks = normalized_payload.get("utterances") or normalized_payload.get("chunks") or []
+        chunks_data = chunk_from_utterances(raw_chunks)
 
         replace_chunks(
             connection,
@@ -266,6 +281,22 @@ def ingest_drive_file(
 
     set_status(f"=== ГОТОВО: {file_meta.name} ===")
     return {"video_id": video_id, "chunks_count": len(chunks_data)}
+
+
+def upser_folder_chain(drive: GoogleDriveClient, connection: Any, folder_id: str):
+    """Recursively upsert folder chain to DB."""
+    try:
+        f_meta = drive.get_file(folder_id)
+        parent_id = f_meta.parents[0] if f_meta.parents else None
+        upsert_folder(connection, folder_id=folder_id, name=f_meta.name, parent_id=parent_id)
+
+        if parent_id and parent_id != "root":
+            # Check if parent exists to avoid redundant API calls
+            exists = connection.execute("SELECT 1 FROM folders WHERE id = ?", (parent_id,)).fetchone()
+            if not exists:
+                upser_folder_chain(drive, connection, parent_id)
+    except Exception as e:
+        logger.warning(f"Error in upser_folder_chain for {folder_id}: {e}")
 
 
 if __name__ == "__main__":

@@ -256,6 +256,92 @@ async def api_add_ingest_task(
     return {"status": "queued", "file_id": file_id}
 
 
+@app.get("/indexed", response_class=HTMLResponse)
+def indexed_page(request: Request):
+    app_settings = get_app_settings()
+    current_token = get_session_token(request)
+    if current_token != app_settings.access_token:
+        return RedirectResponse(url="/login")
+    return templates.TemplateResponse(request, "indexed.html", {})
+
+
+@app.get("/api/v1/indexed/ls")
+async def api_indexed_ls(folder_id: str | None = None, _: str = Depends(require_access_token)):
+    """Lists indexed folders and videos from local DB with metadata."""
+    pg_settings = get_sqlite_settings()
+    target_id = folder_id if folder_id and folder_id != "root" else None
+
+    with db_connection(pg_settings) as connection:
+        # 1. Get subfolders
+        if target_id:
+            f_rows = connection.execute(
+                "SELECT id, name FROM folders WHERE parent_id = ? ORDER BY name ASC", (target_id,)
+            ).fetchall()
+        else:
+            f_rows = connection.execute(
+                """
+                SELECT id, name FROM folders
+                WHERE parent_id IS NULL OR parent_id NOT IN (SELECT id FROM folders)
+                ORDER BY name ASC
+                """
+            ).fetchall()
+
+        # 2. Get videos in this folder with rich metadata
+        video_sql = """
+            SELECT
+                v.id, v.title, v.mime_type, v.duration_sec, v.updated_at,
+                t.language, t.confidence,
+                (SELECT COUNT(*) FROM chunks c WHERE c.video_id = v.id) as chunk_count
+            FROM videos v
+            LEFT JOIN transcripts t ON t.video_id = v.id
+            WHERE {where_clause}
+            ORDER BY v.title ASC
+        """
+
+        if target_id:
+            where = "v.parent_folder_id = ?"
+            params = (target_id,)
+        else:
+            where = "v.parent_folder_id IS NULL OR v.parent_folder_id NOT IN (SELECT id FROM folders)"
+            params = ()
+
+        v_rows = connection.execute(video_sql.format(where_clause=where), params).fetchall()
+
+        # 3. Get current folder path (breadcrumbs)
+        path = []
+        curr = target_id
+        while curr:
+            row = connection.execute("SELECT id, name, parent_id FROM folders WHERE id = ?", (curr,)).fetchone()
+            if row:
+                path.append({"id": row["id"], "name": row["name"]})
+                curr = row["parent_id"]
+            else:
+                break
+        path.reverse()
+
+    items = []
+    for r in f_rows:
+        items.append({"id": r["id"], "name": r["name"], "is_folder": True, "mime_type": "folder"})
+
+    for r in v_rows:
+        items.append(
+            {
+                "id": r["id"],
+                "name": r["title"],
+                "is_folder": False,
+                "mime_type": r["mime_type"],
+                "duration_sec": r["duration_sec"],
+                "chunk_count": r["chunk_count"],
+                "language": r["language"],
+                "confidence": r["confidence"],
+                "updated_at": r["updated_at"],
+                "engine": "Deepgram",  # Static for now as we only support DG
+            }
+        )
+
+    return {"items": items, "path": path}
+
+
 @app.get("/health")
 def health() -> dict[str, str]:
     return {"status": "ok"}
