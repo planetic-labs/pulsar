@@ -115,10 +115,10 @@ def ingest_drive_file(
 
     # 4. Indexing
     from app.gemini import UnifiedEmbeddingClient
-    from app.config import get_gemini_settings, get_embedding_settings
+    from app.config import get_embedding_settings
     
     set_status("[5/6] Индексация в Qdrant...")
-    embed_client = UnifiedEmbeddingClient(get_gemini_settings(), get_embedding_settings())
+    embed_client = UnifiedEmbeddingClient(get_embedding_settings())
     q_settings = get_qdrant_settings()
     qdrant = get_qdrant_client()
 

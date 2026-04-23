@@ -10,9 +10,9 @@ ROOT_DIR = Path(__file__).resolve().parents[1]
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
-from app.config import get_sqlite_settings, get_qdrant_settings, get_gemini_settings
+from app.config import get_sqlite_settings, get_qdrant_settings, get_embedding_settings
 from app.db import db_connection, init_db
-from app.gemini import GeminiEmbeddingClient
+from app.gemini import UnifiedEmbeddingClient
 from app.qdrant import init_qdrant, get_qdrant_client
 from qdrant_client import models
 
@@ -33,8 +33,7 @@ def rebuild_semantic_index(full_reindex: bool = False):
     init_qdrant()
     qdrant = get_qdrant_client()
     
-    from app.config import get_embedding_settings
-    embed_client = GeminiEmbeddingClient(get_gemini_settings(), get_embedding_settings())
+    embed_client = UnifiedEmbeddingClient(get_embedding_settings())
 
     if full_reindex:
         logger.info(f"Full reindex requested. Clearing Qdrant collection {q_settings.collection_name}...")

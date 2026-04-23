@@ -2,7 +2,7 @@ import logging
 import os
 import socket
 from qdrant_client import QdrantClient, models
-from app.config import get_qdrant_settings, get_gemini_settings
+from app.config import get_qdrant_settings, get_embedding_settings
 
 logger = logging.getLogger(__name__)
 
@@ -40,9 +40,9 @@ def init_qdrant():
     settings = get_qdrant_settings()
     collection_name = settings.collection_name
     
-    # Get dimension from Gemini settings (which we updated to 1024 for BGE-M3)
-    gemini_settings = get_gemini_settings()
-    vector_size = gemini_settings.embedding_dimension
+    # Get dimension from embedding settings (e.g. 1024 for BGE-M3)
+    emb_settings = get_embedding_settings()
+    vector_size = emb_settings.dimension
 
     try:
         collections = client.get_collections().collections

@@ -54,14 +54,6 @@ class EmbeddingSettings:
     dimension: int = 1024
 
 @dataclass(frozen=True)
-class GeminiSettings:
-    api_keys: list[str]
-    embedding_model: str = "models/text-embedding-004"
-    embedding_dimension: int = 1024
-    embedding_rpm_limit: int = 100
-    max_retries: int = 5
-
-@dataclass(frozen=True)
 class LocalAISettings:
     embedding_model: str
     embedding_dimension: int
@@ -103,15 +95,6 @@ def _env_bool(name: str, default: bool) -> bool:
 def get_sqlite_settings() -> SQLiteSettings:
     default_db = Path("/srv/search-ui/data/search_ui.db")
     return SQLiteSettings(db_path=Path(os.getenv("SQLITE_DB_PATH", str(default_db))))
-
-def get_gemini_settings() -> GeminiSettings:
-    raw_keys = os.getenv("GOOGLE_AI_API_KEY", "")
-    api_keys = [k.strip() for k in raw_keys.split(",") if k.strip()]
-    return GeminiSettings(
-        api_keys=api_keys,
-        embedding_model=os.getenv("GOOGLE_AI_MODEL", "text-embedding-004"),
-        embedding_rpm_limit=int(os.getenv("GOOGLE_AI_RPM", "100"))
-    )
 
 def get_embedding_settings() -> EmbeddingSettings:
     return EmbeddingSettings(

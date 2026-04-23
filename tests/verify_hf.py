@@ -1,23 +1,20 @@
-
 import sys
-import os
 from pathlib import Path
 
 # Добавляем корень проекта в путь
-ROOT_DIR = Path(__file__).resolve().parents[0]
-sys.path.insert(0, str(ROOT_DIR))
+ROOT_DIR = Path(__file__).resolve().parents[1]
+if str(ROOT_DIR) not in sys.path:
+    sys.path.insert(0, str(ROOT_DIR))
 
 from app.config import get_embedding_settings
-from app.gemini import UnifiedEmbeddingClient, GeminiSettings
+from app.gemini import UnifiedEmbeddingClient
 
 def test_hf_integration():
     # Загружаем настройки (они подтянутся из .env автоматом)
     hf_settings = get_embedding_settings()
     
-    # Пустой конфиг для Gemini (он нам не нужен для этого теста)
-    gemini_settings = GeminiSettings(api_keys=[], embedding_model="text-embedding-004")
-    
-    client = UnifiedEmbeddingClient(gemini_settings, hf_settings)
+    # Инициализируем клиент (теперь без GeminiSettings)
+    client = UnifiedEmbeddingClient(hf_settings)
     
     print(f"--- Тестирование HF Space ---")
     print(f"URL: {hf_settings.api_url}")

@@ -506,12 +506,12 @@ async def api_update_chunk(
         raise HTTPException(status_code=400, detail="Missing text")
     
     settings = get_sqlite_settings()
-    from app.gemini import GeminiEmbeddingClient
+    from app.gemini import UnifiedEmbeddingClient
     from app.qdrant import get_qdrant_client, get_sparse_embedding_model
-    from app.config import get_qdrant_settings, get_gemini_settings, get_embedding_settings
+    from app.config import get_qdrant_settings, get_embedding_settings
     from qdrant_client import models
     
-    embed_client = GeminiEmbeddingClient(get_gemini_settings(), get_embedding_settings())
+    embed_client = UnifiedEmbeddingClient(get_embedding_settings())
     qdrant = get_qdrant_client()
     q_settings = get_qdrant_settings()
 
