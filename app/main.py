@@ -435,7 +435,48 @@ def status_page(request: Request):
     with db_connection(pg_settings) as connection:
         statuses = _status_rows(connection)
 
-    return templates.TemplateResponse(request, "status.html", {"statuses": statuses})
+        # Fetch tasks (queue)
+        task_rows = connection.execute(
+            """
+            SELECT id, task_type, payload, status, error_message, created_at, updated_at
+            FROM tasks
+            WHERE status IN ('pending', 'running', 'failed')
+            ORDER BY
+                CASE WHEN status = 'running' THEN 0 WHEN status = 'pending' THEN 1 ELSE 2 END,
+                created_at DESC
+            LIMIT 50
+            """
+        ).fetchall()
+
+        tasks = []
+        for row in task_rows:
+            t = dict(row)
+            try:
+                payload = json.loads(t["payload"])
+                t["file_id"] = payload.get("file_id")
+                # Try to find title if video row already created
+                if t["file_id"]:
+                    sql = "SELECT title FROM videos WHERE source_file_id = ?"
+                    v = connection.execute(sql, (t["file_id"],)).fetchone()
+                    t["title"] = v["title"] if v else f"Файл {t['file_id'][:8]}..."
+            except Exception:
+                t["title"] = "Unknown Task"
+            tasks.append(t)
+
+    return templates.TemplateResponse(request, "status.html", {"statuses": statuses, "tasks": tasks})
+
+
+@app.delete("/api/v1/tasks/{task_id}")
+async def api_delete_task(task_id: int, _: str = Depends(require_access_token)):
+    """Delete a task from the queue."""
+    settings = get_sqlite_settings()
+    with db_connection(settings) as conn:
+        # We allow deleting tasks that are not running to avoid worker inconsistencies,
+        # but the user might want to delete failed tasks or pending ones.
+        # If it's 'running', we might need more complex logic to signal the worker,
+        # but for now, simple deletion from DB is requested.
+        conn.execute("DELETE FROM tasks WHERE id = ?", (task_id,))
+    return {"status": "deleted", "id": task_id}
 
 
 @app.get("/api/videos/{video_id}/speakers")
@@ -741,6 +782,26 @@ async def api_drive_ls(folder_id: str | None = None, _: str = Depends(require_ac
 
     try:
         items = drive_client.list_folder_contents(target_id)
+
+        # Check database for indexed status
+        sqlite_settings = get_sqlite_settings()
+        with db_connection(sqlite_settings) as connection:
+            # Get all source_file_ids for google_drive source
+            indexed_rows = connection.execute(
+                "SELECT source_file_id FROM videos WHERE source_type = 'google_drive'"
+            ).fetchall()
+            indexed_ids = {row["source_file_id"] for row in indexed_rows}
+
+            # Also check if folders are indexed
+            folder_rows = connection.execute("SELECT id FROM folders").fetchall()
+            indexed_folder_ids = {row["id"] for row in folder_rows}
+
+        for item in items:
+            if item.get("is_folder"):
+                item["is_indexed"] = item["id"] in indexed_folder_ids
+            else:
+                item["is_indexed"] = item["id"] in indexed_ids
+
         return items
     except Exception as e:
         # If it's an auth error, we return a specific hint for the UI

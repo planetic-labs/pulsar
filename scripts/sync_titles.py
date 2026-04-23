@@ -18,7 +18,7 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(
 logger = logging.getLogger(__name__)
 
 
-def upser_folder_chain(drive: GoogleDriveClient, connection: Any, folder_id: str):
+def upsert_folder_chain(drive: GoogleDriveClient, connection: Any, folder_id: str):
     """Recursively upsert folder chain to DB. Reused from ingest script."""
     try:
         f_meta = drive.get_file(folder_id)
@@ -29,9 +29,9 @@ def upser_folder_chain(drive: GoogleDriveClient, connection: Any, folder_id: str
             # Check if parent exists to avoid redundant API calls
             exists = connection.execute("SELECT 1 FROM folders WHERE id = ?", (parent_id,)).fetchone()
             if not exists:
-                upser_folder_chain(drive, connection, parent_id)
+                upsert_folder_chain(drive, connection, parent_id)
     except Exception as e:
-        logger.warning(f"Error in upser_folder_chain for {folder_id}: {e}")
+        logger.warning(f"Error in upsert_folder_chain for {folder_id}: {e}")
 
 
 def sync_indexed_metadata():
@@ -105,7 +105,7 @@ def sync_indexed_metadata():
                     needs_update = True
                     # If parent changed, ensure new parent chain is indexed
                     if new_parent:
-                        upser_folder_chain(drive_client, conn, new_parent)
+                        upsert_folder_chain(drive_client, conn, new_parent)
 
                 if new_duration and new_duration != row.get("duration_sec"):
                     needs_update = True
