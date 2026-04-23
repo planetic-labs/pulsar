@@ -5,11 +5,31 @@ from pathlib import Path
 from typing import Any
 
 
+def upsert_folder(
+    connection: sqlite3.Connection,
+    *,
+    folder_id: str,
+    name: str,
+    parent_id: str | None = None,
+) -> None:
+    connection.execute(
+        """
+        INSERT INTO folders (id, name, parent_id)
+        VALUES (?, ?, ?)
+        ON CONFLICT(id) DO UPDATE SET
+            name = EXCLUDED.name,
+            parent_id = EXCLUDED.parent_id
+        """,
+        (folder_id, name, parent_id),
+    )
+
+
 def upsert_video(
     connection: sqlite3.Connection,
     *,
     source_type: str,
     source_file_id: str | None,
+    parent_folder_id: str | None = None,
     title: str,
     source_url: str | None,
     mime_type: str | None,
@@ -23,11 +43,12 @@ def upsert_video(
     cursor = connection.execute(
         """
         INSERT INTO videos (
-            source_type, source_file_id, title, source_url,
+            source_type, source_file_id, parent_folder_id, title, source_url,
             mime_type, size_bytes, duration_sec,
             local_video_path, local_audio_path, processing_status
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT (source_type, source_file_id) DO UPDATE SET
+            parent_folder_id = EXCLUDED.parent_folder_id,
             title = EXCLUDED.title,
             source_url = EXCLUDED.source_url,
             mime_type = EXCLUDED.mime_type,
@@ -42,6 +63,7 @@ def upsert_video(
         (
             source_type,
             source_id,
+            parent_folder_id,
             title,
             source_url,
             mime_type,

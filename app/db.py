@@ -36,12 +36,23 @@ def db_connection(settings: SQLiteSettings) -> Generator[sqlite3.Connection, Non
 
 def init_db(connection: sqlite3.Connection) -> None:
     """Initialize the SQLite database schema and indexes."""
-    # 1. Videos table
+    # 0. Folders table (NEW: for directory hierarchy)
+    connection.execute("""
+        CREATE TABLE IF NOT EXISTS folders (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            parent_id TEXT,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+
+    # 1. Videos table (UPDATED: added parent_folder_id)
     connection.execute("""
         CREATE TABLE IF NOT EXISTS videos (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             source_type TEXT NOT NULL,
             source_file_id TEXT NOT NULL,
+            parent_folder_id TEXT,
             title TEXT NOT NULL,
             source_url TEXT,
             mime_type TEXT,
@@ -55,6 +66,13 @@ def init_db(connection: sqlite3.Connection) -> None:
             UNIQUE (source_type, source_file_id)
         )
     """)
+
+    # --- MIGRATION: Add parent_folder_id if missing ---
+    cursor = connection.execute("PRAGMA table_info(videos)")
+    columns = [row["name"] for row in cursor.fetchall()]
+    if "parent_folder_id" not in columns:
+        logger.info("Migrating database: Adding parent_folder_id column to videos table.")
+        connection.execute("ALTER TABLE videos ADD COLUMN parent_folder_id TEXT")
 
     # 2. Transcripts table (SIMPLIFIED: engine removed)
     connection.execute("""
@@ -111,6 +129,7 @@ def init_db(connection: sqlite3.Connection) -> None:
     # 6. Indexes for speed
     connection.execute("CREATE INDEX IF NOT EXISTS idx_chunks_video_id ON chunks(video_id)")
     connection.execute("CREATE INDEX IF NOT EXISTS idx_speakers_video_id ON speakers(video_id)")
+    connection.execute("CREATE INDEX IF NOT EXISTS idx_videos_parent_folder ON videos(parent_folder_id)")
 
     connection.commit()
-    logger.info("SQLite database simplified (only Deepgram support).")
+    logger.info("SQLite database schema initialized.")
