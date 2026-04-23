@@ -471,10 +471,6 @@ async def api_delete_task(task_id: int, _: str = Depends(require_access_token)):
     """Delete a task from the queue."""
     settings = get_sqlite_settings()
     with db_connection(settings) as conn:
-        # We allow deleting tasks that are not running to avoid worker inconsistencies,
-        # but the user might want to delete failed tasks or pending ones.
-        # If it's 'running', we might need more complex logic to signal the worker,
-        # but for now, simple deletion from DB is requested.
         conn.execute("DELETE FROM tasks WHERE id = ?", (task_id,))
     return {"status": "deleted", "id": task_id}
 
@@ -527,94 +523,8 @@ async def api_save_speaker(video_id: int, request: Request, _: str = Depends(req
             (video_id, str(tag), name),
         )
 
-        # 2. Global Enrollment (Voice Fingerprinting)
-        if tag == "primary":
-            chunk = conn.execute(
-                """
-                SELECT start_sec, end_sec FROM chunks WHERE video_id = ?
-                ORDER BY (end_sec - start_sec) DESC LIMIT 1
-                """,
-                (video_id,),
-            ).fetchone()
-        else:
-            chunk = conn.execute(
-                """
-                SELECT start_sec, end_sec FROM chunks
-                WHERE video_id = ? AND speaker_tags LIKE ?
-                ORDER BY (end_sec - start_sec) DESC LIMIT 1
-                """,
-                (video_id, f"%{tag}%"),
-            ).fetchone()
-
-        video = conn.execute("SELECT local_audio_path FROM videos WHERE id = ?", (video_id,)).fetchone()
-
-        if chunk and video and video["local_audio_path"]:
-            # Use centered 20s window for better quality
-            chunk_start = chunk["start_sec"]
-            chunk_end = chunk["end_sec"]
-            chunk_duration = chunk_end - chunk_start
-
-            if chunk_duration > 20.0:
-                mid = chunk_start + (chunk_duration / 2)
-                start = max(chunk_start, mid - 10.0)
-                end = min(chunk_end, start + 20.0)
-            else:
-                start = chunk_start
-                end = chunk_end
-
-            audio_path = Path(video["local_audio_path"])
-            emb = extract_speaker_embedding(audio_path, start, end)
-
-            if emb:
-                sample_id = str(uuid.uuid4())
-                filename = f"{sample_id}.wav"
-                save_path_str = f"/srv/search-ui/storage/voice_samples/{filename}"
-                save_path = Path(save_path_str)
-
-                # Save audio segment
-                try:
-                    ffmpeg_path = imageio_ffmpeg.get_ffmpeg_exe()
-                    subprocess.run(
-                        [
-                            ffmpeg_path,
-                            "-y",
-                            "-loglevel",
-                            "error",
-                            "-ss",
-                            str(start),
-                            "-i",
-                            str(audio_path),
-                            "-t",
-                            str(end - start),
-                            "-ar",
-                            "16000",
-                            "-ac",
-                            "1",
-                            str(save_path),
-                        ],
-                        check=True,
-                    )
-                except Exception as e:
-                    logger.error(f"Failed to save audio sample in api_save_speaker: {e}")
-
-                qdrant = get_qdrant_client()
-                qdrant.upsert(
-                    collection_name="speaker_registry",
-                    points=[
-                        models.PointStruct(
-                            id=sample_id,
-                            vector=emb,
-                            payload={
-                                "name": name,
-                                "sample_file": filename if save_path.exists() else None,
-                                "source_video_id": video_id,
-                                "source_start": start,
-                            },
-                        )
-                    ],
-                )
-
-    return {"status": "saved", "enrolled": True}
+    # 2. Global Enrollment (Voice Fingerprinting) - DISABLED due to 405 error
+    return {"status": "saved", "enrolled": False}
 
 
 @app.get("/api/videos/{video_id}/export")
