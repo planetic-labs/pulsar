@@ -508,11 +508,10 @@ async def api_update_chunk(
     settings = get_sqlite_settings()
     from app.gemini import GeminiEmbeddingClient
     from app.qdrant import get_qdrant_client, get_sparse_embedding_model
-    from app.config import get_qdrant_settings, get_gemini_settings
+    from app.config import get_qdrant_settings, get_gemini_settings, get_embedding_settings
     from qdrant_client import models
     
-    embed_client = GeminiEmbeddingClient(get_gemini_settings())
-    sparse_model = get_sparse_embedding_model()
+    embed_client = GeminiEmbeddingClient(get_gemini_settings(), get_embedding_settings())
     qdrant = get_qdrant_client()
     q_settings = get_qdrant_settings()
 
@@ -540,12 +539,7 @@ async def api_update_chunk(
 
         # 3. Генерируем НОВЫЕ векторы
         try:
-            dense_vec = embed_client.embed_text(new_text, task_type="RETRIEVAL_DOCUMENT")
-            sparse_gen = list(sparse_model.embed([new_text]))[0]
-            sparse_vec = models.SparseVector(
-                indices=sparse_gen.indices.tolist(),
-                values=sparse_gen.values.tolist()
-            )
+            dense_vec, sparse_vec = embed_client.embed_text(new_text, task_type="RETRIEVAL_DOCUMENT")
             
             # 4. Обновляем Qdrant
             qdrant.upsert(

@@ -3,8 +3,6 @@ from __future__ import annotations
 from pathlib import Path
 import subprocess
 
-import imageio_ffmpeg
-
 
 def extract_audio(
     input_path: Path,
@@ -20,9 +18,9 @@ def extract_audio(
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
-    ffmpeg_path = imageio_ffmpeg.get_ffmpeg_exe()
+    # Use system ffmpeg directly
     command = [
-        ffmpeg_path,
+        "ffmpeg",
         "-y",
     ]
     if start_sec is not None:
