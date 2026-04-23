@@ -1,9 +1,7 @@
-from __future__ import annotations
-
 import argparse
 import json
-import time
 import logging
+import time
 import re
 from pathlib import Path
 import sys
@@ -11,35 +9,28 @@ from typing import Any, Callable
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
 if str(ROOT_DIR) not in sys.path:
-    sys.path.insert(0, str(ROOT_DIR))
+    sys.path.append(str(ROOT_DIR))
 
-from app.audio import extract_audio
-from app.chunking import chunk_from_utterances
 from app.config import (
-    get_app_settings, 
-    get_google_drive_settings, 
+    get_google_drive_settings,
+    get_app_settings,
     get_sqlite_settings,
-    get_deepgram_settings
+    get_deepgram_settings,
+    get_qdrant_settings,
 )
 from app.db import db_connection, init_db
 from app.google_drive import GoogleDriveClient
-from app.repository import (
-    get_video_by_source_file_id,
-    replace_chunks,
-    replace_transcript,
-    update_video_status,
-    upsert_video,
-)
-from app.qdrant import get_qdrant_client, get_sparse_embedding_model, init_qdrant
-from qdrant_client import models
-from app.config import get_qdrant_settings
 from app.transcription.deepgram import DeepgramEngine
+from app.repository import upsert_video, replace_transcript, replace_chunks, update_video_status
+from app.audio import extract_audio
+from app.qdrant import get_qdrant_client
+from qdrant_client import models
 
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 def ingest_drive_file(
     file_id: str,
-    *,
     title: str | None = None,
     diarize: bool = True,
     clip_duration_sec: float | None = None,
@@ -65,11 +56,10 @@ def ingest_drive_file(
 
     with db_connection(pg_settings) as connection:
         init_db(connection)
-        existing = get_video_by_source_file_id(
-            connection,
-            source_type="google_drive",
-            source_file_id=file_id,
-        )
+        existing = connection.execute(
+            "SELECT id, processing_status FROM videos WHERE source_file_id = ?",
+            (file_id,)
+        ).fetchone()
     
     dg_settings = get_deepgram_settings()
     engine_id = f"deepgram:{dg_settings.model}"
@@ -81,14 +71,11 @@ def ingest_drive_file(
                 set_status(f"--- Файл {file_id} уже проиндексирован.")
                 return {"video_id": int(existing["id"]), "status": "already_indexed"}
 
-    # Paths
-    clean_name = re.sub(r'[^а-яА-ЯёЁa-zA-Z0-9._-]', '_', file_meta.name)
-    base_name = clean_name[:60]
-    extension = Path(file_meta.name).suffix or ".mp4"
-    safe_name = f"{base_name}_{file_id}{extension}"
+    video_path = app_settings.storage_dir / "downloads" / f"{file_id}.mp4"
+    audio_path = app_settings.storage_dir / "audio" / f"{file_id}.wav"
     
-    video_path = drive_settings.download_dir / safe_name
-    audio_path = ROOT_DIR / "audio" / f"{base_name}_{file_id}.wav"
+    video_path.parent.mkdir(parents=True, exist_ok=True)
+    audio_path.parent.mkdir(parents=True, exist_ok=True)
     
     # 1. Download
     if not video_path.exists():
@@ -127,18 +114,14 @@ def ingest_drive_file(
         norm_path.write_text(json.dumps(normalized_payload, ensure_ascii=False, indent=2), encoding="utf-8")
 
     # 4. Indexing
-    from app.gemini import GeminiEmbeddingClient
-    from app.config import get_gemini_settings
+    from app.gemini import UnifiedEmbeddingClient
+    from app.config import get_gemini_settings, get_embedding_settings
     
     set_status("[5/6] Индексация в Qdrant...")
-    embed_client = GeminiEmbeddingClient(get_gemini_settings())
-    sparse_model = get_sparse_embedding_model()
+    embed_client = UnifiedEmbeddingClient(get_gemini_settings(), get_embedding_settings())
     q_settings = get_qdrant_settings()
-    init_qdrant()
     qdrant = get_qdrant_client()
 
-    chunks = chunk_from_utterances(normalized_payload.get("utterances", []))
-    
     with db_connection(pg_settings) as connection:
         video_id = upsert_video(
             connection,
@@ -147,7 +130,7 @@ def ingest_drive_file(
             title=title or file_meta.name,
             source_url=f"https://drive.google.com/file/d/{file_id}/view",
             mime_type=file_meta.mime_type,
-            size_bytes=int(file_meta.size) if file_meta.size else None,
+            size_bytes=None,
             duration_sec=None,
             local_video_path=str(video_path),
             local_audio_path=str(audio_path),
@@ -157,12 +140,12 @@ def ingest_drive_file(
         transcript_id = replace_transcript(
             connection,
             video_id=video_id,
-            language="ru",
-            confidence=normalized_payload.get("confidence", 1.0),
-            raw_json_path=raw_path,
-            normalized_json_path=norm_path,
+            engine_id=engine_id,
+            raw_json_path=str(raw_path),
+            normalized_json_path=str(norm_path),
         )
-        
+
+        chunks = normalized_payload.get("utterances") or normalized_payload.get("chunks")
         replace_chunks(
             connection,
             video_id=video_id,
@@ -179,20 +162,20 @@ def ingest_drive_file(
             texts = [row["text"] for row in rows]
             try:
                 set_status(f"--- Генерация эмбеддингов ({len(rows)} фрагментов)...")
-                dense_vectors = embed_client.embed_batch(texts)
-                sparse_vectors_gen = list(sparse_model.embed(texts))
+                # One call gets BOTH dense and sparse vectors via API
+                embeddings_data = embed_client.embed_batch(texts)
                 
                 points = []
                 for idx, row in enumerate(rows):
-                    sparse_gen = sparse_vectors_gen[idx]
-                    sparse_vec = models.SparseVector(
-                        indices=sparse_gen.indices.tolist(),
-                        values=sparse_gen.values.tolist()
-                    )
+                    dense_vec, sparse_vec = embeddings_data[idx]
                     
+                    vectors = {"default": dense_vec}
+                    if sparse_vec:
+                        vectors["text-sparse"] = sparse_vec
+
                     points.append(models.PointStruct(
                         id=row["id"],
-                        vector={"default": dense_vectors[idx], "text-sparse": sparse_vec},
+                        vector=vectors,
                         payload={
                             "chunk_id": row["id"],
                             "video_id": video_id,
@@ -205,7 +188,6 @@ def ingest_drive_file(
                             "title": title or file_meta.name,
                             "source_file_id": file_id,
                             "source_url": f"https://drive.google.com/file/d/{file_id}/view",
-                            "engine": engine_id,
                             "is_primary": True
                         }
                     ))

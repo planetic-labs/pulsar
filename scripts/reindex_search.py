@@ -13,7 +13,7 @@ if str(ROOT_DIR) not in sys.path:
 from app.config import get_sqlite_settings, get_qdrant_settings, get_gemini_settings
 from app.db import db_connection, init_db
 from app.gemini import GeminiEmbeddingClient
-from app.qdrant import init_qdrant, get_qdrant_client, get_sparse_embedding_model
+from app.qdrant import init_qdrant, get_qdrant_client
 from qdrant_client import models
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -32,8 +32,9 @@ def rebuild_semantic_index(full_reindex: bool = False):
     
     init_qdrant()
     qdrant = get_qdrant_client()
-    sparse_model = get_sparse_embedding_model()
-    dense_client = GeminiEmbeddingClient(get_gemini_settings())
+    
+    from app.config import get_embedding_settings
+    embed_client = GeminiEmbeddingClient(get_gemini_settings(), get_embedding_settings())
 
     if full_reindex:
         logger.info(f"Full reindex requested. Clearing Qdrant collection {q_settings.collection_name}...")
@@ -85,24 +86,17 @@ def rebuild_semantic_index(full_reindex: bool = False):
             if not texts: continue
 
             try:
-                # 1. Batch Dense
-                dense_vectors = dense_client.embed_batch(texts)
-                
-                # 2. Batch Sparse
-                sparse_vectors_gen = list(sparse_model.embed(texts))
+                # 1. Get both Dense and Sparse embeddings from unified client
+                embeddings_data = embed_client.embed_batch(texts)
                 
                 points = []
                 for idx, row in enumerate(batch_rows):
-                    sparse_gen = sparse_vectors_gen[idx]
-                    sparse_vec = models.SparseVector(
-                        indices=sparse_gen.indices.tolist(),
-                        values=sparse_gen.values.tolist()
-                    )
+                    dense_vec, sparse_vec = embeddings_data[idx]
                     
                     points.append(models.PointStruct(
                         id=row["chunk_id"],
                         vector={
-                            "default": dense_vectors[idx],
+                            "default": dense_vec,
                             "text-sparse": sparse_vec
                         },
                         payload={

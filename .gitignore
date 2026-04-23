@@ -12,3 +12,4 @@ transcripts/
 data/
 models_cache/
 core
+storage/

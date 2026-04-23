@@ -1,7 +1,8 @@
 import logging
+import os
+import socket
 from qdrant_client import QdrantClient, models
-from fastembed import SparseTextEmbedding
-from app.config import get_qdrant_settings
+from app.config import get_qdrant_settings, get_gemini_settings
 
 logger = logging.getLogger(__name__)
 
@@ -12,38 +13,59 @@ def get_qdrant_client() -> QdrantClient:
     global _client
     if _client is None:
         settings = get_qdrant_settings()
-        _client = QdrantClient(url=settings.url)
+        url = settings.url
+        
+        # Check if running outside Docker and 'qdrant' host is not reachable
+        if "qdrant" in url and not os.getenv("DOCKER_CONTAINER"):
+            try:
+                socket.gethostbyname("qdrant")
+            except socket.gaierror:
+                logger.info("Host 'qdrant' not found, falling back to localhost:6333")
+                url = url.replace("qdrant", "localhost")
+        
+        _client = QdrantClient(url=url)
     return _client
 
-def get_sparse_embedding_model() -> SparseTextEmbedding:
+def get_sparse_embedding_model():
     global _sparse_model
     if _sparse_model is None:
-        # BM25 model for sparse vectors
-        # Explicitly setting language to 'russian' to optimize tokenization
-        _sparse_model = SparseTextEmbedding(model_name="Qdrant/bm25", language="russian")
+        from fastembed import SparseTextEmbedding
+        # prithvida/fastembed-bm25 is standard and supports Russian well
+        logger.info("Initializing FastEmbed BM25 (sparse) model...")
+        _sparse_model = SparseTextEmbedding(model_name="prithvida/fastembed-bm25")
     return _sparse_model
 
 def init_qdrant():
     client = get_qdrant_client()
     settings = get_qdrant_settings()
     collection_name = settings.collection_name
+    
+    # Get dimension from Gemini settings (which we updated to 1024 for BGE-M3)
+    gemini_settings = get_gemini_settings()
+    vector_size = gemini_settings.embedding_dimension
 
-    collections = client.get_collections().collections
-    exists = any(c.name == collection_name for c in collections)
+    try:
+        collections = client.get_collections().collections
+        exists = any(c.name == collection_name for c in collections)
+    except Exception as e:
+        logger.error(f"Failed to connect to Qdrant: {e}")
+        raise e
 
     if not exists:
-        logger.info(f"Creating Qdrant collection: {collection_name}")
+        logger.info(f"Creating Qdrant collection: {collection_name} (size={vector_size})")
         client.create_collection(
             collection_name=collection_name,
             vectors_config={
                 "default": models.VectorParams(
-                    size=768, 
+                    size=vector_size, 
                     distance=models.Distance.COSINE
                 )
             },
             sparse_vectors_config={
                 "text-sparse": models.SparseVectorParams(
-                    modifier=models.Modifier.IDF
+                    index=models.SparseIndexParams(
+                        on_disk=True
+                    )
                 )
             }
         )

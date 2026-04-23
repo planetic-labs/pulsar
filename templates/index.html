@@ -100,12 +100,21 @@
                                     {{ item.start_ts }}
                                 </span>
                                 <!-- Search Scores Stats -->
-                                <div class="hidden sm:flex items-center gap-1.5 lg:gap-2 text-[8px] lg:text-[9px] font-mono font-bold bg-[#F2F0EB]/50 px-1.5 lg:px-2 py-0.5 lg:py-1 rounded-lg border border-[#E5E1D8]/50 opacity-60 group-hover:opacity-100 transition-opacity">
-                                    <span class="text-blue-600" title="Keyword Score">K:{{ "%.2f"|format(item.lexical_score) }}</span>
-                                    <div class="w-px h-2 bg-[#E5E1D8]"></div>
-                                    <span class="text-purple-600" title="Semantic Score">S:{{ "%.2f"|format(item.semantic_score) }}</span>
-                                    <div class="w-px h-2 bg-[#E5E1D8]"></div>
-                                    <span class="text-[#3A3630]" title="Total RRF Score">T:{{ "%.2f"|format(item.combined_score) }}</span>
+                                <div class="flex items-center gap-1.5 lg:gap-2 text-[8px] lg:text-[9px] font-mono font-bold bg-white px-2 py-1 rounded-lg border border-[#E5E1D8] shadow-sm group-hover:border-brand-200 transition-all">
+                                    <div class="flex flex-col items-center leading-none px-1">
+                                        <span class="text-blue-500 mb-0.5" style="font-size: 7px; text-transform: uppercase;">Lexical</span>
+                                        <span class="text-blue-700">{{ "%.2f"|format(item.lexical_score) }}</span>
+                                    </div>
+                                    <div class="w-px h-6 bg-[#E5E1D8]"></div>
+                                    <div class="flex flex-col items-center leading-none px-1">
+                                        <span class="text-purple-500 mb-0.5" style="font-size: 7px; text-transform: uppercase;">Semantic</span>
+                                        <span class="text-purple-700">{{ "%.2f"|format(item.semantic_score) }}</span>
+                                    </div>
+                                    <div class="w-px h-6 bg-[#E5E1D8]"></div>
+                                    <div class="flex flex-col items-center leading-none px-1">
+                                        <span class="text-brand-500 mb-0.5" style="font-size: 7px; text-transform: uppercase;">Total</span>
+                                        <span class="text-[#3A3630]">{{ "%.2f"|format(item.combined_score) }}</span>
+                                    </div>
                                 </div>
                             </div>
                         </div>

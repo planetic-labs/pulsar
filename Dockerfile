@@ -2,9 +2,6 @@ FROM python:3.12-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
-ENV STREAMLIT_SERVER_HEADLESS=true
-ENV STREAMLIT_SERVER_PORT=8501
-ENV STREAMLIT_SERVER_ADDRESS=0.0.0.0
 
 WORKDIR /srv/search-ui
 
@@ -39,6 +36,5 @@ RUN uv sync
 COPY app ./app
 COPY scripts ./scripts
 
-# По умолчанию ничего не запускаем, команда будет в docker-compose
+# FastAPI port
 EXPOSE 8000
-EXPOSE 8501

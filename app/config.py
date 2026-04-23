@@ -47,10 +47,17 @@ class DeepgramSettings:
     base_url: str
 
 @dataclass(frozen=True)
+class EmbeddingSettings:
+    api_url: str
+    api_token: str
+    model_id: str = "BAAI/bge-m3"
+    dimension: int = 1024
+
+@dataclass(frozen=True)
 class GeminiSettings:
     api_keys: list[str]
     embedding_model: str = "models/text-embedding-004"
-    embedding_dimension: int = 768
+    embedding_dimension: int = 1024
     embedding_rpm_limit: int = 100
     max_retries: int = 5
 
@@ -67,7 +74,7 @@ class VoiceSettings:
 @dataclass(frozen=True)
 class QdrantSettings:
     url: str
-    collection_name: str = "chunks"
+    collection_name: str = "chunks_m3"
 
 @dataclass(frozen=True)
 class AppSettings:
@@ -106,9 +113,16 @@ def get_gemini_settings() -> GeminiSettings:
         embedding_rpm_limit=int(os.getenv("GOOGLE_AI_RPM", "100"))
     )
 
+def get_embedding_settings() -> EmbeddingSettings:
+    return EmbeddingSettings(
+        api_url=os.getenv("EMBEDDING_API_URL", ""),
+        api_token=os.getenv("EMBEDDING_API_TOKEN", "")
+    )
+
 def get_qdrant_settings() -> QdrantSettings:
     return QdrantSettings(
-        url=os.getenv("QDRANT_URL", "http://qdrant:6333")
+        url=os.getenv("QDRANT_URL", "http://qdrant:6333"),
+        collection_name=os.getenv("QDRANT_COLLECTION", "chunks_m3")
     )
 
 def get_local_ai_settings() -> LocalAISettings:
