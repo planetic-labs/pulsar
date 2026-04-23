@@ -52,8 +52,10 @@ class UnifiedEmbeddingClient:
         headers = {"Authorization": f"Bearer {self.settings.api_token}"} if self.settings.api_token else {}
 
         results = []
-        for i in range(0, len(texts), 50):
+        total = len(texts)
+        for i in range(0, total, 50):
             batch = texts[i : i + 50]
+            logger.info(f"AI: Обработка батча {i // 50 + 1} (фрагменты {i} - {min(i + 50, total)} из {total})...")
             payload = {"model": self.settings.model_id, "input": batch}
             try:
                 with httpx.Client(timeout=120.0) as client:

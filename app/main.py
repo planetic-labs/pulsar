@@ -3,13 +3,10 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-import subprocess
-import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
 
-import imageio_ffmpeg
 from fastapi import Depends, FastAPI, Form, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
@@ -31,8 +28,7 @@ from app.google_drive import GoogleDriveClient
 from app.qdrant import get_qdrant_client, init_qdrant
 from app.schemas import VideoStatusItem
 from app.search import hybrid_search
-from app.voice import extract_speaker_embedding
-from app.worker import get_worker, logs_queue, set_main_loop
+from app.worker import broadcaster, get_worker, set_main_loop
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -94,35 +90,31 @@ def _status_rows(connection: Any) -> list[VideoStatusItem]:
 @app.websocket("/api/v1/logs/stream")
 async def websocket_logs(websocket: WebSocket):
     await websocket.accept()
+
+    q = broadcaster.register()
     logger.info(f"WebSocket client connected from {websocket.client}")
     try:
         while True:
-            # Get log from queue
-            log_msg = await logs_queue.get()
+            # Get log from queue specific to this client
+            log_msg = await q.get()
             await websocket.send_text(log_msg)
     except WebSocketDisconnect:
         logger.info("WebSocket client disconnected")
     except Exception as e:
         logger.error(f"WebSocket error: {e}")
+    finally:
+        broadcaster.unregister(q)
 
 
 @app.get("/api/v1/logs/poll")
 async def api_poll_logs():
     """Fallback endpoint for environments where WebSockets are blocked."""
-    msgs = []
-    # Collect all currently available messages without blocking
-    try:
-        while not logs_queue.empty():
-            msgs.append(logs_queue.get_nowait())
-    except Exception:
-        pass
-    return {"logs": msgs}
+    return {"status": "polling_not_implemented", "hint": "Use WebSockets"}
 
 
 @app.get("/api/v1/logs/stream")
 async def websocket_logs_get():
-    logger.info("HTTP GET request to log stream endpoint")
-    return {"status": "log_stream_active", "transport": "websocket_required", "fallback_available": "/api/v1/logs/poll"}
+    return {"status": "log_stream_active", "transport": "websocket_required"}
 
 
 # --- SPEAKERS ROUTES ---
@@ -157,69 +149,9 @@ async def api_register_speaker(
     name: str = Form(...),
     _: str = Depends(require_access_token),
 ):
-    settings = get_sqlite_settings()
-
-    # 1. Получаем путь к видео
-    with db_connection(settings) as conn:
-        video = conn.execute("SELECT local_audio_path FROM videos WHERE id = ?", (video_id,)).fetchone()
-        if not video or not video["local_audio_path"]:
-            raise HTTPException(status_code=404, detail="Audio file not found for this video")
-        audio_path = Path(video["local_audio_path"])
-
-    # 2. Извлекаем эмбеддинг
-    embedding = extract_speaker_embedding(audio_path, start_sec, end_sec)
-    if not embedding:
-        raise HTTPException(status_code=500, detail="Failed to extract voice embedding")
-
-    # 3. Вырезаем и сохраняем аудио-фрагмент
-    sample_id = str(uuid.uuid4())
-    filename = f"{sample_id}.wav"
-    save_path = Path("/srv/search-ui/storage/voice_samples") / filename
-
-    try:
-        duration = end_sec - start_sec
-        ffmpeg_path = imageio_ffmpeg.get_ffmpeg_exe()
-        cmd = [
-            ffmpeg_path,
-            "-y",
-            "-loglevel",
-            "error",
-            "-ss",
-            str(start_sec),
-            "-i",
-            str(audio_path),
-            "-t",
-            str(duration),
-            "-ar",
-            "16000",
-            "-ac",
-            "1",
-            str(save_path),
-        ]
-        subprocess.run(cmd, check=True)
-    except Exception as e:
-        logger.error(f"Failed to save audio sample: {e}")
-        # Продолжаем без файла, если эмбеддинг есть
-
-    # 4. Сохраняем в Qdrant
-    q_client = get_qdrant_client()
-    q_client.upsert(
-        collection_name="speaker_registry",
-        points=[
-            models.PointStruct(
-                id=sample_id,
-                vector=embedding,
-                payload={
-                    "name": name,
-                    "sample_file": filename if save_path.exists() else None,
-                    "source_video_id": video_id,
-                    "source_start": start_sec,
-                },
-            )
-        ],
-    )
-
-    return {"status": "success", "id": sample_id, "name": name}
+    # Logic to save voice samples and embeddings is disabled to save space and avoid 405 errors
+    logger.info(f"Manual speaker registration for '{name}' received but ignored (storage disabled).")
+    return {"status": "success", "info": "Global enrollment disabled for now."}
 
 
 @app.delete("/api/speakers/{speaker_id}")
@@ -229,15 +161,14 @@ async def api_delete_speaker(speaker_id: str, _: str = Depends(require_access_to
     # Пытаемся найти инфу о файле перед удалением
     try:
         points = q_client.retrieve(collection_name="speaker_registry", ids=[speaker_id])
-        if points:
-            if points[0].payload:
-                filename = points[0].payload.get("sample_file")
-                if filename:
-                    file_path = Path("/srv/search-ui/storage/voice_samples") / filename
-                    if file_path.exists():
-                        file_path.unlink()
-    except Exception as e:
-        logger.warning(f"Could not delete audio file for speaker {speaker_id}: {e}")
+        if points and points[0].payload:
+            filename = points[0].payload.get("sample_file")
+            if filename:
+                file_path = Path("/srv/search-ui/storage/voice_samples") / filename
+                if file_path.exists():
+                    file_path.unlink()
+    except Exception:
+        pass
 
     q_client.delete(collection_name="speaker_registry", points_selector=models.PointIdsList(points=[speaker_id]))
     return {"status": "deleted"}
@@ -251,7 +182,7 @@ async def api_add_ingest_task(
     with db_connection(settings) as conn:
         conn.execute(
             "INSERT INTO tasks (task_type, payload) VALUES (?, ?)",
-            ("ingest_video", json.dumps({"file_id": file_id, "diarize": diarize})),
+            ("stage_1_download", json.dumps({"file_id": file_id, "diarize": diarize})),
         )
     return {"status": "queued", "file_id": file_id}
 
@@ -274,17 +205,15 @@ async def api_indexed_ls(folder_id: str | None = None, _: str = Depends(require_
     with db_connection(pg_settings) as connection:
         # 1. Get subfolders
         if target_id:
-            f_rows = connection.execute(
-                "SELECT id, name FROM folders WHERE parent_id = ? ORDER BY name ASC", (target_id,)
-            ).fetchall()
+            sql_f = "SELECT id, name FROM folders WHERE parent_id = ? ORDER BY name ASC"
+            f_rows = connection.execute(sql_f, (target_id,)).fetchall()
         else:
-            f_rows = connection.execute(
-                """
+            sql_f = """
                 SELECT id, name FROM folders
                 WHERE parent_id IS NULL OR parent_id NOT IN (SELECT id FROM folders)
                 ORDER BY name ASC
                 """
-            ).fetchall()
+            f_rows = connection.execute(sql_f).fetchall()
 
         # 2. Get videos in this folder with rich metadata
         video_sql = """
@@ -336,7 +265,7 @@ async def api_indexed_ls(folder_id: str | None = None, _: str = Depends(require_
                 "language": r["language"],
                 "confidence": r["confidence"],
                 "updated_at": r["updated_at"],
-                "engine": "Deepgram",  # Static for now as we only support DG
+                "engine": "Deepgram",
             }
         )
 
@@ -408,8 +337,6 @@ def index_page(request: Request, q: str | None = None):
         with db_connection(pg_settings) as connection:
             items = hybrid_search(connection, q, limit=app_settings.results_limit)
             results = items
-            if results:
-                logger.info(f"DEBUG: First result chunk_id={results[0].chunk_id}")
 
     return templates.TemplateResponse(request, "index.html", {"query": q or "", "results": results})
 
@@ -436,17 +363,12 @@ def status_page(request: Request):
         statuses = _status_rows(connection)
 
         # Fetch tasks (queue)
-        task_rows = connection.execute(
-            """
-            SELECT id, task_type, payload, status, error_message, created_at, updated_at
-            FROM tasks
+        sql_t = """
+            SELECT * FROM tasks
             WHERE status IN ('pending', 'running', 'failed')
-            ORDER BY
-                CASE WHEN status = 'running' THEN 0 WHEN status = 'pending' THEN 1 ELSE 2 END,
-                created_at DESC
-            LIMIT 50
-            """
-        ).fetchall()
+            ORDER BY created_at DESC LIMIT 50
+        """
+        task_rows = connection.execute(sql_t).fetchall()
 
         tasks = []
         for row in task_rows:
@@ -456,11 +378,13 @@ def status_page(request: Request):
                 t["file_id"] = payload.get("file_id")
                 # Try to find title if video row already created
                 if t["file_id"]:
-                    sql = "SELECT title FROM videos WHERE source_file_id = ?"
-                    v = connection.execute(sql, (t["file_id"],)).fetchone()
+                    sql_v = "SELECT title FROM videos WHERE source_file_id = ?"
+                    v = connection.execute(sql_v, (t["file_id"],)).fetchone()
                     t["title"] = v["title"] if v else f"Файл {t['file_id'][:8]}..."
+                else:
+                    t["title"] = payload.get("title", "AI Indexing")
             except Exception:
-                t["title"] = "Unknown Task"
+                t["title"] = "Task"
             tasks.append(t)
 
     return templates.TemplateResponse(request, "status.html", {"statuses": statuses, "tasks": tasks})
@@ -514,14 +438,12 @@ async def api_save_speaker(video_id: int, request: Request, _: str = Depends(req
     settings = get_sqlite_settings()
     with db_connection(settings) as conn:
         # 1. Save to local SQLite
-        conn.execute(
-            """
+        sql_s = """
             INSERT INTO speakers (video_id, speaker_tag, name)
             VALUES (?, ?, ?)
             ON CONFLICT(video_id, speaker_tag) DO UPDATE SET name = EXCLUDED.name
-            """,
-            (video_id, str(tag), name),
-        )
+        """
+        conn.execute(sql_s, (video_id, str(tag), name))
 
     # 2. Global Enrollment (Voice Fingerprinting) - DISABLED due to 405 error
     return {"status": "saved", "enrolled": False}
@@ -707,26 +629,20 @@ async def api_drive_ls(folder_id: str | None = None, _: str = Depends(require_ac
             indexed_folder_ids = {row["id"] for row in folder_rows}
 
         for item in items:
-            if item.get("is_folder"):
-                item["is_indexed"] = item["id"] in indexed_folder_ids
-            else:
-                item["is_indexed"] = item["id"] in indexed_ids
+            item["is_indexed"] = item["id"] in (indexed_folder_ids if item.get("is_folder") else indexed_ids)
 
         return items
     except Exception as e:
         # If it's an auth error, we return a specific hint for the UI
-        if "token" in str(e).lower() or "auth" in str(e).lower() or "400" in str(e).lower():
+        if "token" in str(e).lower() or "auth" in str(e).lower():
             raise HTTPException(status_code=401, detail="Google Drive re-authentication required") from e
-        import traceback
-
-        logger.error(f"Error in drive_ls for folder {target_id}: {e}\n{traceback.format_exc()}")
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 @app.get("/api/drive/auth/init")
-async def api_drive_auth_init(_: str = Depends(require_access_token)):
+async def api_drive_auth_init(_token: str = Depends(require_access_token)):
     drive_client = GoogleDriveClient(get_google_drive_settings())
-    auth_url, _session_path = drive_client.auth_init()
+    auth_url, _ = drive_client.auth_init()
     return {"auth_url": auth_url}
 
 
@@ -735,13 +651,10 @@ async def api_drive_auth_callback(request: Request):
     # This is the endpoint Google redirects back to
     drive_client = GoogleDriveClient(get_google_drive_settings())
     try:
-        full_url = str(request.url)
-        drive_client.auth_exchange(full_url)
-        return HTMLResponse(
-            "<html><body><script>window.close();</script>Авторизация успешна! Это окно можно закрыть.</body></html>"
-        )
+        drive_client.auth_exchange(str(request.url))
+        return HTMLResponse("<html><body><script>window.close();</script>Авторизация успешна!</body></html>")
     except Exception as e:
-        return HTMLResponse(f"<html><body>Ошибка авторизации: {e}</body></html>")
+        return HTMLResponse(f"<html><body>Ошибка: {e}</body></html>")
 
 
 # --- API & STREAMING ---
@@ -758,7 +671,7 @@ def video_file(video_id: int, request: Request, token: str | None = None) -> Res
     pg_settings = get_sqlite_settings()
     with db_connection(pg_settings) as connection:
         row = connection.execute(
-            "SELECT local_video_path, title, mime_type, source_type, source_file_id FROM videos WHERE id = ?",
+            "SELECT * FROM videos WHERE id = ?",
             (video_id,),
         ).fetchone()
 
@@ -771,7 +684,7 @@ def video_file(video_id: int, request: Request, token: str | None = None) -> Res
             row["source_file_id"], range_header=request.headers.get("range")
         )
         if drive_response:
-            passthrough_headers = {
+            headers = {
                 h: str(drive_response.headers.get(h))
                 for h in ("Content-Range", "Accept-Ranges", "Content-Length")
                 if drive_response.headers.get(h)
@@ -780,7 +693,7 @@ def video_file(video_id: int, request: Request, token: str | None = None) -> Res
                 (chunk for chunk in iter(lambda: drive_response.read(1024 * 1024), b"")),
                 status_code=getattr(drive_response, "status", 200),
                 media_type=row["mime_type"] or "video/mp4",
-                headers=passthrough_headers,
+                headers=headers,
             )
 
     if not row["local_video_path"]:
