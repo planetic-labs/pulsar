@@ -78,7 +78,7 @@ def ingest_drive_file(
             try:
                 p_meta = drive.get_file(parent_folder_id)
                 p_meta.parents[0] if p_meta.parents else None
-                upser_folder_chain(drive, connection, parent_folder_id)
+                upsert_folder_chain(drive, connection, parent_folder_id)
             except Exception as e:
                 logger.warning(f"Could not upsert folder chain: {e}")
 
@@ -283,7 +283,7 @@ def ingest_drive_file(
     return {"video_id": video_id, "chunks_count": len(chunks_data)}
 
 
-def upser_folder_chain(drive: GoogleDriveClient, connection: Any, folder_id: str):
+def upsert_folder_chain(drive: GoogleDriveClient, connection: Any, folder_id: str):
     """Recursively upsert folder chain to DB."""
     try:
         f_meta = drive.get_file(folder_id)
@@ -294,9 +294,9 @@ def upser_folder_chain(drive: GoogleDriveClient, connection: Any, folder_id: str
             # Check if parent exists to avoid redundant API calls
             exists = connection.execute("SELECT 1 FROM folders WHERE id = ?", (parent_id,)).fetchone()
             if not exists:
-                upser_folder_chain(drive, connection, parent_id)
+                upsert_folder_chain(drive, connection, parent_id)
     except Exception as e:
-        logger.warning(f"Error in upser_folder_chain for {folder_id}: {e}")
+        logger.warning(f"Error in upsert_folder_chain for {folder_id}: {e}")
 
 
 if __name__ == "__main__":

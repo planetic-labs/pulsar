@@ -1,17 +1,16 @@
 {% extends "base.html" %}
 
-{% block title %}Импорт — VideoDB AI{% endblock %}
+{% block title %}Импорт из Google Drive - VideoDB AI{% endblock %}
 
 {% block content %}
 <div class="flex-1 flex flex-col overflow-hidden px-4 lg:px-10 pb-6 lg:pb-10 pt-6 lg:pt-8">
-    <div class="flex items-center justify-between mb-8">
+    <!-- Header -->
+    <div class="flex items-center justify-between mb-8 shrink-0">
         <div>
             <h1 class="text-2xl lg:text-3xl font-black text-[#3A3630] tracking-tight">Google Drive</h1>
-            <div id="drive-breadcrumbs" class="flex items-center gap-2 text-[10px] font-bold text-brand-500 uppercase tracking-widest mt-2 overflow-x-auto whitespace-nowrap custom-scrollbar pb-1">
-                <!-- Breadcrumbs here -->
-            </div>
+            <p class="text-sm text-warm-500 mt-1">Выберите видео для импорта и индексации</p>
         </div>
-        <div class="flex items-center gap-3 lg:gap-4">
+        <div class="flex items-center gap-3">
             <div id="auth-status" class="hidden px-4 py-2 bg-rose-50 border border-rose-100 rounded-2xl text-[10px] font-black text-rose-500 uppercase tracking-widest flex items-center gap-2">
                 <div class="w-2 h-2 rounded-full bg-rose-500 animate-pulse"></div> Ошибка Google
             </div>
@@ -21,22 +20,60 @@
         </div>
     </div>
 
-    <!-- Browser Grid -->
-    <div class="flex-1 overflow-y-auto custom-scrollbar bg-white border border-[#E5E1D8] rounded-[2rem] shadow-inner overflow-hidden flex flex-col">
-        <div id="drive-contents" class="p-4 lg:p-8 grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-4 lg:gap-6">
-            <!-- Files and Folders here -->
+    <!-- Toolbar & Breadcrumbs -->
+    <div class="bg-white rounded-2xl shadow-sm border border-[#E5E1D8] mb-6 shrink-0 flex items-center px-4 py-3">
+        <button id="btn-up-drive" onclick="goUpDrive()" class="hidden mr-4 p-2 text-warm-400 hover:text-brand-600 hover:bg-warm-50 rounded-xl transition-all disabled:opacity-50" title="На уровень вверх">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 10l7-7m0 0l7 7m-7-7v18"></path></svg>
+        </button>
+        <div class="w-px h-6 bg-[#F2F0EB] mr-4 hidden" id="divider-up-drive"></div>
+        <nav class="flex text-[11px] font-bold uppercase tracking-widest overflow-x-auto no-scrollbar" aria-label="Breadcrumb">
+            <ol class="inline-flex items-center space-x-1" id="drive-breadcrumbs-list"></ol>
+        </nav>
+    </div>
+
+    <!-- Main List Area -->
+    <div class="flex-1 bg-white border border-[#E5E1D8] rounded-[1.5rem] lg:rounded-[2rem] overflow-hidden relative flex flex-col shadow-sm">
+        <div class="flex-1 overflow-y-auto custom-scrollbar" id="scroll-container">
+            <table class="w-full text-left border-collapse">
+                <thead>
+                    <tr class="bg-[#FAF9F6] border-b border-[#E5E1D8]">
+                        <th class="px-6 py-4 text-[10px] font-black text-warm-400 uppercase tracking-widest">Название</th>
+                        <th class="px-6 py-4 text-[10px] font-black text-warm-400 uppercase tracking-widest">Тип</th>
+                        <th class="px-6 py-4 text-[10px] font-black text-warm-400 uppercase tracking-widest">Статус</th>
+                        <th class="px-6 py-4 text-[10px] font-black text-warm-400 uppercase tracking-widest text-right">Действие</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-[#F2F0EB]" id="drive-contents">
+                    <!-- Dynamically populated -->
+                </tbody>
+            </table>
+            
+            <!-- Loading State -->
+            <div id="loading-state" class="absolute inset-0 bg-[#FAF9F6]/80 backdrop-blur-sm flex flex-col items-center justify-center z-10">
+                <svg class="animate-spin h-10 w-10 text-brand-500 mb-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+                <p class="text-[10px] font-black text-warm-400 uppercase tracking-widest">Чтение Drive...</p>
+            </div>
+
+            <!-- Empty State -->
+            <div id="empty-state" class="hidden py-20 flex flex-col items-center justify-center text-warm-400">
+                <p class="text-sm font-bold text-[#3A3630] mb-1 uppercase tracking-tight">Папка пуста</p>
+                <p class="text-xs uppercase tracking-widest opacity-60">В этой папке нет видеофайлов</p>
+            </div>
         </div>
     </div>
 
     <!-- Manual ID Footer -->
-    <div class="mt-6 flex flex-col sm:flex-row gap-4">
+    <div class="mt-6 flex flex-col sm:flex-row gap-4 shrink-0">
         <div class="flex-1 relative group">
-            <input type="text" id="manual-file-id" class="w-full bg-white border border-[#E5E1D8] rounded-2xl px-6 py-4 text-sm focus:outline-none focus:border-brand-500 shadow-sm transition-all group-hover:border-warm-300" placeholder="ID файла или папки вручную...">
+            <input type="text" id="manual-file-id" class="w-full bg-white border border-[#E5E1D8] rounded-2xl px-6 py-4 text-xs font-bold uppercase tracking-widest focus:outline-none focus:border-brand-500 shadow-sm transition-all group-hover:border-warm-300" placeholder="ID ФАЙЛА ВРУЧНУЮ...">
             <div class="absolute right-4 top-4 text-warm-200 group-hover:text-brand-300 transition-colors">
                 <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4"></path></svg>
             </div>
         </div>
-        <button onclick="submitIngestManual()" class="px-10 py-4 bg-brand-500 text-white rounded-2xl font-black text-xs uppercase tracking-[0.2em] hover:bg-brand-600 transition-all shadow-lg shadow-brand-500/20 active:scale-95">
+        <button onclick="submitIngestManual()" class="px-10 py-4 bg-brand-500 text-white rounded-2xl font-black text-[10px] uppercase tracking-[0.2em] hover:bg-brand-600 transition-all shadow-lg shadow-brand-500/20 active:scale-95 whitespace-nowrap">
             Индексировать
         </button>
     </div>
@@ -46,20 +83,56 @@
     let currentFolderId = 'root';
     let breadcrumbs = [{id: 'root', name: 'Мой диск'}];
 
+    function renderBreadcrumbs() {
+        const bcList = document.getElementById('drive-breadcrumbs-list');
+        const btnUp = document.getElementById('btn-up-drive');
+        const dividerUp = document.getElementById('divider-up-drive');
+        
+        bcList.innerHTML = '';
+        
+        if (breadcrumbs.length > 1) {
+            btnUp.classList.remove('hidden');
+            dividerUp.classList.remove('hidden');
+        } else {
+            btnUp.classList.add('hidden');
+            dividerUp.classList.add('hidden');
+        }
+
+        breadcrumbs.forEach((b, i) => {
+            const isLast = i === breadcrumbs.length - 1;
+            const li = document.createElement('li');
+            li.className = 'flex items-center shrink-0';
+            
+            let content = '';
+            if (i > 0) {
+                content += '<svg class="w-4 h-4 text-warm-200 mx-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M9 5l7 7-7 7"></path></svg>';
+            } else {
+                content += '<svg class="w-4 h-4 mr-2" fill="currentColor" viewBox="0 0 20 20"><path d="M10.707 2.293a1 1 0 00-1.414 0l-7 7a1 1 0 001.414 1.414L4 10.414V17a1 1 0 001 1h2a1 1 0 001-1v-2a1 1 0 011-1h2a1 1 0 011 1v2a1 1 0 001 1h2a1 1 0 001-1v-6.586l.293.293a1 1 0 001.414-1.414l-7-7z"></path></svg>';
+            }
+            
+            content += `<a href="javascript:void(0)" onclick="loadDriveFolder('${b.id}', '${b.name.replace(/'/g, "\\'")}', true)" class="px-3 py-2 rounded-xl transition-all truncate max-w-[150px] sm:max-w-[200px] block ${isLast ? 'text-brand-600 bg-warm-50 pointer-events-none' : 'text-warm-400 hover:text-brand-600 hover:bg-warm-50'}">${b.name}</a>`;
+            
+            li.innerHTML = content;
+            bcList.appendChild(li);
+        });
+    }
+
+    function goUpDrive() {
+        if (breadcrumbs.length > 1) {
+            const parent = breadcrumbs[breadcrumbs.length - 2];
+            loadDriveFolder(parent.id, parent.name, true);
+        }
+    }
+
     async function loadDriveFolder(id, name, isBack = false) {
         currentFolderId = id;
         const container = document.getElementById('drive-contents');
-        container.innerHTML = `
-            <div class="col-span-full flex flex-col items-center justify-center py-32 space-y-4">
-                <div class="relative">
-                    <div class="w-12 h-12 border-4 border-brand-100 border-t-brand-500 rounded-full animate-spin"></div>
-                    <div class="absolute inset-0 flex items-center justify-center">
-                        <div class="w-2 h-2 bg-brand-500 rounded-full"></div>
-                    </div>
-                </div>
-                <span class="animate-pulse text-warm-400 font-black uppercase text-[10px] tracking-[0.3em]">Чтение хранилища...</span>
-            </div>
-        `;
+        const loading = document.getElementById('loading-state');
+        const empty = document.getElementById('empty-state');
+        
+        loading.classList.remove('hidden');
+        empty.classList.add('hidden');
+        container.style.opacity = '0.4';
         
         if (!isBack && id !== 'root') {
             breadcrumbs.push({id, name});
@@ -78,44 +151,60 @@
             const items = await res.json();
             document.getElementById('auth-status').classList.add('hidden');
             
-            let html = '';
-            items.forEach(item => {
-                const icon = item.is_folder 
-                    ? '<div class="w-12 h-12 bg-blue-50 text-blue-500 rounded-2xl flex items-center justify-center mb-4 group-hover:bg-blue-500 group-hover:text-white transition-all shadow-sm"><svg class="w-6 h-6" fill="currentColor" viewBox="0 0 20 20"><path d="M2 6a2 2 0 012-2h5l2 2h5a2 2 0 012 2v6a2 2 0 01-2 2H4a2 2 0 01-2-2V6z"></path></svg></div>'
-                    : '<div class="w-12 h-12 bg-brand-50 text-brand-500 rounded-2xl flex items-center justify-center mb-4 group-hover:bg-brand-500 group-hover:text-white transition-all shadow-sm"><svg class="w-6 h-6" fill="currentColor" viewBox="0 0 20 20"><path d="M4 3a2 2 0 00-2 2v10a2 2 0 002 2h12a2 2 0 002-2V5a2 2 0 00-2-2H4zm0 2h12v10H4V5z"></path></svg></div>';
-                
-                const action = item.is_folder
-                    ? `onclick="loadDriveFolder('${item.id}', '${item.name.replace(/'/g, "\\'")}')"`
-                    : `onclick="queueIngest('${item.id}', '${item.name.replace(/'/g, "\\'")}')"`;
+            container.innerHTML = '';
+            
+            if (items.length === 0) {
+                empty.classList.remove('hidden');
+            } else {
+                items.forEach(item => {
+                    const tr = document.createElement('tr');
+                    tr.className = "hover:bg-[#FDFDFB] transition-colors group cursor-pointer";
+                    
+                    const isIndexed = item.is_indexed;
+                    const badge = isIndexed 
+                        ? '<span class="inline-flex px-1.5 py-0.5 rounded text-[9px] font-black border uppercase text-green-600 bg-green-50 border-green-100">В базе</span>'
+                        : '<span class="inline-flex px-1.5 py-0.5 rounded text-[9px] font-black border uppercase text-warm-400 bg-warm-50 border-warm-100">Не индексирован</span>';
 
-                html += `
-                    <div ${action} class="p-5 lg:p-6 bg-[#FAF9F6] border border-[#F2F0EB] hover:border-brand-300 hover:bg-white rounded-[2rem] cursor-pointer transition-all group relative overflow-hidden shadow-sm hover:shadow-xl hover:-translate-y-1 flex flex-col h-full">
-                        ${icon}
-                        <h4 class="text-xs lg:text-sm font-bold text-[#3A3630] line-clamp-2 mb-2 flex-1">${item.name}</h4>
-                        <div class="flex items-center justify-between mt-auto">
-                            <span class="text-[8px] lg:text-[9px] font-black text-warm-400 uppercase tracking-widest">${item.is_folder ? 'Папка' : 'Видео'}</span>
-                            ${!item.is_folder ? `
-                                <div class="opacity-0 group-hover:opacity-100 flex items-center gap-1 text-[8px] lg:text-[9px] font-black text-brand-500 uppercase tracking-widest transition-all translate-x-2 group-hover:translate-x-0">
-                                    Индекс <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M9 5l7 7-7 7"></path></svg>
+                    if (item.is_folder) {
+                        tr.onclick = () => loadDriveFolder(item.id, item.name);
+                        tr.innerHTML = `
+                            <td class="px-6 py-3" colspan="3">
+                                <div class="flex items-center gap-3">
+                                    <svg class="w-5 h-5 text-brand-200 group-hover:text-brand-400 transition-colors" fill="currentColor" viewBox="0 0 20 20"><path d="M2 6a2 2 0 012-2h5l2 2h5a2 2 0 012 2v6a2 2 0 01-2 2H4a2 2 0 01-2-2V6z"></path></svg>
+                                    <span class="text-xs font-bold text-[#3A3630] uppercase tracking-tight">${item.name}</span>
                                 </div>
-                            ` : ''}
-                        </div>
-                    </div>
-                `;
-            });
-            container.innerHTML = html || `
-                <div class="col-span-full flex flex-col items-center justify-center py-32 opacity-40">
-                    <svg class="w-12 h-12 mb-4 text-warm-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M5 19a2 2 0 01-2-2V7a2 2 0 012-2h4l2 2h4a2 2 0 012 2v1m-6 9a3 3 0 100-6 3 3 0 000 6zm-7 4a6 6 0 0112 0H4z"></path></svg>
-                    <span class="text-sm font-medium text-warm-500 italic">Папка пуста</span>
-                </div>
-            `;
+                            </td>
+                            <td class="px-6 py-3 text-right text-warm-300">
+                                 <svg class="w-4 h-4 ml-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path></svg>
+                            </td>
+                        `;
+                    } else {
+                        tr.onclick = () => queueIngest(item.id, item.name);
+                        tr.innerHTML = `
+                            <td class="px-6 py-3">
+                                <div class="flex items-center gap-3">
+                                    <svg class="w-5 h-5 text-warm-300 group-hover:text-brand-500 transition-colors" fill="currentColor" viewBox="0 0 20 20"><path d="M4 3a2 2 0 00-2 2v10a2 2 0 002 2h12a2 2 0 002-2V5a2 2 0 00-2-2H4zm0 2h12v10H4V5z"></path></svg>
+                                    <span class="text-xs font-bold text-[#3A3630] line-clamp-1 uppercase tracking-tight">${item.name}</span>
+                                </div>
+                            </td>
+                            <td class="px-6 py-3 text-[10px] font-bold text-warm-400 uppercase tracking-widest">Видео</td>
+                            <td class="px-6 py-3">${badge}</td>
+                            <td class="px-6 py-3 text-right">
+                                 <div class="flex items-center justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                                    <span class="text-[9px] font-black text-brand-600 uppercase tracking-widest">${isIndexed ? 'Переиндексировать' : 'Индексировать'} →</span>
+                                 </div>
+                            </td>
+                        `;
+                    }
+                    container.appendChild(tr);
+                });
+            }
         } catch (e) {
-            container.innerHTML = `
-                <div class="col-span-full flex flex-col items-center justify-center py-32 text-rose-500">
-                    <svg class="w-12 h-12 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg>
-                    <span class="font-black uppercase text-[10px] tracking-widest">Ошибка соединения с Google</span>
-                </div>
-            `;
+            console.error(e);
+            container.innerHTML = `<tr><td colspan="4" class="py-20 text-center text-rose-500 font-black uppercase text-[10px] tracking-widest">Ошибка соединения с Google</td></tr>`;
+        } finally {
+            container.style.opacity = '1';
+            loading.classList.add('hidden');
         }
     }
 
@@ -123,30 +212,20 @@
         const container = document.getElementById('drive-contents');
         document.getElementById('auth-status').classList.remove('hidden');
         container.innerHTML = `
-            <div class="col-span-full flex flex-col items-center justify-center py-20 lg:py-32 space-y-6">
-                <div class="w-20 h-20 bg-rose-50 text-rose-500 rounded-[2.5rem] flex items-center justify-center shadow-inner">
-                    <svg class="w-10 h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M12 15v2m0 0v2m0-2h2m-2 0H10m11-3V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2h14a2 2 0 002-2v-3z"></path></svg>
+            <tr><td colspan="4" class="py-20">
+                <div class="flex flex-col items-center justify-center space-y-6">
+                    <div class="w-16 h-16 bg-rose-50 text-rose-500 rounded-2xl flex items-center justify-center">
+                        <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M12 15v2m0 0v2m0-2h2m-2 0H10m11-3V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2h14a2 2 0 002-2v-3z"></path></svg>
+                    </div>
+                    <div class="text-center">
+                        <h3 class="text-sm font-bold text-[#3A3630] uppercase tracking-tight">Сессия Google истекла</h3>
+                    </div>
+                    <button onclick="startDriveAuth()" class="px-8 py-3 bg-brand-500 text-white rounded-2xl font-black text-[10px] uppercase tracking-widest hover:bg-brand-600 transition-all shadow-xl shadow-brand-500/20 active:scale-95">
+                        Авторизоваться
+                    </button>
                 </div>
-                <div class="text-center">
-                    <h3 class="text-lg font-bold text-[#3A3630] mb-2">Сессия Google истекла</h3>
-                    <p class="text-sm text-warm-400 max-w-xs mx-auto leading-relaxed">Для продолжения работы необходимо повторно авторизовать приложение в Google Cloud Console.</p>
-                </div>
-                <button onclick="startDriveAuth()" class="px-10 py-4 bg-brand-500 text-white rounded-2xl font-black text-xs uppercase tracking-widest hover:bg-brand-600 transition-all shadow-xl shadow-brand-500/20 active:scale-95">
-                    Авторизоваться
-                </button>
-            </div>
+            </td></tr>
         `;
-    }
-
-    function renderBreadcrumbs() {
-        const bc = document.getElementById('drive-breadcrumbs');
-        bc.innerHTML = breadcrumbs.map((b, i) => `
-            <div class="flex items-center gap-2">
-                <span class="cursor-pointer hover:text-brand-700 transition-colors whitespace-nowrap ${i === breadcrumbs.length - 1 ? 'text-[#3A3630]' : ''}" 
-                      onclick="loadDriveFolder('${b.id}', '${b.name}', true)">${b.name}</span>
-                ${i < breadcrumbs.length - 1 ? '<svg class="w-2.5 h-2.5 opacity-30 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M9 5l7 7-7 7"></path></svg>' : ''}
-            </div>
-        `).join('');
     }
 
     async function startDriveAuth() {
@@ -168,18 +247,16 @@
     }
 
     async function queueIngest(fileId, name) {
-        const diarize = true; // Always enable diarization
         const formData = new FormData();
         formData.append('file_id', fileId);
-        formData.append('diarize', diarize);
+        formData.append('diarize', 'true');
         
         try {
             const res = await fetch('/api/tasks/ingest', { method: 'POST', body: formData });
             if (res.ok) {
-                // Flash notification
                 const toast = document.createElement('div');
-                toast.className = "fixed bottom-10 left-1/2 -translate-x-1/2 z-[100] px-6 py-3 bg-slate-900 text-white rounded-2xl text-xs font-bold uppercase tracking-widest shadow-2xl animate-in slide-in-from-bottom-4 duration-300";
-                toast.textContent = `«${name}» добавлено в очередь`;
+                toast.className = "fixed bottom-10 left-10 z-[100] px-6 py-3 bg-[#3A3630] text-[#FAF9F6] rounded-2xl text-[10px] font-black uppercase tracking-widest shadow-2xl animate-in slide-in-from-bottom-4 duration-300";
+                toast.textContent = `«${name}» в очереди`;
                 document.body.appendChild(toast);
                 setTimeout(() => {
                     toast.classList.add('animate-out', 'fade-out', 'slide-out-to-bottom-4');
@@ -192,7 +269,7 @@
     function submitIngestManual() {
         const id = document.getElementById('manual-file-id').value.trim();
         if (id) {
-            queueIngest(id, 'Объект ' + id.substring(0, 8) + '...');
+            queueIngest(id, 'ID: ' + id.substring(0, 8));
             document.getElementById('manual-file-id').value = '';
         }
     }
