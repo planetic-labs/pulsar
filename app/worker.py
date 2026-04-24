@@ -146,7 +146,7 @@ class Worker:
                 sql_v = "SELECT title, source_file_id, source_url FROM videos WHERE id = ?"
                 v_row = conn.execute(sql_v, (video_id,)).fetchone()
                 sql_c = """
-                    SELECT id, transcript_id, chunk_index, text FROM chunks
+                    SELECT id, transcript_id, chunk_index, text, start_sec, end_sec FROM chunks
                     WHERE video_id = ? ORDER BY chunk_index ASC
                 """
                 chunks = conn.execute(sql_c, (video_id,)).fetchall()
@@ -172,7 +172,12 @@ class Worker:
                         id=row["id"],
                         vector=vd,
                         payload={
-                            **row,
+                            "chunk_id": row["id"],
+                            "transcript_id": row["transcript_id"],
+                            "chunk_index": row["chunk_index"],
+                            "text": row["text"],
+                            "start_sec": row["start_sec"],
+                            "end_sec": row["end_sec"],
                             "video_id": video_id,
                             "title": v_row["title"],
                             "source_file_id": v_row["source_file_id"],

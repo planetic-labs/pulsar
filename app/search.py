@@ -215,7 +215,7 @@ def hybrid_search(
         if not payload:
             continue
 
-        full_text = str(payload.get("text", ""))
+        full_text = str(payload.get("text") or "")
         highlighted_text = _simple_highlight(full_text, query)
 
         v_id = payload.get("video_id")
@@ -230,19 +230,42 @@ def hybrid_search(
         # Get scores from our map if hybrid, else use point.score
         point_data = scores_map.get(point.id)
 
+        # Robust field extraction
+        def get_float(p_load, key, default=0.0):
+            val = p_load.get(key)
+            if val is None:
+                return default
+            try:
+                return float(val)
+            except (ValueError, TypeError):
+                return default
+
+        def get_int(p_load, key, default=0):
+            val = p_load.get(key)
+            if val is None:
+                return default
+            try:
+                return int(val)
+            except (ValueError, TypeError):
+                return default
+
+        chunk_id = get_int(payload, "chunk_id") or get_int(payload, "id")
+        start_sec = get_float(payload, "start_sec")
+        end_sec = get_float(payload, "end_sec")
+
         results.append(
             SearchResult(
-                chunk_id=int(payload.get("chunk_id", 0)),
-                video_id=int(v_id or 0),
-                transcript_id=int(payload.get("transcript_id", 0)),
-                title=str(payload.get("title", "")),
+                chunk_id=chunk_id,
+                video_id=get_int(payload, "video_id"),
+                transcript_id=get_int(payload, "transcript_id"),
+                title=str(payload.get("title") or ""),
                 source_file_id=payload.get("source_file_id"),
                 source_url=payload.get("source_url"),
-                chunk_index=int(payload.get("chunk_index", 0)),
-                start_sec=float(payload.get("start_sec", 0.0)),
-                end_sec=float(payload.get("end_sec", 0.0)),
-                start_ts=format_timestamp(float(payload.get("start_sec", 0.0))),
-                end_ts=format_timestamp(float(payload.get("end_sec", 0.0))),
+                chunk_index=get_int(payload, "chunk_index"),
+                start_sec=start_sec,
+                end_sec=end_sec,
+                start_ts=format_timestamp(start_sec),
+                end_ts=format_timestamp(end_sec),
                 text=highlighted_text,
                 combined_score=float(point_data["combined"]) if point_data else float(getattr(point, "score", 0.0)),
                 match_type="hybrid" if clean_query else "filter",
