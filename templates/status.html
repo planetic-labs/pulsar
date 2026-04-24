@@ -5,89 +5,91 @@
 {% block content %}
 <div class="flex-1 flex flex-col overflow-hidden px-4 lg:px-10 pb-6 lg:pb-10 pt-6 lg:pt-8">
     <!-- Header -->
-    <div class="flex items-center justify-between mb-8 shrink-0">
+    <div class="flex items-center justify-between mb-6 shrink-0">
         <div>
             <h1 class="text-2xl lg:text-3xl font-black text-[#3A3630] tracking-tight">Мониторинг</h1>
-            <p class="text-sm text-warm-500 mt-1">Очередь обработки и системные логи в реальном времени</p>
+            <p class="text-sm text-warm-500 mt-1">Очередь обработки и системные логи</p>
         </div>
-        <div class="flex items-center gap-3">
-            <div class="px-4 py-2.5 bg-white border border-[#E5E1D8] rounded-2xl shadow-sm text-[10px] font-black text-warm-500 uppercase tracking-[0.15em]">
-                Задач в очереди: {{ tasks|length }}
-            </div>
+        <div class="flex items-center gap-3 text-[10px] font-black text-warm-500 uppercase tracking-widest">
+            В очереди: <span class="text-brand-500 ml-1">{{ tasks|length }}</span>
         </div>
     </div>
 
-    <!-- Live Logs Console -->
-    <div class="mb-8 group shrink-0">
-        <div class="flex items-center justify-between mb-3 px-2 shrink-0">
+    <!-- Live Logs Console (Reduced height) -->
+    <div class="mb-6 group shrink-0">
+        <div class="flex items-center justify-between mb-2 px-2 shrink-0">
             <h3 class="text-[10px] font-black text-warm-400 uppercase tracking-widest flex items-center gap-2">
                 <div class="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse"></div> Системные логи (Live)
             </h3>
-            <button onclick="clearLogs()" class="text-[9px] font-black text-warm-300 hover:text-brand-500 uppercase tracking-widest transition-colors">Очистить консоль</button>
+            <button onclick="clearLogs()" class="text-[9px] font-black text-warm-300 hover:text-brand-500 uppercase tracking-widest transition-colors">Очистить</button>
         </div>
-        <div id="log-console" class="h-80 bg-[#1A1814] rounded-3xl p-6 font-mono text-[11px] text-green-400/80 overflow-y-auto custom-scrollbar border border-[#2A2620] shadow-2xl">
-            <div class="text-warm-500 italic opacity-50">Ожидание подключения к воркеру...</div>
+        <div id="log-console" class="h-48 bg-[#1A1814] rounded-2xl p-5 font-mono text-[10px] text-green-400/70 overflow-y-auto custom-scrollbar border border-[#2A2620] shadow-xl">
+            <div class="text-warm-500 italic opacity-50">Ожидание подключения...</div>
         </div>
     </div>
 
     <!-- Active Queue Section -->
-    <div class="shrink-0 mt-4">
-        <div class="flex items-center justify-between mb-4 px-2">
+    <div class="flex-1 flex flex-col min-h-0">
+        <div class="flex items-center justify-between mb-3 px-2 shrink-0">
             <h2 class="text-[11px] font-black text-[#3A3630] uppercase tracking-[0.2em]">Очередь обработки</h2>
         </div>
         
-        <div class="bg-white border border-[#E5E1D8] rounded-[2rem] overflow-hidden shadow-sm">
-            <div class="max-h-64 overflow-y-auto custom-scrollbar">
-                <table class="w-full text-left border-collapse">
-                    <thead>
+        <div class="flex-1 bg-white border border-[#E5E1D8] rounded-2xl overflow-hidden shadow-sm flex flex-col min-h-0">
+            <div class="overflow-y-auto custom-scrollbar flex-1">
+                <table class="w-full text-left border-separate border-spacing-0">
+                    <thead class="sticky top-0 z-10">
                         <tr class="bg-[#FAF9F6] border-b border-[#E5E1D8]">
-                            <th class="px-6 py-4 text-[10px] font-black text-warm-400 uppercase tracking-widest">Объект / ID</th>
-                            <th class="px-6 py-4 text-[10px] font-black text-warm-400 uppercase tracking-widest">Тип</th>
-                            <th class="px-6 py-4 text-[10px] font-black text-warm-400 uppercase tracking-widest">Статус</th>
-                            <th class="px-6 py-4 text-[10px] font-black text-warm-400 uppercase tracking-widest text-right">Действие</th>
+                            <th class="px-5 py-3 text-[9px] font-black text-warm-400 uppercase tracking-widest border-b border-[#E5E1D8]">Объект / ID</th>
+                            <th class="px-5 py-3 text-[9px] font-black text-warm-400 uppercase tracking-widest border-b border-[#E5E1D8]">Тип</th>
+                            <th class="px-5 py-3 text-[9px] font-black text-warm-400 uppercase tracking-widest border-b border-[#E5E1D8]">Статус</th>
+                            <th class="px-5 py-3 text-[9px] font-black text-warm-400 uppercase tracking-widest border-b border-[#E5E1D8] text-right">Действие</th>
                         </tr>
                     </thead>
                     <tbody class="divide-y divide-[#F2F0EB]">
                         {% for t in tasks %}
                         <tr class="hover:bg-[#FDFDFB] transition-colors group" id="task-row-{{ t.id }}">
-                            <td class="px-6 py-4">
-                                <div class="flex flex-col">
-                                    <span class="text-xs font-bold text-[#3A3630] line-clamp-1 uppercase tracking-tight">{{ t.title }}</span>
-                                    <span class="text-[9px] text-warm-400 font-mono opacity-60 mt-0.5">{{ t.file_id }}</span>
+                            <td class="px-5 py-3 whitespace-nowrap">
+                                <div class="flex items-center gap-3">
+                                    <span class="text-xs font-bold text-[#3A3630] truncate max-w-[200px] uppercase tracking-tight">{{ t.title }}</span>
+                                    <span class="text-[9px] text-warm-300 font-mono hidden lg:inline">{{ t.file_id[:12] if t.file_id else 'N/A' }}</span>
                                 </div>
                             </td>
-                            <td class="px-6 py-4 text-[10px] font-black text-warm-400 uppercase tracking-widest">{{ t.task_type }}</td>
-                            <td class="px-6 py-4">
+                            <td class="px-5 py-3 whitespace-nowrap">
+                                <span class="text-[9px] font-black text-warm-400 uppercase tracking-widest">{{ t.task_type }}</span>
+                            </td>
+                            <td class="px-5 py-3 whitespace-nowrap">
                                 <div class="flex items-center gap-2">
                                     {% if t.status == 'running' %}
-                                        <span class="inline-flex items-center gap-1.5 px-2 py-0.5 bg-blue-50 text-blue-600 text-[9px] font-black rounded border border-blue-100 uppercase tracking-widest">
-                                            <div class="w-1 h-1 rounded-full bg-blue-500 animate-pulse"></div> Выполняется
+                                        <span class="inline-flex items-center gap-1.5 px-2 py-0.5 bg-blue-50 text-blue-600 text-[8px] font-black rounded border border-blue-100 uppercase tracking-widest">
+                                            <div class="w-1 h-1 rounded-full bg-blue-500 animate-pulse"></div> Работает
                                         </span>
                                     {% elif t.status == 'pending' %}
-                                        <span class="inline-flex items-center gap-1.5 px-2 py-0.5 bg-warm-50 text-warm-500 text-[9px] font-black rounded border border-warm-100 uppercase tracking-widest">
+                                        <span class="inline-flex items-center gap-1.5 px-2 py-0.5 bg-warm-50 text-warm-400 text-[8px] font-black rounded border border-warm-100 uppercase tracking-widest">
                                             В очереди
                                         </span>
                                     {% elif t.status == 'failed' %}
-                                        <span class="inline-flex items-center gap-1.5 px-2 py-0.5 bg-rose-50 text-rose-600 text-[9px] font-black rounded border border-rose-100 uppercase tracking-widest" title="{{ t.error_message }}">
+                                        <span class="inline-flex items-center gap-1.5 px-2 py-0.5 bg-rose-50 text-rose-600 text-[8px] font-black rounded border border-rose-100 uppercase tracking-widest" title="{{ t.error_message }}">
                                             Ошибка
                                         </span>
-                                        <button onclick="copyToClipboard('{{ t.error_message|replace("'", "\\'")|replace("\n", " ") }}')" class="p-1 text-warm-300 hover:text-brand-500 transition-colors" title="Копировать ошибку">
-                                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m-3 8h3m-3 4h3m-6-4h.01M9 16h.01"></path></svg>
+                                        {% if t.error_message %}
+                                        <button onclick="copyToClipboard('{{ t.error_message|replace("'", "\\'")|replace("\n", " ") }}')" class="text-warm-300 hover:text-brand-500 transition-colors">
+                                            <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m-3 8h3m-3 4h3m-6-4h.01M9 16h.01"></path></svg>
                                         </button>
+                                        {% endif %}
                                     {% endif %}
                                 </div>
                             </td>
-                            <td class="px-6 py-4 text-right">
-                                <button onclick="deleteTask({{ t.id }})" class="text-warm-300 hover:text-rose-500 transition-all p-2 rounded-xl hover:bg-rose-50 opacity-0 group-hover:opacity-100" title="Удалить из очереди">
-                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
+                            <td class="px-5 py-3 text-right whitespace-nowrap">
+                                <button onclick="deleteTask({{ t.id }})" class="text-warm-200 hover:text-rose-500 transition-all p-1 rounded-lg hover:bg-rose-50 opacity-0 group-hover:opacity-100">
+                                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
                                 </button>
                             </td>
                         </tr>
                         {% endfor %}
                         {% if not tasks %}
                         <tr>
-                            <td colspan="4" class="py-12 text-center">
-                                <p class="text-xs font-bold text-warm-300 uppercase tracking-widest">Активных задач нет</p>
+                            <td colspan="4" class="py-10 text-center">
+                                <p class="text-[10px] font-black text-warm-200 uppercase tracking-widest italic">Очередь пуста</p>
                             </td>
                         </tr>
                         {% endif %}
@@ -120,64 +122,50 @@
                 msg.innerHTML = content;
                 
                 const waitingMsg = logConsole.querySelector('.italic');
-                if (waitingMsg) {
-                    waitingMsg.remove();
-                }
+                if (waitingMsg) waitingMsg.remove();
                 
                 logConsole.appendChild(msg);
-                if (logConsole.scrollHeight - logConsole.scrollTop < 500) {
+                if (logConsole.scrollHeight - logConsole.scrollTop < 400) {
                     logConsole.scrollTop = logConsole.scrollHeight;
                 }
             };
-            ws.onclose = () => {
-                setTimeout(connectLogs, 3000);
-            };
-            ws.onerror = (err) => {
-                console.error("WebSocket error:", err);
-            };
+            ws.onclose = () => setTimeout(connectLogs, 3000);
+            ws.onerror = (err) => console.error("WebSocket error:", err);
         } catch (e) {
             console.error("Connection failed:", e);
         }
     }
 
     function clearLogs() {
-        logConsole.innerHTML = '<div class="text-warm-500 italic opacity-50">Очищено. Ожидание логов...</div>';
+        logConsole.innerHTML = '<div class="text-warm-500 italic opacity-50 text-[9px]">Очищено. Ожидание логов...</div>';
     }
 
     async function deleteTask(taskId) {
-        if (!confirm('Вы уверены, что хотите удалить эту задачу из очереди?')) return;
-        
+        if (!confirm('Удалить задачу?')) return;
         try {
             const res = await fetch(`/api/v1/tasks/${taskId}`, { method: 'DELETE' });
             if (res.ok) {
                 const row = document.getElementById(`task-row-${taskId}`);
                 if (row) {
-                    row.style.opacity = '0';
-                    setTimeout(() => {
-                        row.remove();
-                        if (document.querySelectorAll('tbody tr').length === 0) {
-                            location.reload();
-                        }
-                    }, 300);
+                    row.classList.add('opacity-50', 'bg-rose-50');
+                    setTimeout(() => row.remove(), 200);
                 }
-            } else {
-                alert('Ошибка при удалении задачи');
             }
         } catch (e) {
-            alert('Ошибка сети при удалении');
+            console.error(e);
         }
     }
 
     function copyToClipboard(text) {
         navigator.clipboard.writeText(text).then(() => {
             const toast = document.createElement('div');
-            toast.className = "fixed bottom-10 left-10 z-[100] px-6 py-3 bg-[#3A3630] text-[#FAF9F6] rounded-2xl text-[10px] font-black uppercase tracking-widest shadow-2xl animate-in slide-in-from-bottom-4 duration-300";
-            toast.textContent = `Ошибка скопирована`;
+            toast.className = "fixed bottom-8 left-8 z-[100] px-5 py-2.5 bg-[#3A3630] text-[#FAF9F6] rounded-xl text-[9px] font-black uppercase tracking-widest shadow-2xl animate-in slide-in-from-bottom-4 duration-200";
+            toast.textContent = `Текст ошибки скопирована`;
             document.body.appendChild(toast);
             setTimeout(() => {
                 toast.classList.add('animate-out', 'fade-out', 'slide-out-to-bottom-4');
-                setTimeout(() => toast.remove(), 300);
-            }, 2000);
+                setTimeout(() => toast.remove(), 200);
+            }, 1500);
         });
     }
 
