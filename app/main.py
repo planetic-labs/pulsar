@@ -390,13 +390,53 @@ def status_page(request: Request):
     return templates.TemplateResponse(request, "status.html", {"statuses": statuses, "tasks": tasks})
 
 
-@app.delete("/api/v1/tasks/{task_id}")
-async def api_delete_task(task_id: int, _: str = Depends(require_access_token)):
-    """Delete a task from the queue."""
+@app.post("/api/v1/reindex/all")
+async def api_reindex_all(clear_qdrant: bool = False, _: str = Depends(require_access_token)):
+    """Queues all transcribed videos for re-indexing in Qdrant."""
     settings = get_sqlite_settings()
+    q_settings = get_qdrant_settings()
+
+    if clear_qdrant:
+        from app.qdrant import init_qdrant
+
+        qdrant = get_qdrant_client()
+        logger.info(f"Clearing Qdrant collection {q_settings.collection_name} for full reindex")
+        try:
+            qdrant.delete_collection(q_settings.collection_name)
+            init_qdrant()
+        except Exception as e:
+            logger.error(f"Failed to clear Qdrant: {e}")
+
     with db_connection(settings) as conn:
-        conn.execute("DELETE FROM tasks WHERE id = ?", (task_id,))
-    return {"status": "deleted", "id": task_id}
+        # Find all videos that have at least one chunk
+        rows = conn.execute("""
+            SELECT DISTINCT video_id, title
+            FROM chunks c
+            JOIN videos v ON v.id = c.video_id
+        """).fetchall()
+
+        count = 0
+        for r in rows:
+            vid = r["video_id"]
+            title = r["title"]
+            payload = json.dumps({"video_id": vid, "title": title})
+
+            # Check if task already exists to avoid duplicates
+            sql_check = """
+                SELECT 1 FROM tasks
+                WHERE task_type = 'stage_3_index' AND status IN ('pending', 'running')
+                AND payload LIKE ?
+            """
+            exists = conn.execute(sql_check, (f'%"video_id": {vid}%',)).fetchone()
+
+            if not exists:
+                conn.execute(
+                    "INSERT INTO tasks (task_type, payload, status, priority) VALUES (?, ?, ?, ?)",
+                    ("stage_3_index", payload, "pending", 10),  # Higher priority for reindex
+                )
+                count += 1
+
+    return {"status": "queued", "count": count}
 
 
 @app.get("/api/videos/{video_id}/speakers")

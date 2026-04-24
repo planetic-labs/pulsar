@@ -86,22 +86,39 @@ class DeepgramEngine(TranscriptionEngine):
             paragraphs = alt.get("paragraphs", {}).get("paragraphs", [])
             for p in paragraphs:
                 for sentence in p.get("sentences", []):
+                    s_start = sentence.get("start")
+                    s_end = sentence.get("end")
                     utterances.append(
                         {
-                            "start": sentence.get("start"),
-                            "end": sentence.get("end"),
-                            "transcript": sentence.get("text"),
+                            "start": s_start,
+                            "end": s_end,
+                            "transcript": sentence.get("text") or "",
                             "speaker": p.get("speaker"),
                             "confidence": 1.0,
                         }
                     )
 
         normalized_utterances = []
+        last_end = 0.0
         for utt in utterances:
+            u_start = utt.get("start")
+            u_end = utt.get("end")
+
+            # If start is missing, use last_end
+            if u_start is None:
+                u_start = last_end
+
+            # If end is missing, use start + 0.1
+            if u_end is None:
+                u_end = float(u_start) + 0.1
+
+            # Update last_end for next iteration
+            last_end = float(u_end)
+
             normalized_utterances.append(
                 {
-                    "start": float(utt.get("start", 0.0)),
-                    "end": float(utt.get("end", 0.0)),
+                    "start": float(u_start),
+                    "end": float(u_end),
                     "text": str(utt.get("transcript", "") or utt.get("text", "")),
                     "confidence": float(utt.get("confidence", 1.0)),
                     "speaker": utt.get("speaker"),
