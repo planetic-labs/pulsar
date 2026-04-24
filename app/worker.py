@@ -72,13 +72,11 @@ for name in log_names:
 
 
 class Worker:
-    def __init__(self, concurrency: int = 50):
-        self.max_concurrency = concurrency
+    def __init__(self):
         self.download_sem = asyncio.Semaphore(1)
         self.transcribe_sem = asyncio.Semaphore(1)
         self.embed_sem = asyncio.Semaphore(1)
         self.is_running = False
-        self._active_task_ids: set[int] = set()
 
     async def _run_stage_1_download(self, task_id: int, payload: dict):
         async with self.download_sem:
@@ -197,26 +195,53 @@ class Worker:
                 conn.execute(sql_f, (task_id,))
             logger.info(f"=== [ГОТОВО] {v_row['title']} доступен для поиска. ===")
 
-    async def process_task(self, task_id: int, task_type: str, payload: dict):
-        self._active_task_ids.add(task_id)
-        try:
-            if task_type == "ingest_video":
-                task_type = "stage_1_download"
+    async def _consume_stage(self, stage_types: list[str]):
+        """Бесконечный цикл обработки задач определенного типа."""
+        while self.is_running:
+            try:
+                # Ищем одну задачу подходящего типа
+                placeholders = ",".join(["?"] * len(stage_types))
+                sql = f"""
+                    SELECT id, task_type, payload FROM tasks
+                    WHERE status = 'pending' AND task_type IN ({placeholders})
+                    ORDER BY priority DESC, created_at ASC LIMIT 1
+                """
+                with db_connection(get_sqlite_settings()) as conn:
+                    row = conn.execute(sql, stage_types).fetchone()
 
-            if task_type == "stage_1_download":
-                await self._run_stage_1_download(task_id, payload)
-            elif task_type == "stage_2_transcribe":
-                await self._run_stage_2_transcribe(task_id, payload)
-            elif task_type == "stage_3_index":
-                await self._run_stage_3_index(task_id, payload)
-        except Exception:
-            error_trace = traceback.format_exc()
-            logger.error(f"Ошибка в задаче {task_id}: {error_trace}")
-            sql = "UPDATE tasks SET status = 'failed', error_message = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?"
-            with db_connection(get_sqlite_settings()) as conn:
-                conn.execute(sql, (error_trace, task_id))
-        finally:
-            self._active_task_ids.discard(task_id)
+                if row:
+                    tid, ttype, tpayload_json = row["id"], row["task_type"], row["payload"]
+                    tpayload = json.loads(tpayload_json)
+
+                    # Помечаем задачу как запущенную
+                    sql_upd = "UPDATE tasks SET status = 'running', updated_at = CURRENT_TIMESTAMP WHERE id = ?"
+                    with db_connection(get_sqlite_settings()) as conn:
+                        conn.execute(sql_upd, (tid,))
+
+                    # Выполняем задачу
+                    try:
+                        if ttype in ("stage_1_download", "ingest_video"):
+                            await self._run_stage_1_download(tid, tpayload)
+                        elif ttype == "stage_2_transcribe":
+                            await self._run_stage_2_transcribe(tid, tpayload)
+                        elif ttype == "stage_3_index":
+                            await self._run_stage_3_index(tid, tpayload)
+                    except Exception:
+                        error_trace = traceback.format_exc()
+                        logger.error(f"Ошибка в задаче {tid} ({ttype}): {error_trace}")
+                        sql_err = """
+                            UPDATE tasks
+                            SET status = 'failed', error_message = ?, updated_at = CURRENT_TIMESTAMP
+                            WHERE id = ?
+                        """
+                        with db_connection(get_sqlite_settings()) as conn:
+                            conn.execute(sql_err, (error_trace, tid))
+                else:
+                    # Если задач нет, ждем 2 секунды
+                    await asyncio.sleep(2)
+            except Exception as e:
+                logger.error(f"Ошибка в консьюмере {stage_types}: {e}")
+                await asyncio.sleep(5)
 
     def cleanup(self):
         with db_connection(get_sqlite_settings()) as conn:
@@ -225,30 +250,17 @@ class Worker:
     async def run(self):
         self.cleanup()
         self.is_running = True
-        logger.info("Воркер активен: ПАРАЛЛЕЛЬНЫЙ КОНВЕЙЕР")
-        while self.is_running:
-            try:
-                slots = self.max_concurrency - len(self._active_task_ids)
-                if slots > 0:
-                    sql = """
-                        SELECT id, task_type, payload FROM tasks
-                        WHERE status = 'pending' ORDER BY priority DESC, created_at ASC LIMIT ?
-                    """
-                    with db_connection(get_sqlite_settings()) as conn:
-                        rows = conn.execute(sql, (slots,)).fetchall()
-                    for r in rows:
-                        tid, ttype, tpayload = r["id"], r["task_type"], json.loads(r["payload"])
-                        sql_upd = "UPDATE tasks SET status = 'running', updated_at = CURRENT_TIMESTAMP WHERE id = ?"
-                        with db_connection(get_sqlite_settings()) as conn:
-                            conn.execute(sql_upd, (tid,))
-                        asyncio.create_task(self.process_task(tid, ttype, tpayload))
-                await asyncio.sleep(2)
-            except Exception as e:
-                logger.error(f"Worker Loop Error: {e}")
-                await asyncio.sleep(5)
+        logger.info("Воркер активен: ТРЕХСТАДИЙНЫЙ ПАРАЛЛЕЛЬНЫЙ КОНВЕЙЕР")
+
+        # Запускаем три независимых консьюмера
+        await asyncio.gather(
+            self._consume_stage(["stage_1_download", "ingest_video"]),
+            self._consume_stage(["stage_2_transcribe"]),
+            self._consume_stage(["stage_3_index"]),
+        )
 
 
-_worker_instance = Worker(concurrency=50)
+_worker_instance = Worker()
 
 
 def get_worker():
