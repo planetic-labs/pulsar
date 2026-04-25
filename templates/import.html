@@ -297,6 +297,7 @@
             for (const file of toIngest) {
                 const formData = new FormData();
                 formData.append('file_id', file.id);
+                formData.append('title', file.name);
                 formData.append('diarize', 'true');
                 try {
                     const res = await fetch('/api/tasks/ingest', { method: 'POST', body: formData });

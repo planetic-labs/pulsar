@@ -82,20 +82,14 @@ class Worker:
         async with self.download_sem:
             file_id = payload["file_id"]
 
-            sql_q = """
-                SELECT COUNT(*) as c FROM tasks
-                WHERE task_type IN ('stage_1_download', 'ingest_video')
-                AND status IN ('pending', 'running')
-                AND id != ?
-            """
+            sql_q = "SELECT COUNT(*) as c FROM tasks WHERE status IN ('pending', 'running')"
             with db_connection(get_sqlite_settings()) as conn:
-                c_row = conn.execute(sql_q, (task_id,)).fetchone()
+                c_row = conn.execute(sql_q).fetchone()
                 in_queue = c_row["c"]
 
-            logger.info(f"--- [ЭТАП 1] Загрузка: {file_id[:8]}... (В очереди: {in_queue})")
             loop = asyncio.get_running_loop()
             result = await loop.run_in_executor(
-                None, lambda: download_and_extract_stage(file_id, status_callback=logger.info)
+                None, lambda: download_and_extract_stage(file_id, status_callback=logger.info, in_queue=in_queue)
             )
 
             new_payload = {**payload, **result}
@@ -106,14 +100,14 @@ class Worker:
             """
             with db_connection(get_sqlite_settings()) as conn:
                 conn.execute(sql, (json.dumps(new_payload), task_id))
-            logger.info(f"--- [ЭТАП 1 ГОТОВО] {result.get('title')} подготовлен.")
+            logger.info(f"{result.get('title')} подготовлен.")
 
     async def _run_stage_2_transcribe(self, task_id: int, payload: dict):
         async with self.transcribe_sem:
             file_id = payload["file_id"]
             audio_path = payload["audio_path"]
             title = payload.get("title", file_id)
-            logger.info(f"--- [ЭТАП 2] Транскрибация: {title}")
+            logger.info(f"Транскрибация: {title}")
             loop = asyncio.get_running_loop()
             result = await loop.run_in_executor(
                 None, lambda: transcribe_stage(file_id, audio_path, payload, status_callback=logger.info)
@@ -127,13 +121,13 @@ class Worker:
             """
             with db_connection(get_sqlite_settings()) as conn:
                 conn.execute(sql, (json.dumps(new_payload), task_id))
-            logger.info(f"--- [ЭТАП 2 ГОТОВО] Текст для {title} сохранен.")
+            logger.info(f"Текст для {title} сохранен.")
 
     async def _run_stage_3_index(self, task_id: int, payload: dict):
         async with self.embed_sem:
             video_id = payload["video_id"]
             title = payload.get("title", f"Video {video_id}")
-            logger.info(f"--- [ЭТАП 3] Индексация: {title}")
+            logger.info(f"Индексация: {title}")
 
             settings, q_settings = get_sqlite_settings(), get_qdrant_settings()
             embed_client = UnifiedEmbeddingClient(get_embedding_settings())
@@ -193,7 +187,7 @@ class Worker:
                 update_video_status(conn, video_id=video_id, processing_status="indexed_chunks_ready")
                 sql_f = "UPDATE tasks SET status = 'completed', updated_at = CURRENT_TIMESTAMP WHERE id = ?"
                 conn.execute(sql_f, (task_id,))
-            logger.info(f"=== [ГОТОВО] {v_row['title']} доступен для поиска. ===")
+            logger.info(f"{v_row['title']} доступен для поиска.")
 
     async def _consume_stage(self, stage_types: list[str]):
         """Бесконечный цикл обработки задач определенного типа."""

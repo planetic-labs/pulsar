@@ -177,13 +177,16 @@ async def api_delete_speaker(speaker_id: str, _: str = Depends(require_access_to
 
 @app.post("/api/tasks/ingest")
 async def api_add_ingest_task(
-    file_id: str = Form(...), diarize: bool = Form(True), _: str = Depends(require_access_token)
+    file_id: str = Form(...),
+    title: str = Form(None),
+    diarize: bool = Form(True),
+    _: str = Depends(require_access_token),
 ):
     settings = get_sqlite_settings()
     with db_connection(settings) as conn:
         conn.execute(
             "INSERT INTO tasks (task_type, payload) VALUES (?, ?)",
-            ("stage_1_download", json.dumps({"file_id": file_id, "diarize": diarize})),
+            ("stage_1_download", json.dumps({"file_id": file_id, "title": title, "diarize": diarize})),
         )
     return {"status": "queued", "file_id": file_id}
 
@@ -410,21 +413,58 @@ def status_page(request: Request):
     with db_connection(pg_settings) as connection:
         statuses = _status_rows(connection)
 
-        # Fetch tasks (queue)
-        sql_t = """
+        # Helper to process task rows
+        def process_tasks(rows):
+            processed = []
+            for row in rows:
+                t = dict(row)
+                try:
+                    payload = json.loads(t["payload"])
+                    t["file_id"] = payload.get("file_id")
+                    if t["file_id"]:
+                        sql_v = "SELECT title FROM videos WHERE source_file_id = ?"
+                        v = connection.execute(sql_v, (t["file_id"],)).fetchone()
+                        t["title"] = v["title"] if v else f"Файл {t['file_id'][:8]}..."
+                    else:
+                        t["title"] = payload.get("title", "AI Indexing")
+                except Exception:
+                    t["title"] = "Task"
+                processed.append(t)
+            return processed
+
+        # 1. Fetch ALL running tasks
+        sql_running = "SELECT * FROM tasks WHERE status = 'running' ORDER BY created_at ASC"
+        running_rows = connection.execute(sql_running).fetchall()
+        active_tasks = process_tasks(running_rows)
+
+        # 2. Fetch recent queue (limit 50)
+        sql_recent = """
             SELECT * FROM tasks
             WHERE status IN ('pending', 'running', 'failed')
             ORDER BY created_at DESC LIMIT 50
         """
-        task_rows = connection.execute(sql_t).fetchall()
+        recent_rows = connection.execute(sql_recent).fetchall()
+        tasks = process_tasks(recent_rows)
 
-        tasks = []
-        for row in task_rows:
+    return templates.TemplateResponse(
+        request, "status.html", {"statuses": statuses, "tasks": tasks, "active_tasks": active_tasks}
+    )
+
+
+@app.get("/api/v1/tasks/active")
+async def api_get_active_tasks(_: str = Depends(require_access_token)):
+    """Returns currently running tasks for UI updates."""
+    pg_settings = get_sqlite_settings()
+    with db_connection(pg_settings) as connection:
+        sql_running = "SELECT * FROM tasks WHERE status = 'running' ORDER BY created_at ASC"
+        rows = connection.execute(sql_running).fetchall()
+
+        processed = []
+        for row in rows:
             t = dict(row)
             try:
                 payload = json.loads(t["payload"])
                 t["file_id"] = payload.get("file_id")
-                # Try to find title if video row already created
                 if t["file_id"]:
                     sql_v = "SELECT title FROM videos WHERE source_file_id = ?"
                     v = connection.execute(sql_v, (t["file_id"],)).fetchone()
@@ -433,9 +473,17 @@ def status_page(request: Request):
                     t["title"] = payload.get("title", "AI Indexing")
             except Exception:
                 t["title"] = "Task"
-            tasks.append(t)
+            processed.append(t)
+        return processed
 
-    return templates.TemplateResponse(request, "status.html", {"statuses": statuses, "tasks": tasks})
+
+@app.delete("/api/v1/tasks/{task_id}")
+async def api_delete_task(task_id: int, _: str = Depends(require_access_token)):
+    """Delete a task from the queue."""
+    settings = get_sqlite_settings()
+    with db_connection(settings) as conn:
+        conn.execute("DELETE FROM tasks WHERE id = ?", (task_id,))
+    return {"status": "deleted"}
 
 
 @app.post("/api/v1/reindex/all")
@@ -716,11 +764,13 @@ async def api_drive_ls(folder_id: str | None = None, _: str = Depends(require_ac
             folder_rows = connection.execute("SELECT id FROM folders").fetchall()
             indexed_folder_ids = {row["id"] for row in folder_rows}
 
-            # Check for tasks in queue
-            queued_rows = connection.execute(
-                "SELECT json_extract(payload, '$.file_id') as file_id, json_extract(payload, '$.video_id') as video_id FROM tasks WHERE status IN ('pending', 'running')"
-            ).fetchall()
-            
+            sql_q = """
+                SELECT json_extract(payload, '$.file_id') as file_id,
+                       json_extract(payload, '$.video_id') as video_id
+                FROM tasks WHERE status IN ('pending', 'running')
+            """
+            queued_rows = connection.execute(sql_q).fetchall()
+
             queued_ids = set()
             video_ids_in_queue = []
             for r in queued_rows:
@@ -728,7 +778,7 @@ async def api_drive_ls(folder_id: str | None = None, _: str = Depends(require_ac
                     queued_ids.add(r["file_id"])
                 if r["video_id"]:
                     video_ids_in_queue.append(r["video_id"])
-            
+
             if video_ids_in_queue:
                 placeholders = ",".join(["?"] * len(video_ids_in_queue))
                 src_ids = connection.execute(
