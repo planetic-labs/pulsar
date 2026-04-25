@@ -300,6 +300,26 @@ async def api_indexed_move(
     return {"status": "success"}
 
 
+@app.post("/api/v1/indexed/folders/rename")
+async def api_indexed_rename_folder(
+    folder_id: str = Form(...), new_name: str = Form(...), _: str = Depends(require_access_token)
+):
+    """Rename a folder."""
+    pg_settings = get_sqlite_settings()
+    with db_connection(pg_settings) as conn:
+        conn.execute("UPDATE folders SET name = ? WHERE id = ?", (new_name, folder_id))
+    return {"status": "success"}
+
+
+@app.delete("/api/v1/indexed/folders/{folder_id}")
+async def api_indexed_delete_folder(folder_id: str, _: str = Depends(require_access_token)):
+    """Delete a folder. Subfolders and videos will lose their parent reference."""
+    pg_settings = get_sqlite_settings()
+    with db_connection(pg_settings) as conn:
+        conn.execute("DELETE FROM folders WHERE id = ?", (folder_id,))
+    return {"status": "success"}
+
+
 @app.post("/api/v1/indexed/sync")
 async def api_indexed_sync(_: str = Depends(require_access_token)):
     """Trigger metadata synchronization for all indexed files."""
