@@ -10,27 +10,6 @@
             <h1 class="text-2xl lg:text-3xl font-black text-[#3A3630] tracking-tight">Архив файлов</h1>
             <p class="text-sm text-warm-500 mt-1">Список проиндексированных видео и папок</p>
         </div>
-        <div class="flex items-center gap-3">
-            <button onclick="syncMetadata()" id="btn-sync" class="bg-white border border-[#E5E1D8] hover:bg-warm-50 text-warm-500 px-5 py-2.5 rounded-2xl text-xs font-bold uppercase tracking-widest transition-all shadow-sm flex items-center gap-2">
-                <svg id="sync-icon" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>
-                Синхронизировать
-            </button>
-            <a href="/import" class="bg-brand-500 hover:bg-brand-600 text-[#FAF9F6] px-5 py-2.5 rounded-2xl text-xs font-bold uppercase tracking-widest transition-all shadow-sm flex items-center gap-2">
-                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M12 4v16m8-8H4"></path></svg>
-                Импорт из Drive
-            </a>
-        </div>
-    </div>
-
-    <!-- Toolbar & Breadcrumbs -->
-    <div class="bg-white rounded-2xl shadow-sm border border-[#E5E1D8] mb-6 shrink-0 flex items-center px-4 py-3">
-        <button id="btn-up" onclick="goUp()" class="hidden mr-4 p-2 text-warm-400 hover:text-brand-600 hover:bg-warm-50 rounded-xl transition-all disabled:opacity-50" title="На уровень вверх">
-            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 10l7-7m0 0l7 7m-7-7v18"></path></svg>
-        </button>
-        <div class="w-px h-6 bg-[#F2F0EB] mr-4 hidden" id="divider-up"></div>
-        <nav class="flex text-[11px] font-bold uppercase tracking-widest overflow-x-auto no-scrollbar" aria-label="Breadcrumb">
-            <ol class="inline-flex items-center space-x-1" id="breadcrumbs-list"></ol>
-        </nav>
     </div>
 
     <!-- Main List Area -->
@@ -71,9 +50,6 @@
 </div>
 
 <script>
-let currentFolderId = 'root';
-let currentPath = [];
-
 function formatDuration(seconds) {
     if (!seconds) return '—';
     const h = Math.floor(seconds / 3600);
@@ -82,54 +58,7 @@ function formatDuration(seconds) {
     return h > 0 ? `${h}ч ${m}м` : `${m}м ${s}с`;
 }
 
-function renderBreadcrumbs(path) {
-    const breadcrumbsList = document.getElementById('breadcrumbs-list');
-    const btnUp = document.getElementById('btn-up');
-    const dividerUp = document.getElementById('divider-up');
-    
-    breadcrumbsList.innerHTML = '';
-    currentPath = path;
-
-    if (path.length > 0) {
-        btnUp.classList.remove('hidden');
-        dividerUp.classList.remove('hidden');
-    } else {
-        btnUp.classList.add('hidden');
-        dividerUp.classList.add('hidden');
-    }
-
-    const rootLi = document.createElement('li');
-    rootLi.className = 'inline-flex items-center shrink-0';
-    rootLi.innerHTML = `
-        <a href="javascript:void(0)" onclick="loadFolder('root')" class="inline-flex items-center text-warm-400 hover:text-brand-600 hover:bg-warm-50 px-3 py-2 rounded-xl transition-all ${path.length === 0 ? 'text-brand-600 bg-warm-50' : ''}">
-            <svg class="w-4 h-4 mr-2" fill="currentColor" viewBox="0 0 20 20"><path d="M10.707 2.293a1 1 0 00-1.414 0l-7 7a1 1 0 001.414 1.414L4 10.414V17a1 1 0 001 1h2a1 1 0 001-1v-2a1 1 0 011-1h2a1 1 0 011 1v2a1 1 0 001 1h2a1 1 0 001-1v-6.586l.293.293a1 1 0 001.414-1.414l-7-7z"></path></svg>
-            Диск
-        </a>
-    `;
-    breadcrumbsList.appendChild(rootLi);
-
-    path.forEach((crumb, index) => {
-        const isLast = index === path.length - 1;
-        const li = document.createElement('li');
-        li.className = 'flex items-center shrink-0';
-        li.innerHTML = `
-            <svg class="w-4 h-4 text-warm-200 mx-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M9 5l7 7-7 7"></path></svg>
-            <a href="javascript:void(0)" onclick="loadFolder('${crumb.id}')" class="px-3 py-2 rounded-xl transition-all truncate max-w-[150px] sm:max-w-[200px] block ${isLast ? 'text-brand-600 bg-warm-50 pointer-events-none' : 'text-warm-400 hover:text-brand-600 hover:bg-warm-50'}">${crumb.name}</a>
-        `;
-        breadcrumbsList.appendChild(li);
-    });
-}
-
-function goUp() {
-    if (currentPath.length > 1) {
-        loadFolder(currentPath[currentPath.length - 2].id);
-    } else if (currentPath.length === 1) {
-        loadFolder('root');
-    }
-}
-
-async function loadFolder(folderId = 'root') {
-    currentFolderId = folderId;
+async function loadVideos() {
     const listBody = document.getElementById('file-list');
     const loading = document.getElementById('loading-state');
     const empty = document.getElementById('empty-state');
@@ -139,14 +68,13 @@ async function loadFolder(folderId = 'root') {
     listBody.style.opacity = '0.4';
     
     try {
-        const response = await fetch(`/api/v1/indexed/ls?folder_id=${folderId}`);
+        const response = await fetch('/api/v1/indexed/ls');
         if (!response.ok) throw new Error('Ошибка сети');
         
         const data = await response.json();
-        const { items, path } = data;
+        const { items } = data;
         
         listBody.innerHTML = '';
-        renderBreadcrumbs(path);
         
         if (items.length === 0) {
             empty.classList.remove('hidden');
@@ -155,51 +83,36 @@ async function loadFolder(folderId = 'root') {
                 const tr = document.createElement('tr');
                 tr.className = "hover:bg-[#FDFDFB] transition-colors group cursor-pointer";
                 
-                if (item.is_folder) {
-                    tr.onclick = () => loadFolder(item.id);
-                    tr.innerHTML = `
-                        <td class="px-6 py-3" colspan="5">
-                            <div class="flex items-center gap-3">
-                                <svg class="w-5 h-5 text-brand-200 group-hover:text-brand-400 transition-colors" fill="currentColor" viewBox="0 0 20 20"><path d="M2 6a2 2 0 012-2h5l2 2h5a2 2 0 012 2v6a2 2 0 01-2 2H4a2 2 0 01-2-2V6z"></path></svg>
-                                <span class="text-xs font-bold text-[#3A3630] uppercase tracking-tight">${item.name}</span>
-                            </div>
-                        </td>
-                        <td class="px-6 py-3 text-right text-warm-300">
-                             <svg class="w-4 h-4 ml-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path></svg>
-                        </td>
-                    `;
-                } else {
-                    tr.onclick = (e) => {
-                        if (e.target.tagName !== 'A' && !e.target.closest('a')) {
-                            window.location.href = `/?q=v:${item.id}`;
-                        }
-                    };
-                    const conf = item.confidence ? Math.round(item.confidence * 100) : 0;
-                    const confClass = conf > 90 ? 'text-green-600 bg-green-50 border-green-100' : 'text-warm-500 bg-warm-50 border-warm-100';
-                    
-                    const driveLink = item.source_file_id ? `<a href="https://drive.google.com/file/d/${item.source_file_id}/view" target="_blank" class="p-1.5 hover:text-blue-600 transition-colors" title="Открыть в Google Drive"><svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"></path></svg></a>` : '';
+                tr.onclick = (e) => {
+                    if (e.target.tagName !== 'A' && !e.target.closest('a')) {
+                        window.location.href = `/?q=v:${item.id}`;
+                    }
+                };
+                const conf = item.confidence ? Math.round(item.confidence * 100) : 0;
+                const confClass = conf > 90 ? 'text-green-600 bg-green-50 border-green-100' : 'text-warm-500 bg-warm-50 border-warm-100';
+                
+                const driveLink = item.source_file_id ? `<a href="https://drive.google.com/file/d/${item.source_file_id}/view" target="_blank" class="p-1.5 hover:text-blue-600 transition-colors" title="Открыть в Google Drive"><svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"></path></svg></a>` : '';
 
-                    tr.innerHTML = `
-                        <td class="px-6 py-3">
-                            <div class="flex items-center gap-3">
-                                <svg class="w-5 h-5 text-warm-300 group-hover:text-brand-500 transition-colors" fill="currentColor" viewBox="0 0 20 20"><path d="M2 6a2 2 0 012-2h6a2 2 0 012 2v8a2 2 0 01-2 2H4a2 2 0 01-2-2V6zM14.553 7.106A1 1 0 0014 8v6a1 1 0 00.553.894l2 1A1 1 0 0018 15V7a1 1 0 00-1.447-.894l-2 1z"></path></svg>
-                                <span class="text-xs font-bold text-[#3A3630] line-clamp-1 uppercase tracking-tight">${item.name}</span>
-                            </div>
-                        </td>
-                        <td class="px-6 py-3 text-[10px] font-bold text-warm-400 uppercase tracking-tighter">${formatDuration(item.duration_sec)}</td>
-                        <td class="px-6 py-3 text-[10px] font-bold text-warm-400 uppercase tracking-widest">${item.chunk_count || 0}</td>
-                        <td class="px-6 py-3">
-                            <span class="inline-flex px-1.5 py-0.5 rounded text-[9px] font-black border uppercase ${confClass}">${conf}%</span>
-                        </td>
-                        <td class="px-6 py-3 text-[10px] font-black text-brand-600/70 uppercase tracking-widest">${item.engine || '—'}</td>
-                        <td class="px-6 py-3 text-right">
-                             <div class="flex items-center justify-end gap-1 text-warm-400">
-                                ${driveLink}
-                                <span class="text-[9px] font-black text-brand-600 uppercase tracking-widest ml-2 opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap">Поиск →</span>
-                             </div>
-                        </td>
-                    `;
-                }
+                tr.innerHTML = `
+                    <td class="px-6 py-3">
+                        <div class="flex items-center gap-3">
+                            <svg class="w-5 h-5 text-warm-300 group-hover:text-brand-500 transition-colors" fill="currentColor" viewBox="0 0 20 20"><path d="M2 6a2 2 0 012-2h6a2 2 0 012 2v8a2 2 0 01-2 2H4a2 2 0 01-2-2V6zM14.553 7.106A1 1 0 0014 8v6a1 1 0 00.553.894l2 1A1 1 0 0018 15V7a1 1 0 00-1.447-.894l-2 1z"></path></svg>
+                            <span class="text-xs font-bold text-[#3A3630] line-clamp-1 uppercase tracking-tight">${item.name}</span>
+                        </div>
+                    </td>
+                    <td class="px-6 py-3 text-[10px] font-bold text-warm-400 uppercase tracking-tighter">${formatDuration(item.duration_sec)}</td>
+                    <td class="px-6 py-3 text-[10px] font-bold text-warm-400 uppercase tracking-widest">${item.chunk_count || 0}</td>
+                    <td class="px-6 py-3">
+                        <span class="inline-flex px-1.5 py-0.5 rounded text-[9px] font-black border uppercase ${confClass}">${conf}%</span>
+                    </td>
+                    <td class="px-6 py-3 text-[10px] font-black text-brand-600/70 uppercase tracking-widest">${item.engine || '—'}</td>
+                    <td class="px-6 py-3 text-right">
+                         <div class="flex items-center justify-end gap-1 text-warm-400">
+                            ${driveLink}
+                            <span class="text-[9px] font-black text-brand-600 uppercase tracking-widest ml-2 opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap">Поиск →</span>
+                         </div>
+                    </td>
+                `;
                 listBody.appendChild(tr);
             });
         }
@@ -211,34 +124,6 @@ async function loadFolder(folderId = 'root') {
     }
 }
 
-async function syncMetadata() {
-    const btn = document.getElementById('btn-sync');
-    const icon = document.getElementById('sync-icon');
-    
-    btn.disabled = true;
-    icon.classList.add('animate-spin');
-    const originalText = btn.innerText;
-    btn.innerText = 'Синхронизация...';
-    
-    try {
-        const response = await fetch('/api/v1/indexed/sync', { method: 'POST' });
-        const data = await response.json();
-        
-        if (response.ok) {
-            alert(`Синхронизация завершена. Обновлено элементов: ${data.updated_count}`);
-            loadFolder(currentFolderId);
-        } else {
-            alert(`Ошибка: ${data.detail}`);
-        }
-    } catch (e) {
-        alert(`Ошибка сети: ${e}`);
-    } finally {
-        btn.disabled = false;
-        icon.classList.remove('animate-spin');
-        btn.innerHTML = `<svg id="sync-icon" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg> Синхронизировать`;
-    }
-}
-
-document.addEventListener('DOMContentLoaded', () => loadFolder('root'));
+document.addEventListener('DOMContentLoaded', () => loadVideos());
 </script>
 {% endblock %}

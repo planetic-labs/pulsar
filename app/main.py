@@ -197,25 +197,11 @@ def indexed_page(request: Request):
 
 
 @app.get("/api/v1/indexed/ls")
-async def api_indexed_ls(folder_id: str | None = None, _: str = Depends(require_access_token)):
-    """Lists indexed folders and videos from local DB with metadata."""
+async def api_indexed_ls(_: str = Depends(require_access_token)):
+    """Lists all indexed videos as a flat list, ignoring folder structures."""
     pg_settings = get_sqlite_settings()
-    target_id = folder_id if folder_id and folder_id != "root" else None
 
     with db_connection(pg_settings) as connection:
-        # 1. Get subfolders
-        if target_id:
-            sql_f = "SELECT id, name FROM folders WHERE parent_id = ? ORDER BY name ASC"
-            f_rows = connection.execute(sql_f, (target_id,)).fetchall()
-        else:
-            sql_f = """
-                SELECT id, name FROM folders
-                WHERE parent_id IS NULL OR parent_id NOT IN (SELECT id FROM folders)
-                ORDER BY name ASC
-                """
-            f_rows = connection.execute(sql_f).fetchall()
-
-        # 2. Get videos in this folder with rich metadata
         video_sql = """
             SELECT
                 v.id, v.title, v.mime_type, v.duration_sec, v.updated_at, v.source_file_id,
@@ -223,35 +209,12 @@ async def api_indexed_ls(folder_id: str | None = None, _: str = Depends(require_
                 (SELECT COUNT(*) FROM chunks c WHERE c.video_id = v.id) as chunk_count
             FROM videos v
             LEFT JOIN transcripts t ON t.video_id = v.id
-            WHERE {where_clause}
             ORDER BY v.title ASC
         """
 
-        if target_id:
-            where = "v.parent_folder_id = ?"
-            params = (target_id,)
-        else:
-            where = "v.parent_folder_id IS NULL OR v.parent_folder_id NOT IN (SELECT id FROM folders)"
-            params = ()
-
-        v_rows = connection.execute(video_sql.format(where_clause=where), params).fetchall()
-
-        # 3. Get current folder path (breadcrumbs)
-        path = []
-        curr = target_id
-        while curr:
-            row = connection.execute("SELECT id, name, parent_id FROM folders WHERE id = ?", (curr,)).fetchone()
-            if row:
-                path.append({"id": row["id"], "name": row["name"]})
-                curr = str(row["parent_id"]) if row["parent_id"] else None
-            else:
-                break
-        path.reverse()
+        v_rows = connection.execute(video_sql).fetchall()
 
     items = []
-    for r in f_rows:
-        items.append({"id": r["id"], "name": r["name"], "is_folder": True, "mime_type": "folder"})
-
     for r in v_rows:
         items.append(
             {
@@ -269,7 +232,7 @@ async def api_indexed_ls(folder_id: str | None = None, _: str = Depends(require_
             }
         )
 
-    return {"items": items, "path": path}
+    return {"items": items, "path": []}
 
 
 @app.post("/api/v1/indexed/sync")
