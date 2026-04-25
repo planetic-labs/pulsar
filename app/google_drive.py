@@ -305,32 +305,65 @@ class GoogleDriveClient:
             except Exception:
                 pass
 
-            # 2. Get EVERYTHING (Folders and Videos) that is NOT trashed
-            # We don't use 'in parents' here to catch shared items and root items at once
+            # 2. Get EVERYTHING from 'My Drive' (Folders and Videos)
             query_filter = (
                 "trashed = false and (mimeType = 'application/vnd.google-apps.folder' or mimeType contains 'video/')"
             )
+            response = self._list_files_page(page_size=1000, query_filter=query_filter, order_by="name")
+            for f in response.get("files", []):
+                if f["id"] not in seen_ids:
+                    items.append(
+                        {
+                            "id": f["id"],
+                            "name": f["name"],
+                            "mime_type": f["mimeType"],
+                            "web_view_link": f.get("webViewLink"),
+                            "is_folder": f["mimeType"] == "application/vnd.google-apps.folder",
+                        }
+                    )
+                    seen_ids.add(f["id"])
+
+            # 3. Get 'Shared with me' items
+            shared_filter = (
+                "sharedWithMe = true and trashed = false and "
+                "(mimeType = 'application/vnd.google-apps.folder' or mimeType contains 'video/')"
+            )
+            try:
+                shared_res = self._list_files_page(page_size=1000, query_filter=shared_filter, order_by="name")
+                for f in shared_res.get("files", []):
+                    if f["id"] not in seen_ids:
+                        items.append(
+                            {
+                                "id": f["id"],
+                                "name": f"S: {f['name']}",  # Prefix shared items for clarity
+                                "mime_type": f["mimeType"],
+                                "web_view_link": f.get("webViewLink"),
+                                "is_folder": f["mimeType"] == "application/vnd.google-apps.folder",
+                            }
+                        )
+                        seen_ids.add(f["id"])
+            except Exception as e:
+                logger.error(f"Error fetching shared items: {e}")
+
         else:
             # Inside a folder, we MUST filter by parents
             query_filter = (
                 f"'{folder_id}' in parents and trashed = false and "
                 "(mimeType = 'application/vnd.google-apps.folder' or mimeType contains 'video/')"
             )
-
-        response = self._list_files_page(page_size=1000, query_filter=query_filter, order_by="name")
-
-        for f in response.get("files", []):
-            if f["id"] not in seen_ids:
-                items.append(
-                    {
-                        "id": f["id"],
-                        "name": f["name"],
-                        "mime_type": f["mimeType"],
-                        "web_view_link": f.get("webViewLink"),
-                        "is_folder": f["mimeType"] == "application/vnd.google-apps.folder",
-                    }
-                )
-                seen_ids.add(f["id"])
+            response = self._list_files_page(page_size=1000, query_filter=query_filter, order_by="name")
+            for f in response.get("files", []):
+                if f["id"] not in seen_ids:
+                    items.append(
+                        {
+                            "id": f["id"],
+                            "name": f["name"],
+                            "mime_type": f["mimeType"],
+                            "web_view_link": f.get("webViewLink"),
+                            "is_folder": f["mimeType"] == "application/vnd.google-apps.folder",
+                        }
+                    )
+                    seen_ids.add(f["id"])
 
         # Sort folders first, then by name
         return sorted(items, key=lambda x: (not x["is_folder"], str(x["name"]).lower()))
