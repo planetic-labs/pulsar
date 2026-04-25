@@ -11,8 +11,8 @@
             <p class="text-sm text-warm-500 mt-1">Список проиндексированных видео и папок</p>
         </div>
         <div class="flex items-center gap-3">
-            <button onclick="createFolder()" class="bg-white border border-[#E5E1D8] hover:bg-warm-50 text-warm-500 px-5 py-2.5 rounded-2xl text-xs font-bold uppercase tracking-widest transition-all shadow-sm flex items-center gap-2">
-                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 13h6m-3-3v6m-9 1V7a2 2 0 012-2h6l2 2h6a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2z"></path></svg>
+            <button onclick="createFolder()" class="h-9 px-4 bg-white border border-[#E5E1D8] hover:bg-warm-50 text-warm-500 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all shadow-sm flex items-center justify-center gap-2 active:scale-95">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M9 13h6m-3-3v6m-9 1V7a2 2 0 012-2h6l2 2h6a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2z"></path></svg>
                 Новая папка
             </button>
         </div>
@@ -36,11 +36,6 @@
                 <thead class="sticky top-0 z-20 shadow-sm">
                     <tr class="bg-[#FAF9F6] border-b border-[#E5E1D8]">
                         <th class="px-6 py-4 text-[10px] font-black text-warm-400 uppercase tracking-widest bg-[#FAF9F6]">Название</th>
-                        <th class="px-6 py-4 text-[10px] font-black text-warm-400 uppercase tracking-widest bg-[#FAF9F6]">Длительность</th>
-                        <th class="px-6 py-4 text-[10px] font-black text-warm-400 uppercase tracking-widest bg-[#FAF9F6]">Фрагментов</th>
-                        <th class="px-6 py-4 text-[10px] font-black text-warm-400 uppercase tracking-widest bg-[#FAF9F6]">Точность</th>
-                        <th class="px-6 py-4 text-[10px] font-black text-warm-400 uppercase tracking-widest bg-[#FAF9F6]">Движок</th>
-                        <th class="px-6 py-4 text-[10px] font-black text-warm-400 uppercase tracking-widest text-right bg-[#FAF9F6]">Действие</th>
                     </tr>
                 </thead>
                 <tbody class="divide-y divide-[#F2F0EB]" id="file-list">
@@ -69,6 +64,9 @@
 <script>
 let currentFolderId = 'root';
 let currentPath = [];
+let selectedVideoIds = new Set();
+let lastSelectedIndex = -1;
+let currentItems = [];
 let draggedVideoId = null;
 
 function formatDuration(seconds) {
@@ -77,6 +75,35 @@ function formatDuration(seconds) {
     const m = Math.floor((seconds % 3600) / 60);
     const s = Math.floor(seconds % 60);
     return h > 0 ? `${h}ч ${m}м` : `${m}м ${s}с`;
+}
+
+function updateSelectionUI() {
+    document.querySelectorAll('#file-list tr').forEach((tr, idx) => {
+        const item = currentItems[idx];
+        if (item && !item.is_folder && selectedVideoIds.has(item.id)) {
+            tr.classList.add('bg-brand-50/60');
+        } else {
+            tr.classList.remove('bg-brand-50/60');
+        }
+    });
+}
+
+function handleRowClick(e, id, index) {
+    if (e.shiftKey && lastSelectedIndex !== -1) {
+        const start = Math.min(index, lastSelectedIndex);
+        const end = Math.max(index, lastSelectedIndex);
+        for (let i = start; i <= end; i++) {
+            if (!currentItems[i].is_folder) selectedVideoIds.add(currentItems[i].id);
+        }
+    } else if (e.ctrlKey || e.metaKey) {
+        if (selectedVideoIds.has(id)) selectedVideoIds.delete(id);
+        else selectedVideoIds.add(id);
+    } else {
+        selectedVideoIds.clear();
+        selectedVideoIds.add(id);
+    }
+    lastSelectedIndex = index;
+    updateSelectionUI();
 }
 
 function renderBreadcrumbs(path) {
@@ -164,6 +191,8 @@ async function loadVideos(folderId = 'root') {
     loading.classList.remove('hidden');
     empty.classList.add('hidden');
     listBody.style.opacity = '0.4';
+    selectedVideoIds.clear();
+    lastSelectedIndex = -1;
     
     try {
         const url = folderId === 'root' ? '/api/v1/indexed/ls' : `/api/v1/indexed/ls?folder_id=${folderId}`;
@@ -172,6 +201,7 @@ async function loadVideos(folderId = 'root') {
         
         const data = await response.json();
         const { items, path } = data;
+        currentItems = items;
         
         listBody.innerHTML = '';
         renderBreadcrumbs(path);
@@ -179,9 +209,9 @@ async function loadVideos(folderId = 'root') {
         if (items.length === 0) {
             empty.classList.remove('hidden');
         } else {
-            items.forEach(item => {
+            items.forEach((item, index) => {
                 const tr = document.createElement('tr');
-                tr.className = "hover:bg-[#FDFDFB] transition-colors group cursor-pointer";
+                tr.className = "hover:bg-[#FDFDFB] transition-colors group cursor-pointer select-none";
                 
                 if (item.is_folder) {
                     tr.classList.add('folder-drop-zone');
@@ -191,53 +221,71 @@ async function loadVideos(folderId = 'root') {
                     tr.ondrop = (e) => handleDrop(e, item.id);
 
                     tr.innerHTML = `
-                        <td class="px-6 py-3" colspan="5">
+                        <td class="px-6 py-3">
                             <div class="flex items-center gap-3">
-                                <svg class="w-5 h-5 text-brand-200 group-hover:text-brand-400 transition-colors" fill="currentColor" viewBox="0 0 20 20"><path d="M2 6a2 2 0 012-2h5l2 2h5a2 2 0 012 2v6a2 2 0 01-2 2H4a2 2 0 01-2-2V6z"></path></svg>
+                                <svg class="w-5 h-5 text-brand-200 group-hover:text-brand-400 transition-colors shrink-0" fill="currentColor" viewBox="0 0 20 20"><path d="M2 6a2 2 0 012-2h5l2 2h5a2 2 0 012 2v6a2 2 0 01-2 2H4a2 2 0 01-2-2V6z"></path></svg>
+                                
+                                <!-- Folder Actions -->
+                                <div class="flex items-center gap-0.5 shrink-0">
+                                    <button onclick="event.stopPropagation(); renameFolder('${item.id}', '${item.name.replace(/'/g, "\\'")}')" 
+                                            class="p-1.5 text-warm-300 hover:text-brand-500 hover:bg-brand-50 rounded-lg transition-all" title="Переименовать">
+                                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 00-2 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"></path></svg>
+                                    </button>
+                                    <button onclick="event.stopPropagation(); deleteFolder('${item.id}', '${item.name.replace(/'/g, "\\'")}')" 
+                                            class="p-1.5 text-warm-300 hover:text-rose-500 hover:bg-rose-50 rounded-lg transition-all" title="Удалить">
+                                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
+                                    </button>
+                                </div>
+
                                 <span class="text-xs font-bold text-[#3A3630] uppercase tracking-tight">${item.name}</span>
                             </div>
-                        </td>
-                        <td class="px-6 py-3 text-right text-warm-300">
-                             <svg class="w-4 h-4 ml-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path></svg>
                         </td>
                     `;
                 } else {
                     tr.draggable = true;
                     tr.ondragstart = (e) => {
-                        draggedVideoId = item.id;
+                        if (!selectedVideoIds.has(item.id)) {
+                            selectedVideoIds.clear();
+                            selectedVideoIds.add(item.id);
+                            updateSelectionUI();
+                        }
                         tr.classList.add('opacity-40');
-                        e.dataTransfer.setData('text/plain', item.id);
+                        e.dataTransfer.setData('text/plain', Array.from(selectedVideoIds).join(','));
                     };
                     tr.ondragend = () => tr.classList.remove('opacity-40');
 
                     tr.onclick = (e) => {
-                        if (e.target.tagName !== 'A' && !e.target.closest('a')) {
-                            window.location.href = `/?q=v:${item.id}`;
+                        if (e.target.tagName !== 'A' && !e.target.closest('a') && !e.target.closest('button')) {
+                            handleRowClick(e, item.id, index);
                         }
                     };
                     const conf = item.confidence ? Math.round(item.confidence * 100) : 0;
                     const confClass = conf > 90 ? 'text-green-600 bg-green-50 border-green-100' : 'text-warm-500 bg-warm-50 border-warm-100';
                     
-                    const driveLink = item.source_file_id ? `<a href="https://drive.google.com/file/d/${item.source_file_id}/view" target="_blank" class="p-1.5 hover:text-blue-600 transition-colors" title="Открыть в Google Drive"><svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"></path></svg></a>` : '';
+                    const driveLink = item.source_file_id ? `<a href="https://drive.google.com/file/d/${item.source_file_id}/view" target="_blank" onclick="event.stopPropagation();" class="p-1.5 text-warm-300 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-all" title="Открыть в Google Drive"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"></path></svg></a>` : '';
 
                     tr.innerHTML = `
                         <td class="px-6 py-3">
-                            <div class="flex items-center gap-3">
-                                <svg class="w-5 h-5 text-warm-300 group-hover:text-brand-500 transition-colors" fill="currentColor" viewBox="0 0 20 20"><path d="M2 6a2 2 0 012-2h6a2 2 0 012 2v8a2 2 0 01-2 2H4a2 2 0 01-2-2V6zM14.553 7.106A1 1 0 0014 8v6a1 1 0 00.553.894l2 1A1 1 0 0018 15V7a1 1 0 00-1.447-.894l-2 1z"></path></svg>
-                                <span class="text-xs font-bold text-[#3A3630] line-clamp-1 uppercase tracking-tight">${item.name}</span>
+                            <div class="flex items-center justify-between w-full">
+                                <div class="flex items-center gap-3 min-w-0">
+                                    
+                                    <!-- File Action Icons -->
+                                    <div class="flex items-center gap-0.5 shrink-0">
+                                        ${driveLink}
+                                        <a href="/?q=v:${item.id}" class="p-1.5 text-warm-300 hover:text-brand-500 hover:bg-brand-50 rounded-lg transition-all" title="Открыть в поиске">
+                                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
+                                        </a>
+                                        <button class="p-1.5 text-warm-200 cursor-not-allowed opacity-50" title="Переиндексировать (в разработке)">
+                                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
+                                        </button>
+                                        <button class="p-1.5 text-warm-200 cursor-not-allowed opacity-50" title="Удалить из индекса (в разработке)">
+                                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
+                                        </button>
+                                    </div>
+
+                                    <span class="text-xs font-bold text-[#3A3630] truncate uppercase tracking-tight">${item.name}</span>
+                                </div>
                             </div>
-                        </td>
-                        <td class="px-6 py-3 text-[10px] font-bold text-warm-400 uppercase tracking-tighter">${formatDuration(item.duration_sec)}</td>
-                        <td class="px-6 py-3 text-[10px] font-bold text-warm-400 uppercase tracking-widest">${item.chunk_count || 0}</td>
-                        <td class="px-6 py-3">
-                            <span class="inline-flex px-1.5 py-0.5 rounded text-[9px] font-black border uppercase ${confClass}">${conf}%</span>
-                        </td>
-                        <td class="px-6 py-3 text-[10px] font-black text-brand-600/70 uppercase tracking-widest">${item.engine || '—'}</td>
-                        <td class="px-6 py-3 text-right">
-                             <div class="flex items-center justify-end gap-1 text-warm-400">
-                                ${driveLink}
-                                <span class="text-[9px] font-black text-brand-600 uppercase tracking-widest ml-2 opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap">Поиск →</span>
-                             </div>
                         </td>
                     `;
                 }
@@ -252,19 +300,47 @@ async function loadVideos(folderId = 'root') {
     }
 }
 
+async function renameFolder(id, oldName) {
+    const newName = prompt('Новое название папки:', oldName);
+    if (!newName || newName === oldName) return;
+    
+    const formData = new FormData();
+    formData.append('folder_id', id);
+    formData.append('new_name', newName);
+    
+    try {
+        const res = await fetch('/api/v1/indexed/folders/rename', { method: 'POST', body: formData });
+        if (res.ok) loadVideos(currentFolderId);
+    } catch (e) { alert('Ошибка при переименовании'); }
+}
+
+async function deleteFolder(id, name) {
+    if (!confirm(`Удалить папку «${name}»? Сами видео останутся в архиве.`)) return;
+    
+    try {
+        const res = await fetch(`/api/v1/indexed/folders/${id}`, { method: 'DELETE' });
+        if (res.ok) loadVideos(currentFolderId);
+    } catch (e) { alert('Ошибка при удалении'); }
+}
+
 async function handleDrop(e, folderId) {
     e.preventDefault();
     e.currentTarget.classList.remove('bg-brand-50');
-    if (!draggedVideoId) return;
     
-    const formData = new FormData();
-    formData.append('video_id', draggedVideoId);
-    formData.append('folder_id', folderId);
+    const idsString = e.dataTransfer.getData('text/plain');
+    if (!idsString) return;
+    const ids = idsString.split(',');
     
-    try {
-        const res = await fetch('/api/v1/indexed/move', { method: 'POST', body: formData });
-        if (res.ok) loadVideos(currentFolderId);
-    } catch (e) { console.error(e); }
+    for (const id of ids) {
+        const formData = new FormData();
+        formData.append('video_id', id);
+        formData.append('folder_id', folderId);
+        
+        try {
+            await fetch('/api/v1/indexed/move', { method: 'POST', body: formData });
+        } catch (e) { console.error(id, e); }
+    }
+    loadVideos(currentFolderId);
 }
 
 document.addEventListener('DOMContentLoaded', () => loadVideos());

@@ -13,3 +13,4 @@ data/
 models_cache/
 core
 storage/
+.xxxx/
