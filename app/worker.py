@@ -77,30 +77,76 @@ class Worker:
         self.transcribe_sem = asyncio.Semaphore(1)
         self.embed_sem = asyncio.Semaphore(1)
         self.is_running = False
+        self.is_stopping = False
+        self._run_task: asyncio.Task | None = None
+        self._state = {
+            "stage_1_download": {"active": False, "title": "", "progress": 0, "speed": "", "status_text": "Ожидание"},
+            "stage_2_transcribe": {"active": False, "title": "", "progress": 0, "status_text": "Ожидание"},
+            "stage_3_index": {"active": False, "title": "", "progress": 0, "status_text": "Ожидание"},
+        }
+
+    def get_progress_state(self) -> dict:
+        """Возвращает текущее состояние прогресса всех стадий."""
+        return self._state
+
+    def stop(self):
+        """Остановка воркера."""
+        if self.is_running and not self.is_stopping:
+            logger.info("Запрос на остановку воркера. Завершение текущих задач...")
+            self.is_running = False
+            self.is_stopping = True
+
+    async def _has_pending_tasks(self) -> bool:
+        """Проверка наличия задач в очереди или в работе."""
+        sql = "SELECT COUNT(*) as c FROM tasks WHERE status IN ('pending', 'running')"
+        try:
+            with db_connection(get_sqlite_settings()) as conn:
+                row = conn.execute(sql).fetchone()
+                return row["c"] > 0
+        except Exception as e:
+            logger.error(f"Ошибка при проверке очереди: {e}")
+            return True  # В случае ошибки лучше считать, что задачи есть
 
     async def _run_stage_1_download(self, task_id: int, payload: dict):
         async with self.download_sem:
             file_id = payload["file_id"]
+            title = payload.get("title", f"File {file_id}")
+
+            self._state["stage_1_download"].update(
+                {"active": True, "title": title, "progress": 0, "speed": "", "status_text": "Инициализация"}
+            )
 
             sql_q = "SELECT COUNT(*) as c FROM tasks WHERE status IN ('pending', 'running')"
             with db_connection(get_sqlite_settings()) as conn:
                 c_row = conn.execute(sql_q).fetchone()
                 in_queue = c_row["c"]
 
-            loop = asyncio.get_running_loop()
-            result = await loop.run_in_executor(
-                None, lambda: download_and_extract_stage(file_id, status_callback=logger.info, in_queue=in_queue)
-            )
+            def update_state(data: dict):
+                self._state["stage_1_download"].update(data)
 
-            new_payload = {**payload, **result}
-            sql = """
-                UPDATE tasks
-                SET task_type = 'stage_2_transcribe', payload = ?, status = 'pending', updated_at = CURRENT_TIMESTAMP
-                WHERE id = ?
-            """
-            with db_connection(get_sqlite_settings()) as conn:
-                conn.execute(sql, (json.dumps(new_payload), task_id))
-            logger.info(f"{result.get('title')} подготовлен.")
+            try:
+                loop = asyncio.get_running_loop()
+                result = await loop.run_in_executor(
+                    None,
+                    lambda: download_and_extract_stage(
+                        file_id, status_callback=logger.info, in_queue=in_queue, state_callback=update_state
+                    ),
+                )
+
+                new_payload = {**payload, **result}
+                sql = """
+                    UPDATE tasks
+                    SET task_type = 'stage_2_transcribe', payload = ?, status = 'pending',
+                        updated_at = CURRENT_TIMESTAMP
+                    WHERE id = ?
+                """
+                with db_connection(get_sqlite_settings()) as conn:
+                    conn.execute(sql, (json.dumps(new_payload), task_id))
+                logger.info(f"{result.get('title')} подготовлен.")
+            finally:
+                self._state["stage_1_download"].update(
+                    {"active": False, "title": "", "progress": 0, "speed": "", "status_text": "Ожидание"}
+                )
 
     async def _run_stage_2_transcribe(self, task_id: int, payload: dict):
         async with self.transcribe_sem:
@@ -108,20 +154,30 @@ class Worker:
             audio_path = payload["audio_path"]
             title = payload.get("title", file_id)
             logger.info(f"Транскрибация: {title}")
-            loop = asyncio.get_running_loop()
-            result = await loop.run_in_executor(
-                None, lambda: transcribe_stage(file_id, audio_path, payload, status_callback=logger.info)
+
+            self._state["stage_2_transcribe"].update(
+                {"active": True, "title": title, "progress": 50, "status_text": "Обработка AI"}
             )
 
-            new_payload = {"video_id": result["video_id"], "title": title}
-            sql = """
-                UPDATE tasks
-                SET task_type = 'stage_3_index', payload = ?, status = 'pending', updated_at = CURRENT_TIMESTAMP
-                WHERE id = ?
-            """
-            with db_connection(get_sqlite_settings()) as conn:
-                conn.execute(sql, (json.dumps(new_payload), task_id))
-            logger.info(f"Текст для {title} сохранен.")
+            try:
+                loop = asyncio.get_running_loop()
+                result = await loop.run_in_executor(
+                    None, lambda: transcribe_stage(file_id, audio_path, payload, status_callback=logger.info)
+                )
+
+                new_payload = {"video_id": result["video_id"], "title": title}
+                sql = """
+                    UPDATE tasks
+                    SET task_type = 'stage_3_index', payload = ?, status = 'pending', updated_at = CURRENT_TIMESTAMP
+                    WHERE id = ?
+                """
+                with db_connection(get_sqlite_settings()) as conn:
+                    conn.execute(sql, (json.dumps(new_payload), task_id))
+                logger.info(f"Текст для {title} сохранен.")
+            finally:
+                self._state["stage_2_transcribe"].update(
+                    {"active": False, "title": "", "progress": 0, "status_text": "Ожидание"}
+                )
 
     async def _run_stage_3_index(self, task_id: int, payload: dict):
         async with self.embed_sem:
@@ -129,65 +185,77 @@ class Worker:
             title = payload.get("title", f"Video {video_id}")
             logger.info(f"Индексация: {title}")
 
-            settings, q_settings = get_sqlite_settings(), get_qdrant_settings()
-            embed_client = UnifiedEmbeddingClient(get_embedding_settings())
-            qdrant = get_qdrant_client()
+            self._state["stage_3_index"].update(
+                {"active": True, "title": title, "progress": 10, "status_text": "Эмбеддинги"}
+            )
 
-            with db_connection(settings) as conn:
-                update_video_status(conn, video_id=video_id, processing_status="indexing")
-                sql_v = "SELECT title, source_file_id, source_url FROM videos WHERE id = ?"
-                v_row = conn.execute(sql_v, (video_id,)).fetchone()
-                sql_c = """
-                    SELECT id, transcript_id, chunk_index, text, start_sec, end_sec FROM chunks
-                    WHERE video_id = ? ORDER BY chunk_index ASC
-                """
-                chunks = conn.execute(sql_c, (video_id,)).fetchall()
+            try:
+                settings, q_settings = get_sqlite_settings(), get_qdrant_settings()
+                embed_client = UnifiedEmbeddingClient(get_embedding_settings())
+                qdrant = get_qdrant_client()
 
-            if not chunks:
+                with db_connection(settings) as conn:
+                    update_video_status(conn, video_id=video_id, processing_status="indexing")
+                    sql_v = "SELECT title, source_file_id, source_url FROM videos WHERE id = ?"
+                    v_row = conn.execute(sql_v, (video_id,)).fetchone()
+                    sql_c = """
+                        SELECT id, transcript_id, chunk_index, text, start_sec, end_sec FROM chunks
+                        WHERE video_id = ? ORDER BY chunk_index ASC
+                    """
+                    chunks = conn.execute(sql_c, (video_id,)).fetchall()
+
+                if not chunks:
+                    with db_connection(settings) as conn:
+                        update_video_status(conn, video_id=video_id, processing_status="indexed_chunks_ready")
+                        conn.execute("UPDATE tasks SET status = 'completed' WHERE id = ?", (task_id,))
+                    return
+
+                texts = [c["text"] for c in chunks]
+                self._state["stage_3_index"].update({"progress": 30, "status_text": f"Генерация ({len(texts)})"})
+
+                loop = asyncio.get_running_loop()
+                embeddings_data = await loop.run_in_executor(None, lambda: embed_client.embed_batch(texts))
+
+                self._state["stage_3_index"].update({"progress": 70, "status_text": "Загрузка в Qdrant"})
+                points = []
+                for idx, row in enumerate(chunks):
+                    dense_vec, sparse_vec = embeddings_data[idx]
+                    vd: dict[str, Any] = {"default": dense_vec}
+                    if sparse_vec:
+                        vd["text-sparse"] = sparse_vec
+                    points.append(
+                        models.PointStruct(
+                            id=row["id"],
+                            vector=vd,
+                            payload={
+                                "chunk_id": row["id"],
+                                "transcript_id": row["transcript_id"],
+                                "chunk_index": row["chunk_index"],
+                                "text": row["text"],
+                                "start_sec": row["start_sec"],
+                                "end_sec": row["end_sec"],
+                                "video_id": video_id,
+                                "title": v_row["title"],
+                                "source_file_id": v_row["source_file_id"],
+                                "is_primary": True,
+                            },
+                        )
+                    )
+
+                if points:
+                    await loop.run_in_executor(
+                        None, lambda: qdrant.upsert(collection_name=q_settings.collection_name, points=points)
+                    )
+
                 with db_connection(settings) as conn:
                     update_video_status(conn, video_id=video_id, processing_status="indexed_chunks_ready")
-                    conn.execute("UPDATE tasks SET status = 'completed' WHERE id = ?", (task_id,))
-                return
-
-            texts = [c["text"] for c in chunks]
-            loop = asyncio.get_running_loop()
-            embeddings_data = await loop.run_in_executor(None, lambda: embed_client.embed_batch(texts))
-
-            points = []
-            for idx, row in enumerate(chunks):
-                dense_vec, sparse_vec = embeddings_data[idx]
-                vd: dict[str, Any] = {"default": dense_vec}
-                if sparse_vec:
-                    vd["text-sparse"] = sparse_vec
-                points.append(
-                    models.PointStruct(
-                        id=row["id"],
-                        vector=vd,
-                        payload={
-                            "chunk_id": row["id"],
-                            "transcript_id": row["transcript_id"],
-                            "chunk_index": row["chunk_index"],
-                            "text": row["text"],
-                            "start_sec": row["start_sec"],
-                            "end_sec": row["end_sec"],
-                            "video_id": video_id,
-                            "title": v_row["title"],
-                            "source_file_id": v_row["source_file_id"],
-                            "is_primary": True,
-                        },
-                    )
+                    sql_f = "UPDATE tasks SET status = 'completed', updated_at = CURRENT_TIMESTAMP WHERE id = ?"
+                    conn.execute(sql_f, (task_id,))
+                logger.info(f"{v_row['title']} доступен для поиска.")
+            finally:
+                self._state["stage_3_index"].update(
+                    {"active": False, "title": "", "progress": 0, "status_text": "Ожидание"}
                 )
-
-            if points:
-                await loop.run_in_executor(
-                    None, lambda: qdrant.upsert(collection_name=q_settings.collection_name, points=points)
-                )
-
-            with db_connection(settings) as conn:
-                update_video_status(conn, video_id=video_id, processing_status="indexed_chunks_ready")
-                sql_f = "UPDATE tasks SET status = 'completed', updated_at = CURRENT_TIMESTAMP WHERE id = ?"
-                conn.execute(sql_f, (task_id,))
-            logger.info(f"{v_row['title']} доступен для поиска.")
 
     async def _consume_stage(self, stage_types: list[str]):
         """Бесконечный цикл обработки задач определенного типа."""
@@ -231,7 +299,12 @@ class Worker:
                         with db_connection(get_sqlite_settings()) as conn:
                             conn.execute(sql_err, (error_trace, tid))
                 else:
-                    # Если задач нет, ждем 2 секунды
+                    # Если в этой очереди задач нет, проверяем, есть ли они ВООБЩЕ в системе
+                    if not await self._has_pending_tasks():
+                        logger.info("Очередь пуста. Автоматическая остановка воркера для экономии ресурсов.")
+                        self.is_running = False
+                        break
+                    # Если задачи есть в других стадиях, просто ждем
                     await asyncio.sleep(2)
             except Exception as e:
                 logger.error(f"Ошибка в консьюмере {stage_types}: {e}")
@@ -242,16 +315,26 @@ class Worker:
             conn.execute("UPDATE tasks SET status = 'pending' WHERE status = 'running'")
 
     async def run(self):
+        if self.is_running:
+            logger.warning("Воркер уже запущен.")
+            return
+
         self.cleanup()
         self.is_running = True
+        self.is_stopping = False
         logger.info("Воркер активен: ТРЕХСТАДИЙНЫЙ ПАРАЛЛЕЛЬНЫЙ КОНВЕЙЕР")
 
-        # Запускаем три независимых консьюмера
-        await asyncio.gather(
-            self._consume_stage(["stage_1_download", "ingest_video"]),
-            self._consume_stage(["stage_2_transcribe"]),
-            self._consume_stage(["stage_3_index"]),
-        )
+        try:
+            # Запускаем три независимых консьюмера
+            await asyncio.gather(
+                self._consume_stage(["stage_1_download", "ingest_video"]),
+                self._consume_stage(["stage_2_transcribe"]),
+                self._consume_stage(["stage_3_index"]),
+            )
+        finally:
+            self.is_running = False
+            self.is_stopping = False
+            logger.info("Воркер остановлен.")
 
 
 _worker_instance = Worker()

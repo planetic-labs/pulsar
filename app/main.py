@@ -175,6 +175,89 @@ async def api_delete_speaker(speaker_id: str, _: str = Depends(require_access_to
     return {"status": "deleted"}
 
 
+@app.post("/api/v1/worker/start")
+async def api_worker_start(_: str = Depends(require_access_token)):
+    worker = get_worker()
+    if not worker.is_running:
+        asyncio.create_task(worker.run())
+        return {"status": "starting"}
+    return {"status": "already_running"}
+
+
+@app.post("/api/v1/worker/stop")
+async def api_worker_stop(_: str = Depends(require_access_token)):
+    worker = get_worker()
+    if worker.is_running:
+        worker.stop()
+        return {"status": "stopping"}
+    return {"status": "already_stopped"}
+
+
+@app.get("/api/v1/worker/status")
+async def api_worker_status(_: str = Depends(require_access_token)):
+    worker = get_worker()
+    status = "stopped"
+    if worker.is_stopping:
+        status = "stopping"
+    elif worker.is_running:
+        status = "running"
+
+    return {"status": status, "is_running": worker.is_running}
+
+
+@app.get("/api/v1/worker/progress")
+async def api_worker_progress(_: str = Depends(require_access_token)):
+    """Returns real-time progress for all stages and queue counts."""
+    worker = get_worker()
+    state = worker.get_progress_state()
+
+    settings = get_sqlite_settings()
+    counts = {"stage_1_download": 0, "stage_2_transcribe": 0, "stage_3_index": 0}
+    stats = {"pending": 0, "failed": 0, "recent_errors": []}
+
+    with db_connection(settings) as conn:
+        # Group counts per stage
+        sql_q = "SELECT task_type, COUNT(*) as c FROM tasks WHERE status = 'pending' GROUP BY task_type"
+        rows = conn.execute(sql_q).fetchall()
+        for r in rows:
+            ttype = r["task_type"]
+            if ttype == "ingest_video":
+                ttype = "stage_1_download"
+            if ttype in counts:
+                counts[ttype] += r["c"]
+
+        # Overall stats
+        sql_s = "SELECT status, COUNT(*) as c FROM tasks GROUP BY status"
+        s_rows = conn.execute(sql_s).fetchall()
+        for r in s_rows:
+            if r["status"] == "pending":
+                stats["pending"] = r["c"]
+            if r["status"] == "failed":
+                stats["failed"] = r["c"]
+
+        # Recent errors with titles
+        if stats["failed"] > 0:
+            sql_e = """
+                SELECT id, task_type, error_message, payload
+                FROM tasks WHERE status = 'failed'
+                ORDER BY updated_at DESC LIMIT 5
+            """
+            e_rows = conn.execute(sql_e).fetchall()
+            for er in e_rows:
+                title = "Unknown Task"
+                try:
+                    p = json.loads(er["payload"])
+                    title = p.get("title") or p.get("file_id") or "Task"
+                except Exception:
+                    pass
+
+                stats["recent_errors"].append(
+                    {"id": er["id"], "title": title, "type": er["task_type"], "error": er["error_message"]}
+                )
+
+    return {"stages": state, "queue_counts": counts, "stats": stats, "is_running": worker.is_running}
+
+
 @app.post("/api/tasks/ingest")
 async def api_add_ingest_task(
     file_id: str = Form(...),
@@ -188,6 +271,12 @@ async def api_add_ingest_task(
             "INSERT INTO tasks (task_type, payload) VALUES (?, ?)",
             ("stage_1_download", json.dumps({"file_id": file_id, "title": title, "diarize": diarize})),
         )
+
+    # Auto-start worker
+    worker = get_worker()
+    if not worker.is_running:
+        asyncio.create_task(worker.run())
+
     return {"status": "queued", "file_id": file_id}
 
 
@@ -486,6 +575,22 @@ async def api_delete_task(task_id: int, _: str = Depends(require_access_token)):
     return {"status": "deleted"}
 
 
+@app.post("/api/v1/tasks/restart_failed")
+async def api_restart_failed_tasks(_: str = Depends(require_access_token)):
+    """Restart all failed tasks."""
+    settings = get_sqlite_settings()
+    with db_connection(settings) as conn:
+        res = conn.execute("UPDATE tasks SET status = 'pending', error_message = NULL WHERE status = 'failed'")
+        count = res.rowcount
+
+    # Auto-start worker
+    worker = get_worker()
+    if not worker.is_running:
+        asyncio.create_task(worker.run())
+
+    return {"status": "restarted", "count": count}
+
+
 @app.post("/api/v1/reindex/all")
 async def api_reindex_all(clear_qdrant: bool = False, _: str = Depends(require_access_token)):
     """Queues all transcribed videos for re-indexing in Qdrant."""
@@ -531,6 +636,11 @@ async def api_reindex_all(clear_qdrant: bool = False, _: str = Depends(require_a
                     ("stage_3_index", payload, "pending", 10),  # Higher priority for reindex
                 )
                 count += 1
+
+    # Auto-start worker
+    worker = get_worker()
+    if not worker.is_running:
+        asyncio.create_task(worker.run())
 
     return {"status": "queued", "count": count}
 

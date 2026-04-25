@@ -34,7 +34,10 @@ logger = logging.getLogger(__name__)
 
 
 def download_and_extract_stage(
-    file_id: str, status_callback: Callable[[str], None] | None = None, in_queue: int = 0
+    file_id: str,
+    status_callback: Callable[[str], None] | None = None,
+    in_queue: int = 0,
+    state_callback: Callable[[dict], None] | None = None,
 ) -> dict[str, Any]:
     """Stage 1: Download from Drive, Extract Audio, Delete Video."""
     drive_settings = get_google_drive_settings()
@@ -57,36 +60,44 @@ def download_and_extract_stage(
     if status_callback:
         status_callback(f"Загрузка: (старт) {clean_title} (в очереди: {in_queue})")
 
+    if state_callback:
+        state_callback({"status_text": "Начало загрузки...", "progress": 0, "speed": ""})
+
     last_log_time = time.time()
+    last_ui_update_time = 0
     last_downloaded = 0
 
     def progress_callback(downloaded, total):
-        nonlocal last_log_time, last_downloaded
+        nonlocal last_log_time, last_downloaded, last_ui_update_time
         current_time = time.time()
-        duration = current_time - last_log_time
-        if duration >= 10:
+
+        # Обновление UI каждые 2 секунды (без вывода в логи)
+        if current_time - last_ui_update_time >= 2:
             percent = int((downloaded / total) * 100) if total else 0
 
-            # Calculate speed
+            # Расчет скорости для UI
+            duration = current_time - (last_ui_update_time or last_log_time)
             delta = downloaded - last_downloaded
             speed_bps = delta / duration if duration > 0 else 0
 
-            # Format speed
             if speed_bps >= 1024 * 1024:
                 speed_str = f"{speed_bps / (1024 * 1024):.1f} MB/s"
             else:
                 speed_str = f"{speed_bps / 1024:.1f} KB/s"
 
-            if status_callback:
-                status_callback(f"Загрузка: [{speed_str}] ({percent}%) {clean_title}")
+            if state_callback:
+                state_callback({"status_text": "Загрузка файла", "progress": percent, "speed": speed_str})
 
-            last_log_time = current_time
+            last_ui_update_time = current_time
             last_downloaded = downloaded
 
     drive.download_file(file_id, video_path, progress_callback=progress_callback)
 
     if status_callback:
         status_callback(f"Загрузка: (завершена) {clean_title}")
+
+    if state_callback:
+        state_callback({"status_text": "Извлечение аудио...", "progress": 100, "speed": ""})
 
     if status_callback:
         status_callback(f"Извлечение аудио: {clean_title}")

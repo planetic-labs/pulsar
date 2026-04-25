@@ -10,62 +10,128 @@
             <h1 class="text-2xl lg:text-3xl font-black text-[#3A3630] tracking-tight">Мониторинг</h1>
             <p class="text-sm text-warm-500 mt-1">Очередь обработки и системные логи</p>
         </div>
-        <div class="flex items-center gap-3 text-[10px] font-black text-warm-500 uppercase tracking-widest">
-            В очереди: <span class="text-brand-500 ml-1">{{ tasks|length }}</span>
+        <div class="flex items-center gap-6">
+            <!-- Worker Control -->
+            <div class="flex items-center gap-3">
+                <div id="worker-status-badge" class="flex items-center gap-2 px-3 py-1.5 rounded-full border text-[9px] font-black uppercase tracking-widest transition-all">
+                    <div id="worker-status-dot" class="w-1.5 h-1.5 rounded-full bg-warm-300"></div>
+                    <span id="worker-status-text">Загрузка...</span>
+                </div>
+                <div class="flex items-center gap-1.5">
+                    <button id="worker-start-btn" onclick="toggleWorker('start')" class="w-8 h-8 flex items-center justify-center bg-green-50 text-green-600 rounded-xl hover:bg-green-100 transition-colors hidden" title="Запустить воркер">
+                        <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM9.555 7.168A1 1 0 008 8v4a1 1 0 001.555.832l3-2a1 1 0 000-1.664l-3-2z" clip-rule="evenodd" /></svg>
+                    </button>
+                    <button id="worker-stop-btn" onclick="toggleWorker('stop')" class="w-8 h-8 flex items-center justify-center bg-rose-50 text-rose-600 rounded-xl hover:bg-rose-100 transition-colors hidden" title="Остановить воркер">
+                        <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8 7a1 1 0 00-1 1v4a1 1 0 001 1h4a1 1 0 001-1V8a1 1 0 00-1-1H8z" clip-rule="evenodd" /></svg>
+                    </button>
+                </div>
+            </div>
         </div>
     </div>
 
     <!-- Monitoring Grid -->
-    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6 shrink-0">
-        <!-- Active Tasks Column -->
-        <div class="flex flex-col h-64">
-            <div class="flex items-center justify-between mb-2 px-2">
-                <h3 class="text-[10px] font-black text-warm-400 uppercase tracking-widest flex items-center gap-2">
-                    <div class="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse"></div> В работе
-                </h3>
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+        <!-- Left Column -->
+        <div class="flex flex-col gap-4">
+            
+            <!-- Unified Error Management Block (Moved to Top) -->
+            <div id="failed-tasks-container" class="bg-rose-50 border border-rose-100 rounded-2xl p-4 flex flex-col gap-4 shadow-sm" style="display: none;">
+                <div class="flex items-center justify-between">
+                    <div class="flex items-center gap-3">
+                        <div class="w-8 h-8 rounded-xl bg-rose-500 flex items-center justify-center text-white shadow-sm">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg>
+                        </div>
+                        <div>
+                            <h4 class="text-[10px] font-black text-rose-600 uppercase tracking-widest">Ошибки очереди</h4>
+                            <p class="text-[14px] font-black text-rose-500" id="stats-failed-count">0 задач</p>
+                        </div>
+                    </div>
+                    <button onclick="restartFailedTasks()" class="flex items-center gap-2 px-4 py-2 bg-white border border-rose-200 text-rose-600 rounded-xl text-[9px] font-black uppercase tracking-widest hover:bg-rose-500 hover:text-white transition-all shadow-sm">
+                        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>
+                        Перезапустить всё
+                    </button>
+                </div>
+                <div id="error-items" class="space-y-2"></div>
             </div>
-            <div id="active-tasks-container" class="flex-1 bg-white border border-[#E5E1D8] rounded-2xl overflow-hidden shadow-sm flex flex-col min-h-0">
-                {% if active_tasks %}
-                    <div class="overflow-y-auto custom-scrollbar flex-1">
-                        <table class="w-full text-left border-separate border-spacing-0">
-                            <thead class="sticky top-0 z-10">
-                                <tr class="bg-[#FAF9F6] border-b border-[#E5E1D8]">
-                                    <th class="px-4 py-2 text-[8px] font-black text-warm-400 uppercase tracking-widest border-b border-[#E5E1D8]">Объект</th>
-                                    <th class="px-4 py-2 text-[8px] font-black text-warm-400 uppercase tracking-widest border-b border-[#E5E1D8]">Тип</th>
-                                    <th class="px-4 py-2 text-[8px] font-black text-warm-400 uppercase tracking-widest border-b border-[#E5E1D8] text-right">ID</th>
-                                </tr>
-                            </thead>
-                            <tbody class="divide-y divide-[#F2F0EB]" id="active-tasks-body">
-                                {% for t in active_tasks %}
-                                    <tr class="hover:bg-[#FDFDFB] transition-colors">
-                                        <td class="px-4 py-2 whitespace-nowrap">
-                                            <div class="flex items-center gap-2">
-                                                <div class="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse shrink-0"></div>
-                                                <span class="text-[10px] font-bold text-[#3A3630] truncate max-w-[150px] uppercase tracking-tight">{{ t.title }}</span>
-                                            </div>
-                                        </td>
-                                        <td class="px-4 py-2 whitespace-nowrap">
-                                            <span class="text-[8px] font-black text-warm-400 uppercase tracking-widest">{{ t.task_type }}</span>
-                                        </td>
-                                        <td class="px-4 py-2 text-right whitespace-nowrap">
-                                            <span class="text-[8px] text-warm-300 font-mono">{{ t.file_id[:8] if t.file_id else '' }}</span>
-                                        </td>
-                                    </tr>
-                                {% endfor %}
-                            </tbody>
-                        </table>
+
+            <!-- Stage 1: Download -->
+            <div id="card-stage_1_download" class="bg-white border border-[#E5E1D8] rounded-2xl p-4 shadow-sm flex flex-col gap-2 transition-all opacity-40">
+                <div class="flex items-center justify-between">
+                    <div class="flex items-center gap-2">
+                        <div class="w-8 h-8 rounded-xl bg-blue-50 flex items-center justify-center text-blue-500">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg>
+                        </div>
+                        <div>
+                            <h4 class="text-[10px] font-black text-[#3A3630] uppercase tracking-widest">Загрузка</h4>
+                            <p class="text-[8px] text-warm-400 font-bold uppercase tracking-tight truncate max-w-[180px]" id="title-stage_1_download">Ожидание...</p>
+                        </div>
                     </div>
-                {% else %}
-                    <div class="h-full flex flex-col items-center justify-center text-center opacity-40 py-8">
-                        <svg class="w-8 h-8 text-warm-200 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M5 13l4 4L19 7"></path></svg>
-                        <p class="text-[9px] font-black text-warm-300 uppercase tracking-[0.2em]">Нет активных задач</p>
+                    <div class="text-right">
+                        <span class="text-[9px] font-black text-blue-500 uppercase tracking-widest" id="queue-stage_1_download">В очереди: 0</span>
                     </div>
-                {% endif %}
+                </div>
+                <div class="relative w-full h-1.5 bg-[#FAF9F6] rounded-full overflow-hidden border border-[#F2F0EB]">
+                    <div id="bar-stage_1_download" class="absolute top-0 left-0 h-full bg-blue-500 transition-all duration-500" style="width: 0%"></div>
+                </div>
+                <div class="flex items-center justify-between text-[8px] font-black uppercase tracking-widest">
+                    <span class="text-warm-300" id="status-stage_1_download">Готов к работе</span>
+                    <span class="text-blue-500" id="metric-stage_1_download">0%</span>
+                </div>
+            </div>
+
+            <!-- Stage 2: Transcribe -->
+            <div id="card-stage_2_transcribe" class="bg-white border border-[#E5E1D8] rounded-2xl p-4 shadow-sm flex flex-col gap-2 transition-all opacity-40">
+                <div class="flex items-center justify-between">
+                    <div class="flex items-center gap-2">
+                        <div class="w-8 h-8 rounded-xl bg-purple-50 flex items-center justify-center text-purple-500">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z"></path></svg>
+                        </div>
+                        <div>
+                            <h4 class="text-[10px] font-black text-[#3A3630] uppercase tracking-widest">Транскрибация</h4>
+                            <p class="text-[8px] text-warm-400 font-bold uppercase tracking-tight truncate max-w-[180px]" id="title-stage_2_transcribe">Ожидание...</p>
+                        </div>
+                    </div>
+                    <div class="text-right">
+                        <span class="text-[9px] font-black text-purple-500 uppercase tracking-widest" id="queue-stage_2_transcribe">В очереди: 0</span>
+                    </div>
+                </div>
+                <div class="relative w-full h-1.5 bg-[#FAF9F6] rounded-full overflow-hidden border border-[#F2F0EB]">
+                    <div id="bar-stage_2_transcribe" class="absolute top-0 left-0 h-full bg-purple-500 transition-all duration-500" style="width: 0%"></div>
+                </div>
+                <div class="flex items-center justify-between text-[8px] font-black uppercase tracking-widest">
+                    <span class="text-warm-300" id="status-stage_2_transcribe">Готов к работе</span>
+                    <span class="text-purple-500" id="metric-stage_2_transcribe">0%</span>
+                </div>
+            </div>
+
+            <!-- Stage 3: Index -->
+            <div id="card-stage_3_index" class="bg-white border border-[#E5E1D8] rounded-2xl p-4 shadow-sm flex flex-col gap-2 transition-all opacity-40">
+                <div class="flex items-center justify-between">
+                    <div class="flex items-center gap-2">
+                        <div class="w-8 h-8 rounded-xl bg-emerald-50 flex items-center justify-center text-emerald-500">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
+                        </div>
+                        <div>
+                            <h4 class="text-[10px] font-black text-[#3A3630] uppercase tracking-widest">Индексация</h4>
+                            <p class="text-[8px] text-warm-400 font-bold uppercase tracking-tight truncate max-w-[180px]" id="title-stage_3_index">Ожидание...</p>
+                        </div>
+                    </div>
+                    <div class="text-right">
+                        <span class="text-[9px] font-black text-emerald-500 uppercase tracking-widest" id="queue-stage_3_index">В очереди: 0</span>
+                    </div>
+                </div>
+                <div class="relative w-full h-1.5 bg-[#FAF9F6] rounded-full overflow-hidden border border-[#F2F0EB]">
+                    <div id="bar-stage_3_index" class="absolute top-0 left-0 h-full bg-emerald-500 transition-all duration-500" style="width: 0%"></div>
+                </div>
+                <div class="flex items-center justify-between text-[8px] font-black uppercase tracking-widest mt-1">
+                    <span class="text-warm-300" id="status-stage_3_index">Готов к работе</span>
+                    <span class="text-emerald-500" id="metric-stage_3_index">0%</span>
+                </div>
             </div>
         </div>
 
         <!-- Logs Column -->
-        <div class="flex flex-col h-64">
+        <div class="flex flex-col min-h-[320px]">
             <div class="flex items-center justify-between mb-2 px-2">
                 <h3 class="text-[10px] font-black text-warm-400 uppercase tracking-widest flex items-center gap-2">
                     <div class="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse"></div> Системные логи (Live)
@@ -78,76 +144,6 @@
         </div>
     </div>
 
-    <!-- Active Queue Section -->
-    <div class="flex-1 flex flex-col min-h-0">
-        <div class="flex items-center justify-between mb-3 px-2 shrink-0">
-            <h2 class="text-[11px] font-black text-[#3A3630] uppercase tracking-[0.2em]">Очередь обработки</h2>
-        </div>
-        
-        <div class="flex-1 bg-white border border-[#E5E1D8] rounded-2xl overflow-hidden shadow-sm flex flex-col min-h-0">
-            <div class="overflow-y-auto custom-scrollbar flex-1">
-                <table class="w-full text-left border-separate border-spacing-0">
-                    <thead class="sticky top-0 z-10">
-                        <tr class="bg-[#FAF9F6] border-b border-[#E5E1D8]">
-                            <th class="px-5 py-3 text-[9px] font-black text-warm-400 uppercase tracking-widest border-b border-[#E5E1D8]">Объект / ID</th>
-                            <th class="px-5 py-3 text-[9px] font-black text-warm-400 uppercase tracking-widest border-b border-[#E5E1D8]">Тип</th>
-                            <th class="px-5 py-3 text-[9px] font-black text-warm-400 uppercase tracking-widest border-b border-[#E5E1D8]">Статус</th>
-                            <th class="px-5 py-3 text-[9px] font-black text-warm-400 uppercase tracking-widest border-b border-[#E5E1D8] text-right">Действие</th>
-                        </tr>
-                    </thead>
-                    <tbody class="divide-y divide-[#F2F0EB]">
-                        {% for t in tasks %}
-                        <tr class="hover:bg-[#FDFDFB] transition-colors group" id="task-row-{{ t.id }}">
-                            <td class="px-5 py-3 whitespace-nowrap">
-                                <div class="flex items-center gap-3">
-                                    <span class="text-xs font-bold text-[#3A3630] truncate max-w-[200px] uppercase tracking-tight">{{ t.title }}</span>
-                                    <span class="text-[9px] text-warm-300 font-mono hidden lg:inline">{{ t.file_id[:12] if t.file_id else 'N/A' }}</span>
-                                </div>
-                            </td>
-                            <td class="px-5 py-3 whitespace-nowrap">
-                                <span class="text-[9px] font-black text-warm-400 uppercase tracking-widest">{{ t.task_type }}</span>
-                            </td>
-                            <td class="px-5 py-3 whitespace-nowrap">
-                                <div class="flex items-center gap-2">
-                                    {% if t.status == 'running' %}
-                                        <span class="inline-flex items-center gap-1.5 px-2 py-0.5 bg-blue-50 text-blue-600 text-[8px] font-black rounded border border-blue-100 uppercase tracking-widest">
-                                            <div class="w-1 h-1 rounded-full bg-blue-500 animate-pulse"></div> Работает
-                                        </span>
-                                    {% elif t.status == 'pending' %}
-                                        <span class="inline-flex items-center gap-1.5 px-2 py-0.5 bg-warm-50 text-warm-400 text-[8px] font-black rounded border border-warm-100 uppercase tracking-widest">
-                                            В очереди
-                                        </span>
-                                    {% elif t.status == 'failed' %}
-                                        <span class="inline-flex items-center gap-1.5 px-2 py-0.5 bg-rose-50 text-rose-600 text-[8px] font-black rounded border border-rose-100 uppercase tracking-widest" title="{{ t.error_message }}">
-                                            Ошибка
-                                        </span>
-                                        {% if t.error_message %}
-                                        <button onclick="copyToClipboard('{{ t.error_message|replace("'", "\\'")|replace("\n", " ") }}')" class="text-warm-300 hover:text-brand-500 transition-colors">
-                                            <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m-3 8h3m-3 4h3m-6-4h.01M9 16h.01"></path></svg>
-                                        </button>
-                                        {% endif %}
-                                    {% endif %}
-                                </div>
-                            </td>
-                            <td class="px-5 py-3 text-right whitespace-nowrap">
-                                <button onclick="deleteTask({{ t.id }})" class="text-warm-200 hover:text-rose-500 transition-all p-1 rounded-lg hover:bg-rose-50 opacity-0 group-hover:opacity-100">
-                                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
-                                </button>
-                            </td>
-                        </tr>
-                        {% endfor %}
-                        {% if not tasks %}
-                        <tr>
-                            <td colspan="4" class="py-10 text-center">
-                                <p class="text-[10px] font-black text-warm-200 uppercase tracking-widest italic">Очередь пуста</p>
-                            </td>
-                        </tr>
-                        {% endif %}
-                    </tbody>
-                </table>
-            </div>
-        </div>
-    </div>
 </div>
 
 <script>
@@ -190,6 +186,28 @@
         logConsole.innerHTML = '<div class="text-warm-500 italic opacity-50 text-[9px]">Очищено. Ожидание логов...</div>';
     }
 
+    async function restartFailedTasks() {
+        if (!confirm('Перезапустить все задачи с ошибками?')) return;
+        try {
+            const res = await fetch('/api/v1/tasks/restart_failed', { method: 'POST' });
+            if (res.ok) {
+                const data = await res.json();
+                const toast = document.createElement('div');
+                toast.className = "fixed bottom-8 left-8 z-[100] px-5 py-2.5 bg-[#3A3630] text-[#FAF9F6] rounded-xl text-[9px] font-black uppercase tracking-widest shadow-2xl animate-in slide-in-from-bottom-4 duration-200";
+                toast.textContent = `Перезапущено задач: ${data.count}`;
+                document.body.appendChild(toast);
+                setTimeout(() => {
+                    toast.classList.add('animate-out', 'fade-out', 'slide-out-to-bottom-4');
+                    setTimeout(() => toast.remove(), 200);
+                }, 3000);
+                // Refresh progress UI immediately
+                updateProgressUI();
+            }
+        } catch (e) {
+            console.error(e);
+        }
+    }
+
     async function deleteTask(taskId) {
         if (!confirm('Удалить задачу?')) return;
         try {
@@ -219,64 +237,148 @@
         });
     }
 
-    async function updateActiveTasks() {
+    async function updateProgressUI() {
         try {
-            const res = await fetch('/api/v1/tasks/active');
+            const res = await fetch('/api/v1/worker/progress');
             if (!res.ok) return;
-            const tasks = await res.json();
-            const container = document.getElementById('active-tasks-container');
-            const body = document.getElementById('active-tasks-body');
+            const data = await res.json();
+            
+            const stages = ['stage_1_download', 'stage_2_transcribe', 'stage_3_index'];
+            
+            stages.forEach(stageId => {
+                const card = document.getElementById(`card-${stageId}`);
+                const bar = document.getElementById(`bar-${stageId}`);
+                const title = document.getElementById(`title-${stageId}`);
+                const queue = document.getElementById(`queue-${stageId}`);
+                const status = document.getElementById(`status-${stageId}`);
+                const metric = document.getElementById(`metric-${stageId}`);
+                
+                if (!card) return;
+                
+                const state = data.stages[stageId];
+                const qCount = data.queue_counts[stageId] || 0;
+                
+                queue.innerText = `В очереди: ${qCount}`;
+                
+                if (state.active) {
+                    card.classList.remove('opacity-40');
+                    title.innerText = state.title;
+                    status.innerText = state.status_text;
+                    bar.style.width = `${state.progress}%`;
+                    
+                    if (stageId === 'stage_1_download' && state.speed) {
+                        metric.innerText = `${state.progress}% • ${state.speed}`;
+                    } else {
+                        metric.innerText = `${state.progress}%`;
+                    }
+                } else {
+                    card.classList.add('opacity-40');
+                    title.innerText = 'Ожидание...';
+                    status.innerText = 'Готов к работе';
+                    bar.style.width = '0%';
+                    metric.innerText = '0%';
+                }
+            });
 
-            if (tasks.length === 0) {
-                container.innerHTML = `
-                    <div class="h-full flex flex-col items-center justify-center text-center opacity-40 py-8">
-                        <svg class="w-8 h-8 text-warm-200 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M5 13l4 4L19 7"></path></svg>
-                        <p class="text-[9px] font-black text-warm-300 uppercase tracking-[0.2em]">Нет активных задач</p>
-                    </div>`;
-                return;
+            // Update Unified Error Block
+            const failedContainer = document.getElementById('failed-tasks-container');
+            const failedCountEl = document.getElementById('stats-failed-count');
+            const errorItems = document.getElementById('error-items');
+            
+            if (failedContainer && data.stats) {
+                if (data.stats.failed > 0) {
+                    failedContainer.style.display = 'block';
+                    if (failedCountEl) failedCountEl.innerText = `${data.stats.failed} задач`;
+                    
+                    if (errorItems && data.stats.recent_errors && data.stats.recent_errors.length > 0) {
+                        errorItems.innerHTML = data.stats.recent_errors.map(err => `
+                            <div class="bg-white border border-rose-100 rounded-xl p-3 flex flex-col gap-1 group relative shadow-sm">
+                                <div class="flex items-center justify-between mb-1">
+                                    <span class="text-[9px] font-black text-rose-600 uppercase tracking-tight truncate max-w-[150px]">${err.title}</span>
+                                    <span class="text-[7px] font-black text-rose-300 uppercase tracking-widest">${err.type}</span>
+                                </div>
+                                <p class="text-[8px] text-rose-700/60 leading-relaxed font-medium line-clamp-2">${err.error}</p>
+                                <button onclick="copyToClipboard('${err.error.replace(/'/g, "\\'").replace(/\n/g, " ")}')" class="absolute top-2 right-2 p-1 bg-rose-50 border border-rose-100 rounded shadow-sm opacity-0 group-hover:opacity-100 transition-opacity">
+                                    <svg class="w-2.5 h-2.5 text-rose-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m-3 8h3m-3 4h3m-6-4h.01M9 16h.01"></path></svg>
+                                </button>
+                            </div>
+                        `).join('');
+                    }
+                } else {
+                    failedContainer.style.display = 'none';
+                }
             }
-
-            // If we previously had no tasks, we need to rebuild the table structure
-            if (!body) {
-                container.innerHTML = `
-                    <div class="overflow-y-auto custom-scrollbar flex-1">
-                        <table class="w-full text-left border-separate border-spacing-0">
-                            <thead class="sticky top-0 z-10">
-                                <tr class="bg-[#FAF9F6] border-b border-[#E5E1D8]">
-                                    <th class="px-4 py-2 text-[8px] font-black text-warm-400 uppercase tracking-widest border-b border-[#E5E1D8]">Объект</th>
-                                    <th class="px-4 py-2 text-[8px] font-black text-warm-400 uppercase tracking-widest border-b border-[#E5E1D8]">Тип</th>
-                                    <th class="px-4 py-2 text-[8px] font-black text-warm-400 uppercase tracking-widest border-b border-[#E5E1D8] text-right">ID</th>
-                                </tr>
-                            </thead>
-                            <tbody class="divide-y divide-[#F2F0EB]" id="active-tasks-body"></tbody>
-                        </table>
-                    </div>`;
-            }
-
-            const newBody = document.getElementById('active-tasks-body');
-            newBody.innerHTML = tasks.map(t => `
-                <tr class="hover:bg-[#FDFDFB] transition-colors">
-                    <td class="px-4 py-2 whitespace-nowrap">
-                        <div class="flex items-center gap-2">
-                            <div class="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse shrink-0"></div>
-                            <span class="text-[10px] font-bold text-[#3A3630] truncate max-w-[150px] uppercase tracking-tight">${t.title}</span>
-                        </div>
-                    </td>
-                    <td class="px-4 py-2 whitespace-nowrap">
-                        <span class="text-[8px] font-black text-warm-400 uppercase tracking-widest">${t.task_type}</span>
-                    </td>
-                    <td class="px-4 py-2 text-right whitespace-nowrap">
-                        <span class="text-[8px] text-warm-300 font-mono">${t.file_id ? t.file_id.substring(0, 8) : ''}</span>
-                    </td>
-                </tr>
-            `).join('');
-
         } catch (e) {
-            console.error("Failed to update active tasks:", e);
+            console.error("Failed to update progress UI:", e);
+        }
+    }
+
+    async function updateWorkerStatus() {
+        try {
+            const res = await fetch('/api/v1/worker/status');
+            if (!res.ok) return;
+            const data = await res.json();
+            
+            const badge = document.getElementById('worker-status-badge');
+            const dot = document.getElementById('worker-status-dot');
+            const text = document.getElementById('worker-status-text');
+            const startBtn = document.getElementById('worker-start-btn');
+            const stopBtn = document.getElementById('worker-stop-btn');
+
+            if (data.status === 'running') {
+                badge.className = "flex items-center gap-2 px-3 py-1.5 rounded-full border border-green-100 bg-green-50 text-green-600 text-[9px] font-black uppercase tracking-widest transition-all";
+                dot.className = "w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse";
+                text.innerText = "Воркер активен";
+                startBtn.classList.add('hidden');
+                stopBtn.classList.remove('hidden');
+                stopBtn.disabled = false;
+                stopBtn.classList.remove('opacity-50', 'cursor-not-allowed');
+            } else if (data.status === 'stopping') {
+                badge.className = "flex items-center gap-2 px-3 py-1.5 rounded-full border border-amber-100 bg-amber-50 text-amber-600 text-[9px] font-black uppercase tracking-widest transition-all";
+                dot.className = "w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse";
+                text.innerText = "Останавливается...";
+                startBtn.classList.add('hidden');
+                stopBtn.classList.remove('hidden');
+                stopBtn.disabled = true;
+                stopBtn.classList.add('opacity-50', 'cursor-not-allowed');
+            } else {
+                badge.className = "flex items-center gap-2 px-3 py-1.5 rounded-full border border-warm-100 bg-warm-50 text-warm-400 text-[9px] font-black uppercase tracking-widest transition-all";
+                dot.className = "w-1.5 h-1.5 rounded-full bg-warm-300";
+                text.innerText = "Воркер остановлен";
+                startBtn.classList.remove('hidden');
+                stopBtn.classList.add('hidden');
+                startBtn.disabled = false;
+                startBtn.classList.remove('opacity-50', 'cursor-not-allowed');
+            }
+        } catch (e) {
+            console.error("Failed to update worker status:", e);
+        }
+    }
+
+    async function toggleWorker(action) {
+        try {
+            const res = await fetch(`/api/v1/worker/${action}`, { method: 'POST' });
+            if (res.ok) {
+                updateWorkerStatus();
+                // Показываем уведомление
+                const toast = document.createElement('div');
+                toast.className = "fixed bottom-8 left-8 z-[100] px-5 py-2.5 bg-[#3A3630] text-[#FAF9F6] rounded-xl text-[9px] font-black uppercase tracking-widest shadow-2xl animate-in slide-in-from-bottom-4 duration-200";
+                toast.textContent = action === 'start' ? 'Воркер запускается...' : 'Воркер останавливается...';
+                document.body.appendChild(toast);
+                setTimeout(() => {
+                    toast.classList.add('animate-out', 'fade-out', 'slide-out-to-bottom-4');
+                    setTimeout(() => toast.remove(), 200);
+                }, 2000);
+            }
+        } catch (e) {
+            console.error(e);
         }
     }
 
     connectLogs();
-    setInterval(updateActiveTasks, 3000);
+    updateWorkerStatus();
+    updateProgressUI();
+    setInterval(updateProgressUI, 2000);
+    setInterval(updateWorkerStatus, 3000);
 </script>
 {% endblock %}
