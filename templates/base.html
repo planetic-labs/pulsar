@@ -90,19 +90,15 @@
                         </nav>
                         </div>
 
-                        <div class="px-8 mt-auto mb-4">
-                        <div class="p-4 rounded-2xl bg-white/40 border border-white/60">
+                <div class="px-8 mt-auto mb-4">
+                    <div class="p-4 rounded-2xl bg-white/40 border border-white/60">
                         <div class="text-[9px] text-brand-400 uppercase tracking-widest font-black mb-2 opacity-70">Статистика</div>
-                        <div class="flex items-center justify-between text-[#3A3630]">
+                        <div class="text-[#3A3630]">
                             <span class="text-[10px] font-bold opacity-60">Видео:</span>
-                            <span class="text-[10px] font-black">{{ stats.total_videos }}</span>
+                            <span class="text-[10px] font-black ml-1">{{ stats.total_videos }} <span class="opacity-40 font-bold">({{ stats.total_hours }}ч)</span></span>
                         </div>
-                        <div class="flex items-center justify-between text-[#3A3630] mt-1">
-                            <span class="text-[10px] font-bold opacity-60">Время:</span>
-                            <span class="text-[10px] font-black">{{ stats.total_hours }}ч</span>
-                        </div>
-                        </div>
-                        </div>
+                    </div>
+                </div>
 
                         <div class="p-8 border-t border-[#E5E1D8]">
 
