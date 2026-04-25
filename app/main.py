@@ -67,16 +67,6 @@ def get_global_stats() -> dict[str, Any]:
         return {"total_videos": 0, "total_hours": 0}
 
 
-@app.middleware("http")
-async def add_global_stats_to_templates(request: Request, call_next):
-    # This is a hack to make stats available in all templates without changing every route
-    # FastAPI/Jinja2 doesn't have a built-in context processor like Flask/Django
-    # so we manually inject it into templates.env.globals
-    templates.env.globals["stats"] = get_global_stats()
-    response = await call_next(request)
-    return response
-
-
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup logic
@@ -102,6 +92,16 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="VideoDB", lifespan=lifespan)
+
+
+@app.middleware("http")
+async def add_global_stats_to_templates(request: Request, call_next):
+    # This is a hack to make stats available in all templates without changing every route
+    # FastAPI/Jinja2 doesn't have a built-in context processor like Flask/Django
+    # so we manually inject it into templates.env.globals
+    templates.env.globals["stats"] = get_global_stats()
+    response = await call_next(request)
+    return response
 
 # Session Middleware for Auth
 app.add_middleware(SessionMiddleware, secret_key="super-secret-key")
