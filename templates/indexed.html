@@ -10,20 +10,37 @@
             <h1 class="text-2xl lg:text-3xl font-black text-[#3A3630] tracking-tight">Архив файлов</h1>
             <p class="text-sm text-warm-500 mt-1">Список проиндексированных видео и папок</p>
         </div>
+        <div class="flex items-center gap-3">
+            <button onclick="createFolder()" class="bg-white border border-[#E5E1D8] hover:bg-warm-50 text-warm-500 px-5 py-2.5 rounded-2xl text-xs font-bold uppercase tracking-widest transition-all shadow-sm flex items-center gap-2">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 13h6m-3-3v6m-9 1V7a2 2 0 012-2h6l2 2h6a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2z"></path></svg>
+                Новая папка
+            </button>
+        </div>
+    </div>
+
+    <!-- Toolbar & Breadcrumbs -->
+    <div class="bg-white rounded-2xl shadow-sm border border-[#E5E1D8] mb-6 shrink-0 flex items-center px-4 py-3">
+        <button id="btn-up" onclick="goUp()" class="hidden mr-4 p-2 text-warm-400 hover:text-brand-600 hover:bg-warm-50 rounded-xl transition-all disabled:opacity-50" title="На уровень вверх">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 10l7-7m0 0l7 7m-7-7v18"></path></svg>
+        </button>
+        <div class="w-px h-6 bg-[#F2F0EB] mr-4 hidden" id="divider-up"></div>
+        <nav class="flex text-[11px] font-bold uppercase tracking-widest overflow-x-auto no-scrollbar" aria-label="Breadcrumb">
+            <ol class="inline-flex items-center space-x-1" id="breadcrumbs-list"></ol>
+        </nav>
     </div>
 
     <!-- Main List Area -->
     <div class="flex-1 bg-white border border-[#E5E1D8] rounded-[1.5rem] lg:rounded-[2rem] overflow-hidden relative flex flex-col shadow-sm">
         <div class="flex-1 overflow-y-auto custom-scrollbar" id="scroll-container">
             <table class="w-full text-left border-collapse">
-                <thead>
+                <thead class="sticky top-0 z-20 shadow-sm">
                     <tr class="bg-[#FAF9F6] border-b border-[#E5E1D8]">
-                        <th class="px-6 py-4 text-[10px] font-black text-warm-400 uppercase tracking-widest">Название</th>
-                        <th class="px-6 py-4 text-[10px] font-black text-warm-400 uppercase tracking-widest">Длительность</th>
-                        <th class="px-6 py-4 text-[10px] font-black text-warm-400 uppercase tracking-widest">Фрагментов</th>
-                        <th class="px-6 py-4 text-[10px] font-black text-warm-400 uppercase tracking-widest">Точность</th>
-                        <th class="px-6 py-4 text-[10px] font-black text-warm-400 uppercase tracking-widest">Движок</th>
-                        <th class="px-6 py-4 text-[10px] font-black text-warm-400 uppercase tracking-widest text-right">Действие</th>
+                        <th class="px-6 py-4 text-[10px] font-black text-warm-400 uppercase tracking-widest bg-[#FAF9F6]">Название</th>
+                        <th class="px-6 py-4 text-[10px] font-black text-warm-400 uppercase tracking-widest bg-[#FAF9F6]">Длительность</th>
+                        <th class="px-6 py-4 text-[10px] font-black text-warm-400 uppercase tracking-widest bg-[#FAF9F6]">Фрагментов</th>
+                        <th class="px-6 py-4 text-[10px] font-black text-warm-400 uppercase tracking-widest bg-[#FAF9F6]">Точность</th>
+                        <th class="px-6 py-4 text-[10px] font-black text-warm-400 uppercase tracking-widest bg-[#FAF9F6]">Движок</th>
+                        <th class="px-6 py-4 text-[10px] font-black text-warm-400 uppercase tracking-widest text-right bg-[#FAF9F6]">Действие</th>
                     </tr>
                 </thead>
                 <tbody class="divide-y divide-[#F2F0EB]" id="file-list">
@@ -50,6 +67,10 @@
 </div>
 
 <script>
+let currentFolderId = 'root';
+let currentPath = [];
+let draggedVideoId = null;
+
 function formatDuration(seconds) {
     if (!seconds) return '—';
     const h = Math.floor(seconds / 3600);
@@ -58,7 +79,84 @@ function formatDuration(seconds) {
     return h > 0 ? `${h}ч ${m}м` : `${m}м ${s}с`;
 }
 
-async function loadVideos() {
+function renderBreadcrumbs(path) {
+    const breadcrumbsList = document.getElementById('breadcrumbs-list');
+    const btnUp = document.getElementById('btn-up');
+    const dividerUp = document.getElementById('divider-up');
+    
+    breadcrumbsList.innerHTML = '';
+    currentPath = path;
+
+    if (path.length > 0) {
+        btnUp.classList.remove('hidden');
+        dividerUp.classList.remove('hidden');
+        btnUp.ondragover = (e) => { e.preventDefault(); btnUp.classList.add('bg-brand-50'); };
+        btnUp.ondragleave = () => btnUp.classList.remove('bg-brand-50');
+        btnUp.ondrop = (e) => {
+            const parent = currentPath.length > 1 ? currentPath[currentPath.length - 2].id : 'root';
+            handleDrop(e, parent);
+        };
+    } else {
+        btnUp.classList.add('hidden');
+        dividerUp.classList.add('hidden');
+    }
+
+    const rootLi = document.createElement('li');
+    rootLi.className = 'inline-flex items-center shrink-0';
+    rootLi.innerHTML = `
+        <a href="javascript:void(0)" onclick="loadVideos('root')" 
+           class="inline-flex items-center text-warm-400 hover:text-brand-600 hover:bg-warm-50 px-3 py-2 rounded-xl transition-all ${path.length === 0 ? 'text-brand-600 bg-warm-50' : ''}"
+           ondragover="event.preventDefault(); this.classList.add('bg-brand-50')"
+           ondragleave="this.classList.remove('bg-brand-50')"
+           ondrop="handleDrop(event, 'root')">
+            <svg class="w-4 h-4 mr-2" fill="currentColor" viewBox="0 0 20 20"><path d="M10.707 2.293a1 1 0 00-1.414 0l-7 7a1 1 0 001.414 1.414L4 10.414V17a1 1 0 001 1h2a1 1 0 001-1v-2a1 1 0 011-1h2a1 1 0 011 1v2a1 1 0 001 1h2a1 1 0 001-1v-6.586l.293.293a1 1 0 001.414-1.414l-7-7z"></path></svg>
+            Архив
+        </a>
+    `;
+    breadcrumbsList.appendChild(rootLi);
+
+    path.forEach((crumb, index) => {
+        const isLast = index === path.length - 1;
+        const li = document.createElement('li');
+        li.className = 'flex items-center shrink-0';
+        li.innerHTML = `
+            <svg class="w-4 h-4 text-warm-200 mx-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M9 5l7 7-7 7"></path></svg>
+            <a href="javascript:void(0)" onclick="loadVideos('${crumb.id}')" 
+               class="px-3 py-2 rounded-xl transition-all truncate max-w-[150px] sm:max-w-[200px] block ${isLast ? 'text-brand-600 bg-warm-50 pointer-events-none' : 'text-warm-400 hover:text-brand-600 hover:bg-warm-50'}"
+               ondragover="event.preventDefault(); this.classList.add('bg-brand-50')"
+               ondragleave="this.classList.remove('bg-brand-50')"
+               ondrop="handleDrop(event, '${crumb.id}')">${crumb.name}</a>
+        `;
+        breadcrumbsList.appendChild(li);
+    });
+}
+
+function goUp() {
+    if (currentPath.length > 1) {
+        loadVideos(currentPath[currentPath.length - 2].id);
+    } else if (currentPath.length === 1) {
+        loadVideos('root');
+    }
+}
+
+async function createFolder() {
+    const name = prompt('Введите название папки:');
+    if (!name) return;
+    
+    const formData = new FormData();
+    formData.append('name', name);
+    if (currentFolderId !== 'root') {
+        formData.append('parent_id', currentFolderId);
+    }
+    
+    try {
+        const res = await fetch('/api/v1/indexed/mkdir', { method: 'POST', body: formData });
+        if (res.ok) loadVideos(currentFolderId);
+    } catch (e) { alert('Ошибка при создании папки'); }
+}
+
+async function loadVideos(folderId = 'root') {
+    currentFolderId = folderId;
     const listBody = document.getElementById('file-list');
     const loading = document.getElementById('loading-state');
     const empty = document.getElementById('empty-state');
@@ -68,13 +166,15 @@ async function loadVideos() {
     listBody.style.opacity = '0.4';
     
     try {
-        const response = await fetch('/api/v1/indexed/ls');
+        const url = folderId === 'root' ? '/api/v1/indexed/ls' : `/api/v1/indexed/ls?folder_id=${folderId}`;
+        const response = await fetch(url);
         if (!response.ok) throw new Error('Ошибка сети');
         
         const data = await response.json();
-        const { items } = data;
+        const { items, path } = data;
         
         listBody.innerHTML = '';
+        renderBreadcrumbs(path);
         
         if (items.length === 0) {
             empty.classList.remove('hidden');
@@ -83,36 +183,64 @@ async function loadVideos() {
                 const tr = document.createElement('tr');
                 tr.className = "hover:bg-[#FDFDFB] transition-colors group cursor-pointer";
                 
-                tr.onclick = (e) => {
-                    if (e.target.tagName !== 'A' && !e.target.closest('a')) {
-                        window.location.href = `/?q=v:${item.id}`;
-                    }
-                };
-                const conf = item.confidence ? Math.round(item.confidence * 100) : 0;
-                const confClass = conf > 90 ? 'text-green-600 bg-green-50 border-green-100' : 'text-warm-500 bg-warm-50 border-warm-100';
-                
-                const driveLink = item.source_file_id ? `<a href="https://drive.google.com/file/d/${item.source_file_id}/view" target="_blank" class="p-1.5 hover:text-blue-600 transition-colors" title="Открыть в Google Drive"><svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"></path></svg></a>` : '';
+                if (item.is_folder) {
+                    tr.classList.add('folder-drop-zone');
+                    tr.onclick = () => loadVideos(item.id);
+                    tr.ondragover = (e) => { e.preventDefault(); tr.classList.add('bg-brand-50'); };
+                    tr.ondragleave = () => tr.classList.remove('bg-brand-50');
+                    tr.ondrop = (e) => handleDrop(e, item.id);
 
-                tr.innerHTML = `
-                    <td class="px-6 py-3">
-                        <div class="flex items-center gap-3">
-                            <svg class="w-5 h-5 text-warm-300 group-hover:text-brand-500 transition-colors" fill="currentColor" viewBox="0 0 20 20"><path d="M2 6a2 2 0 012-2h6a2 2 0 012 2v8a2 2 0 01-2 2H4a2 2 0 01-2-2V6zM14.553 7.106A1 1 0 0014 8v6a1 1 0 00.553.894l2 1A1 1 0 0018 15V7a1 1 0 00-1.447-.894l-2 1z"></path></svg>
-                            <span class="text-xs font-bold text-[#3A3630] line-clamp-1 uppercase tracking-tight">${item.name}</span>
-                        </div>
-                    </td>
-                    <td class="px-6 py-3 text-[10px] font-bold text-warm-400 uppercase tracking-tighter">${formatDuration(item.duration_sec)}</td>
-                    <td class="px-6 py-3 text-[10px] font-bold text-warm-400 uppercase tracking-widest">${item.chunk_count || 0}</td>
-                    <td class="px-6 py-3">
-                        <span class="inline-flex px-1.5 py-0.5 rounded text-[9px] font-black border uppercase ${confClass}">${conf}%</span>
-                    </td>
-                    <td class="px-6 py-3 text-[10px] font-black text-brand-600/70 uppercase tracking-widest">${item.engine || '—'}</td>
-                    <td class="px-6 py-3 text-right">
-                         <div class="flex items-center justify-end gap-1 text-warm-400">
-                            ${driveLink}
-                            <span class="text-[9px] font-black text-brand-600 uppercase tracking-widest ml-2 opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap">Поиск →</span>
-                         </div>
-                    </td>
-                `;
+                    tr.innerHTML = `
+                        <td class="px-6 py-3" colspan="5">
+                            <div class="flex items-center gap-3">
+                                <svg class="w-5 h-5 text-brand-200 group-hover:text-brand-400 transition-colors" fill="currentColor" viewBox="0 0 20 20"><path d="M2 6a2 2 0 012-2h5l2 2h5a2 2 0 012 2v6a2 2 0 01-2 2H4a2 2 0 01-2-2V6z"></path></svg>
+                                <span class="text-xs font-bold text-[#3A3630] uppercase tracking-tight">${item.name}</span>
+                            </div>
+                        </td>
+                        <td class="px-6 py-3 text-right text-warm-300">
+                             <svg class="w-4 h-4 ml-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path></svg>
+                        </td>
+                    `;
+                } else {
+                    tr.draggable = true;
+                    tr.ondragstart = (e) => {
+                        draggedVideoId = item.id;
+                        tr.classList.add('opacity-40');
+                        e.dataTransfer.setData('text/plain', item.id);
+                    };
+                    tr.ondragend = () => tr.classList.remove('opacity-40');
+
+                    tr.onclick = (e) => {
+                        if (e.target.tagName !== 'A' && !e.target.closest('a')) {
+                            window.location.href = `/?q=v:${item.id}`;
+                        }
+                    };
+                    const conf = item.confidence ? Math.round(item.confidence * 100) : 0;
+                    const confClass = conf > 90 ? 'text-green-600 bg-green-50 border-green-100' : 'text-warm-500 bg-warm-50 border-warm-100';
+                    
+                    const driveLink = item.source_file_id ? `<a href="https://drive.google.com/file/d/${item.source_file_id}/view" target="_blank" class="p-1.5 hover:text-blue-600 transition-colors" title="Открыть в Google Drive"><svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"></path></svg></a>` : '';
+
+                    tr.innerHTML = `
+                        <td class="px-6 py-3">
+                            <div class="flex items-center gap-3">
+                                <svg class="w-5 h-5 text-warm-300 group-hover:text-brand-500 transition-colors" fill="currentColor" viewBox="0 0 20 20"><path d="M2 6a2 2 0 012-2h6a2 2 0 012 2v8a2 2 0 01-2 2H4a2 2 0 01-2-2V6zM14.553 7.106A1 1 0 0014 8v6a1 1 0 00.553.894l2 1A1 1 0 0018 15V7a1 1 0 00-1.447-.894l-2 1z"></path></svg>
+                                <span class="text-xs font-bold text-[#3A3630] line-clamp-1 uppercase tracking-tight">${item.name}</span>
+                            </div>
+                        </td>
+                        <td class="px-6 py-3 text-[10px] font-bold text-warm-400 uppercase tracking-tighter">${formatDuration(item.duration_sec)}</td>
+                        <td class="px-6 py-3 text-[10px] font-bold text-warm-400 uppercase tracking-widest">${item.chunk_count || 0}</td>
+                        <td class="px-6 py-3">
+                            <span class="inline-flex px-1.5 py-0.5 rounded text-[9px] font-black border uppercase ${confClass}">${conf}%</span>
+                        </td>
+                        <td class="px-6 py-3 text-[10px] font-black text-brand-600/70 uppercase tracking-widest">${item.engine || '—'}</td>
+                        <td class="px-6 py-3 text-right">
+                             <div class="flex items-center justify-end gap-1 text-warm-400">
+                                ${driveLink}
+                                <span class="text-[9px] font-black text-brand-600 uppercase tracking-widest ml-2 opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap">Поиск →</span>
+                             </div>
+                        </td>
+                    `;
+                }
                 listBody.appendChild(tr);
             });
         }
@@ -122,6 +250,21 @@ async function loadVideos() {
         listBody.style.opacity = '1';
         loading.classList.add('hidden');
     }
+}
+
+async function handleDrop(e, folderId) {
+    e.preventDefault();
+    e.currentTarget.classList.remove('bg-brand-50');
+    if (!draggedVideoId) return;
+    
+    const formData = new FormData();
+    formData.append('video_id', draggedVideoId);
+    formData.append('folder_id', folderId);
+    
+    try {
+        const res = await fetch('/api/v1/indexed/move', { method: 'POST', body: formData });
+        if (res.ok) loadVideos(currentFolderId);
+    } catch (e) { console.error(e); }
 }
 
 document.addEventListener('DOMContentLoaded', () => loadVideos());
