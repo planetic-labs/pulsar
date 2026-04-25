@@ -33,7 +33,9 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
-def download_and_extract_stage(file_id: str, status_callback: Callable[[str], None] | None = None) -> dict[str, Any]:
+def download_and_extract_stage(
+    file_id: str, status_callback: Callable[[str], None] | None = None, in_queue: int = 0
+) -> dict[str, Any]:
     """Stage 1: Download from Drive, Extract Audio, Delete Video."""
     drive_settings = get_google_drive_settings()
     app_settings = get_app_settings()
@@ -45,12 +47,49 @@ def download_and_extract_stage(file_id: str, status_callback: Callable[[str], No
     video_path.parent.mkdir(parents=True, exist_ok=True)
     audio_path.parent.mkdir(parents=True, exist_ok=True)
 
-    if status_callback:
-        status_callback(f"Скачивание: {file_meta.name}")
-    drive.download_file(file_id, video_path)
+    def format_title(title, max_len=40):
+        if len(title) <= max_len:
+            return title
+        return title[: max_len - 3] + "..."
+
+    clean_title = format_title(file_meta.name)
 
     if status_callback:
-        status_callback(f"Извлечение аудио: {file_meta.name}")
+        status_callback(f"Загрузка: (старт) {clean_title} (в очереди: {in_queue})")
+
+    last_log_time = time.time()
+    last_downloaded = 0
+
+    def progress_callback(downloaded, total):
+        nonlocal last_log_time, last_downloaded
+        current_time = time.time()
+        duration = current_time - last_log_time
+        if duration >= 10:
+            percent = int((downloaded / total) * 100) if total else 0
+
+            # Calculate speed
+            delta = downloaded - last_downloaded
+            speed_bps = delta / duration if duration > 0 else 0
+
+            # Format speed
+            if speed_bps >= 1024 * 1024:
+                speed_str = f"{speed_bps / (1024 * 1024):.1f} MB/s"
+            else:
+                speed_str = f"{speed_bps / 1024:.1f} KB/s"
+
+            if status_callback:
+                status_callback(f"Загрузка: [{speed_str}] ({percent}%) {clean_title}")
+
+            last_log_time = current_time
+            last_downloaded = downloaded
+
+    drive.download_file(file_id, video_path, progress_callback=progress_callback)
+
+    if status_callback:
+        status_callback(f"Загрузка: (завершена) {clean_title}")
+
+    if status_callback:
+        status_callback(f"Извлечение аудио: {clean_title}")
     extract_audio(video_path, audio_path)
 
     # Delete video immediately

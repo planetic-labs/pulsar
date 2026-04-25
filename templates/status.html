@@ -15,16 +15,66 @@
         </div>
     </div>
 
-    <!-- Live Logs Console (Reduced height) -->
-    <div class="mb-6 group shrink-0">
-        <div class="flex items-center justify-between mb-2 px-2 shrink-0">
-            <h3 class="text-[10px] font-black text-warm-400 uppercase tracking-widest flex items-center gap-2">
-                <div class="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse"></div> Системные логи (Live)
-            </h3>
-            <button onclick="clearLogs()" class="text-[9px] font-black text-warm-300 hover:text-brand-500 uppercase tracking-widest transition-colors">Очистить</button>
+    <!-- Monitoring Grid -->
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6 shrink-0">
+        <!-- Active Tasks Column -->
+        <div class="flex flex-col h-64">
+            <div class="flex items-center justify-between mb-2 px-2">
+                <h3 class="text-[10px] font-black text-warm-400 uppercase tracking-widest flex items-center gap-2">
+                    <div class="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse"></div> В работе
+                </h3>
+            </div>
+            <div id="active-tasks-container" class="flex-1 bg-white border border-[#E5E1D8] rounded-2xl overflow-hidden shadow-sm flex flex-col min-h-0">
+                {% if active_tasks %}
+                    <div class="overflow-y-auto custom-scrollbar flex-1">
+                        <table class="w-full text-left border-separate border-spacing-0">
+                            <thead class="sticky top-0 z-10">
+                                <tr class="bg-[#FAF9F6] border-b border-[#E5E1D8]">
+                                    <th class="px-4 py-2 text-[8px] font-black text-warm-400 uppercase tracking-widest border-b border-[#E5E1D8]">Объект</th>
+                                    <th class="px-4 py-2 text-[8px] font-black text-warm-400 uppercase tracking-widest border-b border-[#E5E1D8]">Тип</th>
+                                    <th class="px-4 py-2 text-[8px] font-black text-warm-400 uppercase tracking-widest border-b border-[#E5E1D8] text-right">ID</th>
+                                </tr>
+                            </thead>
+                            <tbody class="divide-y divide-[#F2F0EB]" id="active-tasks-body">
+                                {% for t in active_tasks %}
+                                    <tr class="hover:bg-[#FDFDFB] transition-colors">
+                                        <td class="px-4 py-2 whitespace-nowrap">
+                                            <div class="flex items-center gap-2">
+                                                <div class="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse shrink-0"></div>
+                                                <span class="text-[10px] font-bold text-[#3A3630] truncate max-w-[150px] uppercase tracking-tight">{{ t.title }}</span>
+                                            </div>
+                                        </td>
+                                        <td class="px-4 py-2 whitespace-nowrap">
+                                            <span class="text-[8px] font-black text-warm-400 uppercase tracking-widest">{{ t.task_type }}</span>
+                                        </td>
+                                        <td class="px-4 py-2 text-right whitespace-nowrap">
+                                            <span class="text-[8px] text-warm-300 font-mono">{{ t.file_id[:8] if t.file_id else '' }}</span>
+                                        </td>
+                                    </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                {% else %}
+                    <div class="h-full flex flex-col items-center justify-center text-center opacity-40 py-8">
+                        <svg class="w-8 h-8 text-warm-200 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M5 13l4 4L19 7"></path></svg>
+                        <p class="text-[9px] font-black text-warm-300 uppercase tracking-[0.2em]">Нет активных задач</p>
+                    </div>
+                {% endif %}
+            </div>
         </div>
-        <div id="log-console" class="h-48 bg-[#1A1814] rounded-2xl p-5 font-mono text-[10px] text-green-400/70 overflow-y-auto custom-scrollbar border border-[#2A2620] shadow-xl">
-            <div class="text-warm-500 italic opacity-50">Ожидание подключения...</div>
+
+        <!-- Logs Column -->
+        <div class="flex flex-col h-64">
+            <div class="flex items-center justify-between mb-2 px-2">
+                <h3 class="text-[10px] font-black text-warm-400 uppercase tracking-widest flex items-center gap-2">
+                    <div class="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse"></div> Системные логи (Live)
+                </h3>
+                <button onclick="clearLogs()" class="text-[9px] font-black text-warm-300 hover:text-brand-500 uppercase tracking-widest transition-colors">Очистить</button>
+            </div>
+            <div id="log-console" class="flex-1 bg-[#1A1814] rounded-2xl p-5 font-mono text-[10px] text-green-400/70 overflow-y-auto custom-scrollbar border border-[#2A2620] shadow-xl">
+                <div class="text-warm-500 italic opacity-50">Ожидание подключения...</div>
+            </div>
         </div>
     </div>
 
@@ -169,6 +219,64 @@
         });
     }
 
+    async function updateActiveTasks() {
+        try {
+            const res = await fetch('/api/v1/tasks/active');
+            if (!res.ok) return;
+            const tasks = await res.json();
+            const container = document.getElementById('active-tasks-container');
+            const body = document.getElementById('active-tasks-body');
+
+            if (tasks.length === 0) {
+                container.innerHTML = `
+                    <div class="h-full flex flex-col items-center justify-center text-center opacity-40 py-8">
+                        <svg class="w-8 h-8 text-warm-200 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M5 13l4 4L19 7"></path></svg>
+                        <p class="text-[9px] font-black text-warm-300 uppercase tracking-[0.2em]">Нет активных задач</p>
+                    </div>`;
+                return;
+            }
+
+            // If we previously had no tasks, we need to rebuild the table structure
+            if (!body) {
+                container.innerHTML = `
+                    <div class="overflow-y-auto custom-scrollbar flex-1">
+                        <table class="w-full text-left border-separate border-spacing-0">
+                            <thead class="sticky top-0 z-10">
+                                <tr class="bg-[#FAF9F6] border-b border-[#E5E1D8]">
+                                    <th class="px-4 py-2 text-[8px] font-black text-warm-400 uppercase tracking-widest border-b border-[#E5E1D8]">Объект</th>
+                                    <th class="px-4 py-2 text-[8px] font-black text-warm-400 uppercase tracking-widest border-b border-[#E5E1D8]">Тип</th>
+                                    <th class="px-4 py-2 text-[8px] font-black text-warm-400 uppercase tracking-widest border-b border-[#E5E1D8] text-right">ID</th>
+                                </tr>
+                            </thead>
+                            <tbody class="divide-y divide-[#F2F0EB]" id="active-tasks-body"></tbody>
+                        </table>
+                    </div>`;
+            }
+
+            const newBody = document.getElementById('active-tasks-body');
+            newBody.innerHTML = tasks.map(t => `
+                <tr class="hover:bg-[#FDFDFB] transition-colors">
+                    <td class="px-4 py-2 whitespace-nowrap">
+                        <div class="flex items-center gap-2">
+                            <div class="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse shrink-0"></div>
+                            <span class="text-[10px] font-bold text-[#3A3630] truncate max-w-[150px] uppercase tracking-tight">${t.title}</span>
+                        </div>
+                    </td>
+                    <td class="px-4 py-2 whitespace-nowrap">
+                        <span class="text-[8px] font-black text-warm-400 uppercase tracking-widest">${t.task_type}</span>
+                    </td>
+                    <td class="px-4 py-2 text-right whitespace-nowrap">
+                        <span class="text-[8px] text-warm-300 font-mono">${t.file_id ? t.file_id.substring(0, 8) : ''}</span>
+                    </td>
+                </tr>
+            `).join('');
+
+        } catch (e) {
+            console.error("Failed to update active tasks:", e);
+        }
+    }
+
     connectLogs();
+    setInterval(updateActiveTasks, 3000);
 </script>
 {% endblock %}
