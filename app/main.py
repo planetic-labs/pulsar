@@ -41,6 +41,42 @@ ROOT_DIR = Path(__file__).resolve().parents[1]
 templates = Jinja2Templates(directory=str(ROOT_DIR / "templates"))
 
 
+# Cache for global stats (60s)
+_global_stats_cache: dict[str, Any] = {"data": None, "timestamp": 0}
+
+
+def get_global_stats() -> dict[str, Any]:
+    global _global_stats_cache
+    now = time.time()
+    if now - _global_stats_cache["timestamp"] < 60 and _global_stats_cache["data"]:
+        return _global_stats_cache["data"]
+
+    settings = get_sqlite_settings()
+    try:
+        with db_connection(settings) as conn:
+            sql = "SELECT COUNT(*) as count, SUM(duration_sec) as total_sec FROM videos WHERE processing_status = 'indexed_chunks_ready'"
+            row = conn.execute(sql).fetchone()
+            total_sec = row["total_sec"] or 0
+            count = row["count"]
+            hours = int(total_sec // 3600)
+            
+            _global_stats_cache["data"] = {"total_videos": count, "total_hours": hours}
+            _global_stats_cache["timestamp"] = now
+            return _global_stats_cache["data"]
+    except Exception:
+        return {"total_videos": 0, "total_hours": 0}
+
+
+@app.middleware("http")
+async def add_global_stats_to_templates(request: Request, call_next):
+    # This is a hack to make stats available in all templates without changing every route
+    # FastAPI/Jinja2 doesn't have a built-in context processor like Flask/Django
+    # so we manually inject it into templates.env.globals
+    templates.env.globals["stats"] = get_global_stats()
+    response = await call_next(request)
+    return response
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup logic
