@@ -1,0 +1,255 @@
+{% extends "base.html" %}
+
+{% block title %}Поиск — VideoDB AI{% endblock %}
+
+{% block content %}
+<div class="flex-1 flex flex-col h-full bg-[#FAF9F6] overflow-hidden">
+    
+    <!-- Unified Top Card (Player + Search) -->
+    <div class="shrink-0 px-4 pt-4 pb-2 z-40">
+        <div class="bg-white border border-[#E5E1D8] rounded-2xl shadow-xl overflow-hidden p-3 flex flex-col gap-3">
+            
+            <!-- 1. Video Player Part -->
+            <div id="mobile-player-section" class="{% if not results %} hidden {% endif %}">
+                <div id="player-placeholder" class="aspect-video flex flex-col items-center justify-center text-center opacity-30 py-6 bg-[#FAF9F6] rounded-xl border border-[#F2F0EB]">
+                    <svg class="w-10 h-10 text-warm-300 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"></path></svg>
+                    <p class="text-[10px] font-black uppercase tracking-widest text-warm-500">Выберите фрагмент</p>
+                </div>
+
+                <div id="player-content" class="hidden flex flex-col animate-in zoom-in-95 duration-500">
+                    <div class="aspect-video bg-black relative rounded-xl overflow-hidden">
+                        <video id="main-video" controls class="w-full h-full object-contain" playsinline></video>
+                        <button onclick="closePlayer()" class="absolute top-2 right-2 w-8 h-8 rounded-full bg-black/40 backdrop-blur-md border border-white/20 flex items-center justify-center text-white active:scale-90 transition-all z-10">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M6 18L18 6M6 6l12 12"></path></svg>
+                        </button>
+                    </div>
+                    <div class="px-2 pt-3 flex items-center justify-between gap-4">
+                        <div class="flex-1 min-w-0">
+                            <h3 id="mobile-player-title" class="text-[10px] font-bold text-[#3A3630] truncate uppercase tracking-tight"></h3>
+                        </div>
+                        <div id="mobile-player-meta" class="px-2 py-0.5 bg-brand-50 border border-brand-100 text-brand-600 font-bold text-[8px] rounded uppercase tracking-tighter shrink-0">
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 2. Search Part -->
+            <form action="/" method="get" id="search-form" class="relative group">
+                <button type="button" onclick="toggleMobileMenu()" class="absolute inset-y-0 left-0 pl-3 flex items-center text-warm-400">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"></path></svg>
+                </button>
+                <input type="text" name="q" id="search-input" value="{{ query }}" placeholder="Поиск по архиву..." 
+                       class="w-full bg-[#FAF9F6] border border-[#F2F0EB] rounded-xl py-3 pl-12 pr-12 text-sm text-[#4A453E] focus:outline-none focus:border-brand-300 transition-all shadow-inner">
+                <button type="button" id="clear-search" class="{% if not query %}hidden{% endif %} absolute inset-y-0 right-0 pr-4 flex items-center text-warm-300">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M6 18L18 6M6 6l12 12"></path></svg>
+                </button>
+            </form>
+        </div>
+    </div>
+
+    <!-- 3. Results Section (Scrollable) -->
+    <div class="flex-1 overflow-y-auto px-4 pt-4 pb-12 custom-scrollbar">
+        {% if not query %}
+            <div class="h-full flex flex-col items-center justify-center text-warm-300 opacity-60 py-12">
+                <div class="w-16 h-16 rounded-[2rem] bg-white border border-[#E5E1D8] flex items-center justify-center mb-6 shadow-sm">
+                    <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
+                </div>
+                <h2 class="text-base font-bold text-warm-500 mb-1 tracking-tight">Enterprise Search</h2>
+                <p class="text-[10px] uppercase tracking-widest font-black opacity-50">VideoDB AI Private Node</p>
+            </div>
+        {% elif not results %}
+            <div class="h-full flex flex-col items-center justify-center text-warm-400 opacity-60 py-12">
+                <h2 class="text-base font-bold mb-1">Ничего не найдено</h2>
+                <p class="text-[10px] italic">Попробуйте более общие слова</p>
+            </div>
+        {% else %}
+            <div class="space-y-4">
+                <div class="flex items-center justify-between px-1">
+                    <span class="text-[8px] font-black text-warm-400 uppercase tracking-[0.2em]">Результатов: {{ results|length }}</span>
+                </div>
+                
+                {% for item in results %}
+                <div onclick="playFragment('{{ item.video_id }}', {{ item.start_sec }}, '{{ item.title }}', '{{ item.start_ts }}', '{{ item.chunk_id }}')" 
+                     id="chunk-{{ item.chunk_id }}"
+                     class="group p-4 bg-white border border-[#E5E1D8] rounded-2xl active:scale-[0.98] transition-all relative shadow-sm">
+                    
+                    <div class="flex justify-between items-start gap-3 mb-2.5">
+                        <h3 class="font-bold text-xs text-[#3A3630] leading-tight line-clamp-2 uppercase tracking-tight">{{ item.title }}</h3>
+                        <span class="shrink-0 px-2 py-0.5 bg-warm-100 text-warm-600 text-[9px] font-bold rounded-lg uppercase tracking-tighter">
+                            {{ item.start_ts }}
+                        </span>
+                    </div>
+
+                    <p class="text-xs text-[#5C574F] leading-relaxed line-clamp-3 italic mb-4">
+                        «{{ item.text | safe }}»
+                    </p>
+                    
+                    <div class="flex items-center justify-between border-t border-[#F2F0EB] pt-3.5">
+                        <div class="flex items-center gap-2">
+                            {% if item.speaker %}
+                            <div class="flex items-center gap-1.5 px-2 py-1 bg-brand-50 rounded-lg text-brand-600 text-[8px] font-black uppercase tracking-widest">
+                                <svg class="w-2.5 h-2.5" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z" clip-rule="evenodd"></path></svg>
+                                <span>{{ item.speaker }}</span>
+                            </div>
+                            {% endif %}
+                        </div>
+                        <div class="flex gap-2">
+                            <button onclick="event.stopPropagation(); manageSpeakers('{{ item.video_id }}', '{{ item.title }}')" 
+                                    class="p-2 bg-[#FAF9F6] border border-[#E5E1D8] rounded-xl text-warm-400 active:bg-brand-50 transition-colors">
+                                <svg class="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20"><path d="M13 6a3 3 0 11-6 0 3 3 0 016 0zM18 8a2 2 0 11-4 0 2 2 0 014 0zM14 15a4 4 0 00-8 0v3h8v-3zM6 8a2 2 0 11-4 0 2 2 0 014 0zM16 18v-3a5.972 5.972 0 00-.75-2.906A3.005 3.005 0 0119 15v3h-3zM4.75 12.094A5.973 5.973 0 004 15v3H1v-3a3 3 0 013.75-2.906z"></path></svg>
+                            </button>
+                            <a href="/api/videos/{{ item.video_id }}/export" target="_blank" onclick="event.stopPropagation()"
+                               class="px-4 py-2 bg-[#FAF9F6] border border-[#E5E1D8] rounded-xl text-[9px] font-black text-warm-500 uppercase tracking-widest active:bg-brand-50 transition-colors">
+                                Export
+                            </a>
+                        </div>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+        {% endif %}
+    </div>
+</div>
+
+<!-- Speaker Modal -->
+<div id="speaker-modal" class="fixed inset-0 z-[110] flex items-end justify-center hidden">
+    <div class="absolute inset-0 bg-[#3A3630]/60 backdrop-blur-sm" onclick="closeSpeakers()"></div>
+    <div class="relative w-full bg-white rounded-t-2xl shadow-2xl overflow-hidden flex flex-col max-h-[80vh] animate-in slide-in-from-bottom-10 duration-300">
+        <div class="p-6 border-b border-[#E5E1D8] bg-[#FAF9F6] flex justify-between items-center">
+            <div class="min-w-0 pr-4">
+                <h2 class="text-[9px] font-black text-brand-500 uppercase tracking-[0.2em] mb-0.5">Speaker Reference</h2>
+                <h3 id="speaker-video-title" class="text-sm font-bold text-[#3A3630] truncate uppercase tracking-tight"></h3>
+            </div>
+            <button onclick="closeSpeakers()" class="p-2 text-warm-400">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M6 18L18 6M6 6l12 12"></path></svg>
+            </button>
+        </div>
+        <div id="speaker-list" class="p-6 overflow-y-auto space-y-4 custom-scrollbar"></div>
+    </div>
+</div>
+
+<script>
+    const searchInput = document.getElementById('search-input');
+    const clearSearchBtn = document.getElementById('clear-search');
+
+    searchInput.addEventListener('input', () => {
+        clearSearchBtn.classList.toggle('hidden', !searchInput.value);
+    });
+
+    clearSearchBtn.addEventListener('click', () => {
+        searchInput.value = '';
+        clearSearchBtn.classList.add('hidden');
+        searchInput.focus();
+    });
+
+    let activeChunkId = null;
+
+    function playFragment(videoId, startSec, title, ts, chunkId) {
+        // Highlight active card
+        if (activeChunkId) {
+            const oldCard = document.getElementById(`chunk-${activeChunkId}`);
+            if (oldCard) oldCard.classList.remove('ring-2', 'ring-brand-400');
+        }
+        activeChunkId = chunkId;
+        const newCard = document.getElementById(`chunk-${chunkId}`);
+        if (newCard) newCard.classList.add('ring-2', 'ring-brand-400');
+
+        // Show player
+        const playerSection = document.getElementById('mobile-player-section');
+        const playerPlaceholder = document.getElementById('player-placeholder');
+        const playerContent = document.getElementById('player-content');
+        const video = document.getElementById('main-video');
+        const playerTitle = document.getElementById('mobile-player-title');
+        const playerMeta = document.getElementById('mobile-player-meta');
+
+        playerSection.classList.remove('hidden');
+        playerPlaceholder.classList.add('hidden');
+        playerContent.classList.remove('hidden');
+
+        playerTitle.textContent = title;
+        playerMeta.textContent = ts;
+
+        video.src = `/videos/${videoId}/file#t=${startSec}`;
+        video.play();
+        
+        // Scroll to top to see the player
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+
+    function closePlayer() {
+        if (activeChunkId) {
+            const card = document.getElementById(`chunk-${activeChunkId}`);
+            if (card) card.classList.remove('ring-2', 'ring-brand-400');
+            activeChunkId = null;
+        }
+
+        const playerPlaceholder = document.getElementById('player-placeholder');
+        const playerContent = document.getElementById('player-content');
+        const video = document.getElementById('main-video');
+
+        video.pause();
+        video.src = "";
+        
+        playerContent.classList.add('hidden');
+        playerPlaceholder.classList.remove('hidden');
+    }
+
+    async function manageSpeakers(videoId, title) {
+        const modal = document.getElementById('speaker-modal');
+        const list = document.getElementById('speaker-list');
+        const titleEl = document.getElementById('speaker-video-title');
+
+        modal.classList.remove('hidden');
+        titleEl.textContent = title;
+        list.innerHTML = '<div class="text-center py-6 text-[10px] font-bold text-warm-400 uppercase tracking-widest">Загрузка...</div>';
+        
+        try {
+            const response = await fetch(`/api/videos/${videoId}/speakers`);
+            const speakers = await response.json();
+            
+            let html = '';
+            if (speakers.length === 0) {
+                html = '<div class="text-center py-6 text-warm-400 italic text-sm">Голоса не найдены</div>';
+            } else {
+                speakers.forEach(s => {
+                    html += `
+                        <div class="bg-[#FAF9F6] p-5 rounded-[1.5rem] border border-[#E5E1D8]">
+                            <div class="flex items-center gap-2 mb-3">
+                                <span class="w-6 h-6 bg-warm-200 text-warm-600 rounded-full flex items-center justify-center text-[10px] font-black">${s.tag}</span>
+                                <label class="text-[9px] font-black text-warm-400 uppercase tracking-widest">ID Группы</label>
+                            </div>
+                            <input type="text" value="${s.name}" 
+                                   onchange="saveSpeaker('${videoId}', '${s.tag}', this.value, this)"
+                                   class="w-full bg-white border border-[#E5E1D8] rounded-xl py-3 px-4 text-sm font-bold text-[#3A3630] focus:outline-none focus:border-brand-500 transition-all shadow-sm"
+                                   placeholder="Имя...">
+                        </div>
+                    `;
+                });
+            }
+            list.innerHTML = html;
+        } catch (e) {
+            list.innerHTML = '<div class="text-rose-400 py-6 text-center font-bold">Ошибка</div>';
+        }
+    }
+
+    async function saveSpeaker(videoId, tag, name, inputEl) {
+        try {
+            const res = await fetch(`/api/videos/${videoId}/speakers`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ tag, name })
+            });
+            if (res.ok) {
+                inputEl.classList.add('border-green-400', 'bg-green-50');
+                setTimeout(() => inputEl.classList.remove('border-green-400', 'bg-green-50'), 1000);
+            }
+        } catch (e) {
+            alert('Ошибка');
+        }
+    }
+
+    function closeSpeakers() {
+        document.getElementById('speaker-modal').classList.add('hidden');
+    }
+</script>
+{% endblock %}

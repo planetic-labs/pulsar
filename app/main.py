@@ -70,6 +70,7 @@ app.add_middleware(SessionMiddleware, secret_key="super-secret-key")
 
 # Static files for voice samples
 app.mount("/audio", StaticFiles(directory="/srv/search-ui/storage/voice_samples"), name="voice_audio")
+app.mount("/static", StaticFiles(directory="/srv/search-ui/static"), name="static")
 
 
 def _status_rows(connection: Any) -> list[VideoStatusItem]:
@@ -432,6 +433,36 @@ def health() -> dict[str, str]:
     return {"status": "ok"}
 
 
+@app.get("/manifest.json")
+async def manifest():
+    return {
+        "name": "VideoDB AI",
+        "short_name": "VideoDB",
+        "description": "Корпоративный поиск по видео-архиву",
+        "start_url": "/",
+        "display": "standalone",
+        "background_color": "#FAF9F6",
+        "theme_color": "#5F6683",
+        "icons": [
+            {"src": "/static/icon.svg", "sizes": "any", "type": "image/svg+xml"},
+        ],
+    }
+
+
+@app.get("/sw.js")
+async def service_worker():
+    content = """
+self.addEventListener('install', (e) => {
+  self.skipWaiting();
+});
+self.addEventListener('fetch', (event) => {
+  // Pass-through for now
+  event.respondWith(fetch(event.request));
+});
+"""
+    return Response(content=content, media_type="application/javascript")
+
+
 # --- AUTH ROUTES ---
 
 
@@ -478,7 +509,11 @@ def index_page(request: Request, q: str | None = None):
             items = hybrid_search(connection, q, limit=app_settings.results_limit)
             results = items
 
-    return templates.TemplateResponse(request, "index.html", {"query": q or "", "results": results})
+    ua = request.headers.get("user-agent", "").lower()
+    is_mobile = any(m in ua for m in ["mobile", "android", "iphone", "ipad"])
+    template = "index_mobile.html" if is_mobile else "index.html"
+
+    return templates.TemplateResponse(request, template, {"query": q or "", "results": results})
 
 
 @app.get("/import", response_class=HTMLResponse)

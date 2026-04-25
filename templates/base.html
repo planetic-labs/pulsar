@@ -4,6 +4,11 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{% block title %}VideoDB AI{% endblock %}</title>
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
+    <meta name="theme-color" content="#FAF9F6">
+    <link rel="manifest" href="/manifest.json">
+    <link rel="apple-touch-icon" href="/static/icon.svg">
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <script>
@@ -38,7 +43,7 @@
 <body class="h-full antialiased overflow-hidden text-[#4A453E]">
     <div class="flex h-full flex-col lg:flex-row">
         <!-- Mobile Header -->
-        <header class="lg:hidden h-16 bg-[#F2F0EB] border-b border-[#E5E1D8] flex items-center justify-between px-6 z-[60] shrink-0">
+        <header class="{% if request.url.path == '/' %} hidden {% else %} lg:hidden {% endif %} h-16 bg-[#F2F0EB] border-b border-[#E5E1D8] flex items-center justify-between px-6 z-[60] shrink-0">
             <div class="flex items-center gap-2">
                 <div class="w-8 h-8 bg-brand-500 rounded-xl flex items-center justify-center shadow-sm opacity-80">
                     <svg class="w-5 h-5 text-[#FAF9F6]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v7.764a1 1 0 01-1.447.894L15 15M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"></path></svg>
@@ -74,7 +79,7 @@
                             <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"></path></svg>
                             <span class="text-sm">Архив файлов</span>
                         </a>
-                        <a href="/import" class="flex items-center gap-3 px-4 py-3 rounded-xl transition-all group {% if request.url.path == '/import' %} sidebar-active {% else %} muted-text hover:bg-white/50 hover:text-slate-900 {% endif %}">
+                        <a href="/import" class="hidden lg:flex items-center gap-3 px-4 py-3 rounded-xl transition-all group {% if request.url.path == '/import' %} sidebar-active {% else %} muted-text hover:bg-white/50 hover:text-slate-900 {% endif %}">
                             <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 13h6m-3-3v6m-9 1V7a2 2 0 012-2h6l2 2h6a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2z"></path></svg>
                             <span class="text-sm">Импорт Drive</span>
                         </a>
@@ -123,6 +128,13 @@
                 menuIcon.classList.add('hidden');
                 closeIcon.classList.remove('hidden');
             }
+        }
+
+        // Register Service Worker for PWA
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('/sw.js');
+            });
         }
     </script>
 </body>
