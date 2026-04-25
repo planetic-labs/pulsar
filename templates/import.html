@@ -11,10 +11,16 @@
             <p class="text-sm text-warm-500 mt-1">Выберите видео для импорта и индексации</p>
         </div>
         <div class="flex items-center gap-3">
-            <div id="auth-status" class="hidden px-4 py-2 bg-rose-50 border border-rose-100 rounded-2xl text-[10px] font-black text-rose-500 uppercase tracking-widest flex items-center gap-2">
+            <div id="auth-status" class="hidden h-9 px-4 bg-rose-50 border border-rose-100 rounded-xl text-[10px] font-black text-rose-500 uppercase tracking-widest flex items-center gap-2">
                 <div class="w-2 h-2 rounded-full bg-rose-500 animate-pulse"></div> Ошибка Google
             </div>
-            <button onclick="loadDriveFolder(currentFolderId, '', true)" class="p-2 bg-white border border-[#E5E1D8] rounded-xl text-warm-500 hover:text-brand-500 transition-all shadow-sm active:scale-95">
+            <button onclick="importSelected()" class="h-9 px-4 bg-white border border-[#E5E1D8] rounded-xl text-[10px] font-black text-warm-500 hover:text-brand-500 transition-all shadow-sm active:scale-95 uppercase tracking-widest flex items-center justify-center">
+                Импортировать выбранное
+            </button>
+            <button onclick="importAllUnindexed()" class="h-9 px-4 bg-white border border-[#E5E1D8] rounded-xl text-[10px] font-black text-warm-500 hover:text-brand-500 transition-all shadow-sm active:scale-95 uppercase tracking-widest flex items-center justify-center">
+                Импортировать все
+            </button>
+            <button onclick="loadDriveFolder(currentFolderId, '', true)" class="h-9 w-9 bg-white border border-[#E5E1D8] rounded-xl text-warm-500 hover:text-brand-500 transition-all shadow-sm active:scale-95 flex items-center justify-center" title="Обновить">
                 <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.001 0 01-15.357-2m15.357 2H15"></path></svg>
             </button>
         </div>
@@ -35,12 +41,9 @@
     <div class="flex-1 bg-white border border-[#E5E1D8] rounded-[1.5rem] lg:rounded-[2rem] overflow-hidden relative flex flex-col shadow-sm">
         <div class="flex-1 overflow-y-auto custom-scrollbar" id="scroll-container">
             <table class="w-full text-left border-collapse">
-                <thead>
+                <thead class="sticky top-0 z-20 shadow-sm">
                     <tr class="bg-[#FAF9F6] border-b border-[#E5E1D8]">
-                        <th class="px-6 py-4 text-[10px] font-black text-warm-400 uppercase tracking-widest">Название</th>
-                        <th class="px-6 py-4 text-[10px] font-black text-warm-400 uppercase tracking-widest">Тип</th>
-                        <th class="px-6 py-4 text-[10px] font-black text-warm-400 uppercase tracking-widest">Статус</th>
-                        <th class="px-6 py-4 text-[10px] font-black text-warm-400 uppercase tracking-widest text-right">Действие</th>
+                        <th class="px-6 py-4 text-[10px] font-black text-warm-400 uppercase tracking-widest bg-[#FAF9F6]">Название</th>
                     </tr>
                 </thead>
                 <tbody class="divide-y divide-[#F2F0EB]" id="drive-contents">
@@ -161,38 +164,59 @@
                     tr.className = "hover:bg-[#FDFDFB] transition-colors group cursor-pointer";
                     
                     const isIndexed = item.is_indexed;
-                    const badge = isIndexed 
-                        ? '<span class="inline-flex px-1.5 py-0.5 rounded text-[9px] font-black border uppercase text-green-600 bg-green-50 border-green-100">В базе</span>'
-                        : '<span class="inline-flex px-1.5 py-0.5 rounded text-[9px] font-black border uppercase text-warm-400 bg-warm-50 border-warm-100">Не индексирован</span>';
+                    const isQueued = item.is_queued;
 
                     if (item.is_folder) {
                         tr.onclick = () => loadDriveFolder(item.id, item.name);
                         tr.innerHTML = `
-                            <td class="px-6 py-3" colspan="3">
+                            <td class="px-6 py-3">
                                 <div class="flex items-center gap-3">
-                                    <svg class="w-5 h-5 text-brand-200 group-hover:text-brand-400 transition-colors" fill="currentColor" viewBox="0 0 20 20"><path d="M2 6a2 2 0 012-2h5l2 2h5a2 2 0 012 2v6a2 2 0 01-2 2H4a2 2 0 01-2-2V6z"></path></svg>
+                                    <svg class="w-5 h-5 text-brand-200 group-hover:text-brand-400 transition-colors shrink-0" fill="currentColor" viewBox="0 0 20 20"><path d="M2 6a2 2 0 012-2h5l2 2h5a2 2 0 012 2v6a2 2 0 01-2 2H4a2 2 0 01-2-2V6z"></path></svg>
                                     <span class="text-xs font-bold text-[#3A3630] uppercase tracking-tight">${item.name}</span>
                                 </div>
                             </td>
-                            <td class="px-6 py-3 text-right text-warm-300">
-                                 <svg class="w-4 h-4 ml-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path></svg>
-                            </td>
                         `;
                     } else {
-                        tr.onclick = () => queueIngest(item.id, item.name);
+                        let statusIcon = '';
+                        if (isQueued) {
+                            statusIcon = '<div class="w-6 h-6 rounded-full bg-blue-50 border border-blue-100 flex items-center justify-center text-blue-500 shrink-0 shadow-sm" title="В очереди"><svg class="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg></div>';
+                        } else if (isIndexed) {
+                            statusIcon = '<div class="w-6 h-6 rounded-full bg-green-50 border border-green-100 flex items-center justify-center text-green-600 shrink-0 shadow-sm" title="В базе"><svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7"></path></svg></div>';
+                        } else {
+                            statusIcon = '<div class="w-6 h-6 rounded-full bg-warm-50 border border-warm-100 flex items-center justify-center text-warm-300 shrink-0 shadow-sm" title="Не индексирован"><svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 12H4"></path></svg></div>';
+                        }
+
+                        tr.onclick = (e) => {
+                            const cb = tr.querySelector('.file-checkbox');
+                            if (e.target !== cb && !e.target.closest('button') && !e.target.closest('a')) cb.checked = !cb.checked;
+                        };
                         tr.innerHTML = `
                             <td class="px-6 py-3">
-                                <div class="flex items-center gap-3">
-                                    <svg class="w-5 h-5 text-warm-300 group-hover:text-brand-500 transition-colors" fill="currentColor" viewBox="0 0 20 20"><path d="M4 3a2 2 0 00-2 2v10a2 2 0 002 2h12a2 2 0 002-2V5a2 2 0 00-2-2H4zm0 2h12v10H4V5z"></path></svg>
-                                    <span class="text-xs font-bold text-[#3A3630] line-clamp-1 uppercase tracking-tight">${item.name}</span>
+                                <div class="flex items-center w-full">
+                                    <div class="flex items-center gap-3 flex-1 min-w-0">
+                                        <!-- Status Indicator -->
+                                        <div class="shrink-0">
+                                            ${statusIcon}
+                                        </div>
+
+                                        <input type="checkbox" class="file-checkbox w-4 h-4 rounded border-[#E5E1D8] text-brand-500 focus:ring-brand-500 shrink-0" 
+                                               data-id="${item.id}" data-name="${item.name.replace(/"/g, '&quot;')}" data-indexed="${isIndexed}" data-queued="${isQueued}">
+                                        
+                                        <!-- Action Icons -->
+                                        <div class="flex items-center gap-1 shrink-0">
+                                            <button onclick="event.stopPropagation(); processIngestBatch([{id: '${item.id}', name: '${item.name.replace(/'/g, "\\'")}', indexed: ${isIndexed}, queued: ${isQueued}}])" 
+                                                    class="p-1.5 text-warm-300 hover:text-brand-500 hover:bg-brand-50 rounded-lg transition-all" title="${isIndexed ? 'Переиндексировать' : 'Индексировать'}">
+                                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
+                                            </button>
+                                            <a href="${item.web_view_link || '#'}" target="_blank" onclick="event.stopPropagation();" 
+                                               class="p-1.5 text-warm-300 hover:text-blue-500 hover:bg-blue-50 rounded-lg transition-all" title="Открыть в Google Drive">
+                                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"></path></svg>
+                                            </a>
+                                        </div>
+
+                                        <span class="text-xs font-bold text-[#3A3630] truncate uppercase tracking-tight">${item.name}</span>
+                                    </div>
                                 </div>
-                            </td>
-                            <td class="px-6 py-3 text-[10px] font-bold text-warm-400 uppercase tracking-widest">Видео</td>
-                            <td class="px-6 py-3">${badge}</td>
-                            <td class="px-6 py-3 text-right">
-                                 <div class="flex items-center justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                                    <span class="text-[9px] font-black text-brand-600 uppercase tracking-widest">${isIndexed ? 'Переиндексировать' : 'Индексировать'} →</span>
-                                 </div>
                             </td>
                         `;
                     }
@@ -205,6 +229,84 @@
         } finally {
             container.style.opacity = '1';
             loading.classList.add('hidden');
+        }
+    }
+
+    function importSelected() {
+        const selected = document.querySelectorAll('.file-checkbox:checked');
+        if (selected.length === 0) return alert('Ничего не выбрано');
+        
+        const files = Array.from(selected).map(cb => ({
+            id: cb.dataset.id,
+            name: cb.dataset.name,
+            indexed: cb.dataset.indexed === 'true',
+            queued: cb.dataset.queued === 'true'
+        }));
+        
+        processIngestBatch(files);
+        selected.forEach(cb => cb.checked = false);
+    }
+
+    function importAllUnindexed() {
+        const allFileCheckboxes = document.querySelectorAll('.file-checkbox');
+        if (allFileCheckboxes.length === 0) return alert('В этой папке нет видеофайлов');
+        
+        const files = Array.from(allFileCheckboxes).map(cb => ({
+            id: cb.dataset.id,
+            name: cb.dataset.name,
+            indexed: cb.dataset.indexed === 'true',
+            queued: cb.dataset.queued === 'true'
+        }));
+        
+        processIngestBatch(files);
+    }
+
+    function showSuccessToast(count) {
+        const toast = document.createElement('div');
+        toast.className = "fixed top-6 left-1/2 -translate-x-1/2 z-[100] px-6 py-3 bg-green-500 text-white rounded-full text-[10px] font-black uppercase tracking-widest shadow-2xl animate-in slide-in-from-top-4 duration-300 flex items-center gap-2";
+        toast.innerHTML = `<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7"></path></svg> Отправлено на индексацию: ${count}`;
+        document.body.appendChild(toast);
+        setTimeout(() => {
+            toast.classList.add('animate-out', 'fade-out', 'slide-out-to-top-4');
+            setTimeout(() => toast.remove(), 300);
+        }, 4000);
+    }
+
+    async function processIngestBatch(files) {
+        const skipList = files.filter(f => f.indexed || f.queued);
+        const toIngest = files.filter(f => !f.indexed && !f.queued);
+
+        if (skipList.length > 0 && files.length > 1) {
+            const list = document.getElementById('already-indexed-list');
+            list.innerHTML = skipList.map(f => `<li class="truncate" title="${f.name}">${f.name}</li>`).join('');
+            document.getElementById('already-indexed-modal').classList.remove('hidden');
+        } else if (skipList.length > 0 && files.length === 1) {
+             // For single file, if it's already indexed/queued, we might still want to re-index it 
+             // IF the user clicked the explicit button. 
+             // BUT based on user request: "Если файл уже проиндексирован, то выводить модальное окно... и соответсвенно эти файлы на индексацию не отправлять"
+             // This suggests we should NOT re-index even if they click the button, or we should ask?
+             // "А только те которых нет ни в очереди ни в индексе" - this is quite strict.
+             // I'll stick to strict: don't ingest if indexed or queued.
+             const list = document.getElementById('already-indexed-list');
+             list.innerHTML = `<li class="truncate" title="${skipList[0].name}">${skipList[0].name}</li>`;
+             document.getElementById('already-indexed-modal').classList.remove('hidden');
+        }
+
+        if (toIngest.length > 0) {
+            let successCount = 0;
+            for (const file of toIngest) {
+                const formData = new FormData();
+                formData.append('file_id', file.id);
+                formData.append('diarize', 'true');
+                try {
+                    const res = await fetch('/api/tasks/ingest', { method: 'POST', body: formData });
+                    if (res.ok) successCount++;
+                } catch (e) { console.error('Ошибка при добавлении в очередь', e); }
+            }
+            
+            if (successCount > 0) {
+                showSuccessToast(successCount);
+            }
         }
     }
 
@@ -246,34 +348,27 @@
         } catch (e) { alert('Ошибка вызова окна авторизации'); }
     }
 
-    async function queueIngest(fileId, name) {
-        const formData = new FormData();
-        formData.append('file_id', fileId);
-        formData.append('diarize', 'true');
-        
-        try {
-            const res = await fetch('/api/tasks/ingest', { method: 'POST', body: formData });
-            if (res.ok) {
-                const toast = document.createElement('div');
-                toast.className = "fixed bottom-10 left-10 z-[100] px-6 py-3 bg-[#3A3630] text-[#FAF9F6] rounded-2xl text-[10px] font-black uppercase tracking-widest shadow-2xl animate-in slide-in-from-bottom-4 duration-300";
-                toast.textContent = `«${name}» в очереди`;
-                document.body.appendChild(toast);
-                setTimeout(() => {
-                    toast.classList.add('animate-out', 'fade-out', 'slide-out-to-bottom-4');
-                    setTimeout(() => toast.remove(), 300);
-                }, 3000);
-            }
-        } catch (e) { alert('Ошибка при добавлении в очередь'); }
-    }
-
     function submitIngestManual() {
         const id = document.getElementById('manual-file-id').value.trim();
         if (id) {
-            queueIngest(id, 'ID: ' + id.substring(0, 8));
+            processIngestBatch([{id: id, name: 'ID: ' + id.substring(0, 8), indexed: false, queued: false}]);
             document.getElementById('manual-file-id').value = '';
         }
     }
 
     loadDriveFolder('root', 'Мой диск');
 </script>
+
+<!-- Modal for skipped files -->
+<div id="already-indexed-modal" class="hidden fixed inset-0 z-[100] bg-[#3A3630]/20 backdrop-blur-sm flex items-center justify-center">
+    <div class="bg-white rounded-[2rem] p-8 max-w-md w-full mx-4 shadow-2xl border border-[#E5E1D8]">
+        <div class="w-12 h-12 bg-rose-50 text-rose-500 rounded-2xl flex items-center justify-center mb-6">
+            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg>
+        </div>
+        <h3 class="text-sm font-black text-[#3A3630] uppercase tracking-tight mb-2">Файлы пропущены</h3>
+        <p class="text-xs text-warm-500 mb-6">Следующие файлы уже есть в базе или в очереди и не были добавлены повторно:</p>
+        <ul id="already-indexed-list" class="max-h-40 overflow-y-auto custom-scrollbar mb-8 text-xs font-bold text-[#3A3630] space-y-2 bg-[#FAF9F6] p-4 rounded-2xl border border-[#E5E1D8]"></ul>
+        <button onclick="document.getElementById('already-indexed-modal').classList.add('hidden')" class="w-full py-4 bg-warm-100 hover:bg-warm-200 text-warm-600 rounded-2xl text-[10px] font-black uppercase tracking-[0.2em] transition-all shadow-sm active:scale-95">Закрыть</button>
+    </div>
+</div>
 {% endblock %}

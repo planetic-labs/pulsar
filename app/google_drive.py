@@ -202,7 +202,7 @@ class GoogleDriveClient:
     ) -> dict[str, Any]:
         params = {
             "pageSize": page_size,
-            "fields": ("nextPageToken,files(id,name,mimeType,size,createdTime,modifiedTime,parents)"),
+            "fields": ("nextPageToken,files(id,name,mimeType,size,webViewLink,createdTime,modifiedTime,parents)"),
             "supportsAllDrives": "true",
             "includeItemsFromAllDrives": "true",
         }
@@ -326,6 +326,7 @@ class GoogleDriveClient:
                         "id": f["id"],
                         "name": f["name"],
                         "mime_type": f["mimeType"],
+                        "web_view_link": f.get("webViewLink"),
                         "is_folder": f["mimeType"] == "application/vnd.google-apps.folder",
                     }
                 )

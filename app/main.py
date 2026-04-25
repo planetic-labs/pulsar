@@ -668,8 +668,31 @@ async def api_drive_ls(folder_id: str | None = None, _: str = Depends(require_ac
             folder_rows = connection.execute("SELECT id FROM folders").fetchall()
             indexed_folder_ids = {row["id"] for row in folder_rows}
 
+            # Check for tasks in queue
+            queued_rows = connection.execute(
+                "SELECT json_extract(payload, '$.file_id') as file_id, json_extract(payload, '$.video_id') as video_id FROM tasks WHERE status IN ('pending', 'running')"
+            ).fetchall()
+            
+            queued_ids = set()
+            video_ids_in_queue = []
+            for r in queued_rows:
+                if r["file_id"]:
+                    queued_ids.add(r["file_id"])
+                if r["video_id"]:
+                    video_ids_in_queue.append(r["video_id"])
+            
+            if video_ids_in_queue:
+                placeholders = ",".join(["?"] * len(video_ids_in_queue))
+                src_ids = connection.execute(
+                    f"SELECT source_file_id FROM videos WHERE id IN ({placeholders})", video_ids_in_queue
+                ).fetchall()
+                for s in src_ids:
+                    if s["source_file_id"]:
+                        queued_ids.add(s["source_file_id"])
+
         for item in items:
             item["is_indexed"] = item["id"] in (indexed_folder_ids if item.get("is_folder") else indexed_ids)
+            item["is_queued"] = item["id"] in queued_ids
 
         return items
     except Exception as e:
