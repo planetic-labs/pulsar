@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 
 import httpx
 from qdrant_client import models
@@ -43,8 +44,12 @@ class UnifiedEmbeddingClient:
             raise e
 
     def embed_batch(
-        self, texts: list[str], task_type: str = "RETRIEVAL_DOCUMENT"
+        self,
+        texts: list[str],
+        task_type: str = "RETRIEVAL_DOCUMENT",
+        progress_callback: Callable[[int, int], None] | None = None,
     ) -> list[tuple[list[float], models.SparseVector | None]]:
+
         if not texts:
             return []
 
@@ -55,7 +60,12 @@ class UnifiedEmbeddingClient:
         total = len(texts)
         for i in range(0, total, 50):
             batch = texts[i : i + 50]
-            logger.info(f"AI: Обработка батча {i // 50 + 1} (фрагменты {i} - {min(i + 50, total)} из {total})...")
+            current_end = min(i + 50, total)
+            logger.info(f"AI: Обработка батча {i // 50 + 1} (фрагменты {i} - {current_end} из {total})...")
+
+            if progress_callback:
+                progress_callback(i, total)
+
             payload = {"model": self.settings.model_id, "input": batch}
             try:
                 with httpx.Client(timeout=120.0) as client:
@@ -73,6 +83,10 @@ class UnifiedEmbeddingClient:
             except Exception as e:
                 logger.error(f"Remote batch embedding failed: {e}")
                 raise e
+
+        if progress_callback:
+            progress_callback(total, total)
+
         return results
 
 

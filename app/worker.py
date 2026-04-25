@@ -211,12 +211,20 @@ class Worker:
                     return
 
                 texts = [c["text"] for c in chunks]
-                self._state["stage_3_index"].update({"progress": 30, "status_text": f"Генерация ({len(texts)})"})
+
+                def on_embed_progress(current, total):
+                    # Эмбеддинги занимают диапазон 10% - 70% от общего прогресса этапа
+                    progress = 10 + int((current / total) * 60)
+                    self._state["stage_3_index"].update(
+                        {"progress": progress, "status_text": f"Генерация ({current}/{total})"}
+                    )
 
                 loop = asyncio.get_running_loop()
-                embeddings_data = await loop.run_in_executor(None, lambda: embed_client.embed_batch(texts))
+                embeddings_data = await loop.run_in_executor(
+                    None, lambda: embed_client.embed_batch(texts, progress_callback=on_embed_progress)
+                )
 
-                self._state["stage_3_index"].update({"progress": 70, "status_text": "Загрузка в Qdrant"})
+                self._state["stage_3_index"].update({"progress": 75, "status_text": "Загрузка в Qdrant"})
                 points = []
                 for idx, row in enumerate(chunks):
                     dense_vec, sparse_vec = embeddings_data[idx]
