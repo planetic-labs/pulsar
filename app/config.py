@@ -41,6 +41,7 @@ class GoogleDriveSettings:
 @dataclass(frozen=True)
 class DeepgramSettings:
     api_key: str
+    project_id: str
     model: str
     language: str
     smart_format: bool
@@ -139,6 +140,7 @@ def get_google_drive_settings() -> GoogleDriveSettings:
 def get_deepgram_settings() -> DeepgramSettings:
     return DeepgramSettings(
         api_key=os.getenv("DEEPGRAM_API_KEY", ""),
+        project_id=os.getenv("DEEPGRAM_PROJECT_ID", "bfdbbda9-97c5-4d05-917d-1da52417adeb"),
         model=os.getenv("DEEPGRAM_MODEL", "nova-3"),
         language=os.getenv("DEEPGRAM_LANGUAGE", "ru"),
         smart_format=_env_bool("DEEPGRAM_SMART_FORMAT", True),

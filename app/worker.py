@@ -6,7 +6,13 @@ from typing import Any
 
 from qdrant_client import models
 
-from app.config import get_embedding_settings, get_qdrant_settings, get_sqlite_settings
+from app.config import (
+    get_deepgram_settings,
+    get_embedding_settings,
+    get_qdrant_settings,
+    get_sqlite_settings,
+)
+from app.transcription.deepgram import DeepgramEngine
 from app.db import db_connection
 from app.gemini import UnifiedEmbeddingClient
 from app.qdrant import get_qdrant_client
@@ -150,6 +156,16 @@ class Worker:
 
     async def _run_stage_2_transcribe(self, task_id: int, payload: dict):
         async with self.transcribe_sem:
+            # Check Deepgram Balance before starting
+            dg_settings = get_deepgram_settings()
+            engine = DeepgramEngine(dg_settings)
+            is_ok, amount = engine.check_balance_threshold(1.0)
+            
+            if not is_ok:
+                err_msg = f"Отказ в транскрибации: баланс Deepgram (${amount:.2f}) ниже порога $1.00"
+                logger.error(err_msg)
+                raise RuntimeError(err_msg)
+
             file_id = payload["file_id"]
             audio_path = payload["audio_path"]
             title = payload.get("title", file_id)

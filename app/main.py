@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import time
 import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -18,6 +19,7 @@ from starlette.middleware.sessions import SessionMiddleware
 from app.auth import get_session_token, login_user, logout_user, require_access_token
 from app.config import (
     get_app_settings,
+    get_deepgram_settings,
     get_embedding_settings,
     get_google_drive_settings,
     get_qdrant_settings,
@@ -217,7 +219,7 @@ async def api_worker_progress(_: str = Depends(require_access_token)):
     stats = {"pending": 0, "failed": 0, "recent_errors": []}
 
     with db_connection(settings) as conn:
-        # Group counts per stage
+        # ... (rest of DB logic remains same)
         sql_q = "SELECT task_type, COUNT(*) as c FROM tasks WHERE status = 'pending' GROUP BY task_type"
         rows = conn.execute(sql_q).fetchall()
         for r in rows:
@@ -227,7 +229,6 @@ async def api_worker_progress(_: str = Depends(require_access_token)):
             if ttype in counts:
                 counts[ttype] += r["c"]
 
-        # Overall stats
         sql_s = "SELECT status, COUNT(*) as c FROM tasks GROUP BY status"
         s_rows = conn.execute(sql_s).fetchall()
         for r in s_rows:
@@ -236,7 +237,6 @@ async def api_worker_progress(_: str = Depends(require_access_token)):
             if r["status"] == "failed":
                 stats["failed"] = r["c"]
 
-        # Recent errors with titles
         if stats["failed"] > 0:
             sql_e = """
                 SELECT id, task_type, error_message, payload
@@ -256,7 +256,28 @@ async def api_worker_progress(_: str = Depends(require_access_token)):
                     {"id": er["id"], "title": title, "type": er["task_type"], "error": er["error_message"]}
                 )
 
-    return {"stages": state, "queue_counts": counts, "stats": stats, "is_running": worker.is_running}
+    # Get balance from cache (updated by worker only)
+    from app.transcription.deepgram import DeepgramEngine
+    dg_engine = DeepgramEngine(get_deepgram_settings())
+    balance_data = dg_engine.get_balance()
+
+    return {
+        "stages": state,
+        "queue_counts": counts,
+        "stats": stats,
+        "is_running": worker.is_running,
+        "dg_balance": balance_data,
+    }
+
+
+@app.get("/api/v1/deepgram/balance")
+async def api_deepgram_balance(_: str = Depends(require_access_token)):
+    """Fetch Deepgram balance info."""
+    from app.transcription.deepgram import DeepgramEngine
+
+    settings = get_deepgram_settings()
+    engine = DeepgramEngine(settings)
+    return engine.get_balance()
 
 
 @app.post("/api/tasks/ingest")

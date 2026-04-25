@@ -91,8 +91,12 @@
                             <p class="text-[8px] text-warm-400 font-bold uppercase tracking-tight truncate max-w-[180px]" id="title-stage_2_transcribe">Ожидание...</p>
                         </div>
                     </div>
-                    <div class="text-right">
+                    <div class="text-right flex flex-col items-end gap-1">
                         <span class="text-[9px] font-black text-purple-500 uppercase tracking-widest" id="queue-stage_2_transcribe">В очереди: 0</span>
+                        <div id="dg-balance-badge" class="flex items-center gap-1.5 px-2 py-1 rounded-lg border border-purple-100 bg-purple-50 text-purple-600 text-[8px] font-black uppercase tracking-widest hidden shadow-sm" title="Баланс Deepgram">
+                            <svg class="w-2.5 h-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                            <span id="dg-balance-text">$0.00</span>
+                        </div>
                     </div>
                 </div>
                 <div class="relative w-full h-1.5 bg-[#FAF9F6] rounded-full overflow-hidden border border-[#F2F0EB]">
@@ -245,8 +249,8 @@
             if (!res.ok) return;
             const data = await res.json();
             
+            // 1. Update Stages
             const stages = ['stage_1_download', 'stage_2_transcribe', 'stage_3_index'];
-            
             stages.forEach(stageId => {
                 const card = document.getElementById(`card-${stageId}`);
                 const bar = document.getElementById(`bar-${stageId}`);
@@ -282,7 +286,28 @@
                 }
             });
 
-            // Update Unified Error Block
+            // 2. Update Deepgram Balance
+            if (data.dg_balance && data.dg_balance.balances && data.dg_balance.balances.length > 0) {
+                const badge = document.getElementById('dg-balance-badge');
+                const text = document.getElementById('dg-balance-text');
+                const balance = data.dg_balance.balances[0];
+                const amount = parseFloat(balance.amount);
+                
+                text.innerText = `$${amount.toFixed(2)}`;
+                badge.classList.remove('hidden');
+                
+                // Reset & Set colors
+                badge.classList.remove('border-purple-100', 'bg-purple-50', 'text-purple-600', 'border-rose-100', 'bg-rose-50', 'text-rose-600', 'border-amber-100', 'bg-amber-50', 'text-amber-600');
+                if (amount < 5) {
+                    badge.classList.add('border-rose-100', 'bg-rose-50', 'text-rose-600');
+                } else if (amount < 20) {
+                    badge.classList.add('border-amber-100', 'bg-amber-50', 'text-amber-600');
+                } else {
+                    badge.classList.add('border-purple-100', 'bg-purple-50', 'text-purple-600');
+                }
+            }
+
+            // 3. Update Unified Error Block
             const failedContainer = document.getElementById('failed-tasks-container');
             const failedCountEl = document.getElementById('stats-failed-count');
             const errorItems = document.getElementById('error-items');
