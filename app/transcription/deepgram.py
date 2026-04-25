@@ -14,8 +14,41 @@ logger = logging.getLogger(__name__)
 
 
 class DeepgramEngine(TranscriptionEngine):
+    # Shared cache across all instances
+    _balance_cache: dict[str, Any] = {"data": None}
+
     def __init__(self, settings: DeepgramSettings) -> None:
         self.settings = settings
+
+    def get_balance(self, force_refresh: bool = False) -> dict[str, Any]:
+        """Returns cached balance. Network request ONLY if force_refresh is True (used by worker)."""
+        if not force_refresh:
+            return self._balance_cache["data"] or {"balances": []}
+
+        # Actual network fetch
+        url = f"https://api.deepgram.com/v1/projects/{self.settings.project_id}/balances"
+        headers = {"Authorization": f"Token {self.settings.api_key}"}
+        try:
+            with httpx.Client(timeout=10.0) as client:
+                response = client.get(url, headers=headers)
+                response.raise_for_status()
+                data = response.json()
+                DeepgramEngine._balance_cache["data"] = data
+                return data
+        except Exception as e:
+            logger.error(f"Failed to fetch Deepgram balance: {str(e)}")
+            return self._balance_cache["data"] or {"balances": []}
+
+    def check_balance_threshold(self, threshold: float = 1.0) -> tuple[bool, float]:
+        """Check if total balance is above threshold. Updates cache as side-effect."""
+        # Worker calls this, forcing real network request
+        data = self.get_balance(force_refresh=True)
+        balances = data.get("balances", [])
+        if not balances:
+            return False, 0.0
+        
+        total = sum(float(b.get("amount", 0)) for b in balances)
+        return total >= threshold, total
 
     def transcribe_file(self, audio_path: Path, **overrides) -> dict[str, Any]:
         params = {
