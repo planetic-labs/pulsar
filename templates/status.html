@@ -131,15 +131,17 @@
         </div>
 
         <!-- Logs Column -->
-        <div class="flex flex-col min-h-[320px]">
-            <div class="flex items-center justify-between mb-2 px-2">
+        <div class="lg:h-0 lg:min-h-full flex flex-col">
+            <div class="flex items-center justify-between mb-2 px-2 shrink-0">
                 <h3 class="text-[10px] font-black text-warm-400 uppercase tracking-widest flex items-center gap-2">
                     <div class="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse"></div> Системные логи (Live)
                 </h3>
                 <button onclick="clearLogs()" class="text-[9px] font-black text-warm-300 hover:text-brand-500 uppercase tracking-widest transition-colors">Очистить</button>
             </div>
-            <div id="log-console" class="flex-1 bg-[#1A1814] rounded-2xl p-5 font-mono text-[10px] text-green-400/70 overflow-y-auto custom-scrollbar border border-[#2A2620] shadow-xl">
-                <div class="text-warm-500 italic opacity-50">Ожидание подключения...</div>
+            <div class="flex-1 bg-white border border-[#E5E1D8] rounded-2xl overflow-hidden shadow-sm flex flex-col">
+                <div id="log-console" class="flex-1 bg-[#1A1814] p-5 font-mono text-[10px] text-green-400/70 overflow-y-auto custom-scrollbar border-0">
+                    <div class="text-warm-500 italic opacity-50">Ожидание подключения...</div>
+                </div>
             </div>
         </div>
     </div>
