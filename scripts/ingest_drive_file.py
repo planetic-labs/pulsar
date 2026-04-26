@@ -70,9 +70,10 @@ def download_and_extract_stage(
     def progress_callback(downloaded, total):
         nonlocal last_log_time, last_downloaded, last_ui_update_time
         current_time = time.time()
+        is_finished = downloaded == total
 
-        # Обновление UI каждые 2 секунды (без вывода в логи)
-        if current_time - last_ui_update_time >= 2:
+        # Обновление UI каждые 2 секунды (или при завершении)
+        if is_finished or (current_time - last_ui_update_time >= 2):
             percent = int((downloaded / total) * 100) if total else 0
 
             # Расчет скорости для UI
@@ -86,7 +87,12 @@ def download_and_extract_stage(
                 speed_str = f"{speed_bps / 1024:.1f} KB/s"
 
             if state_callback:
-                state_callback({"status_text": "Загрузка файла", "progress": percent, "speed": speed_str})
+                if percent >= 100:
+                    state_callback(
+                        {"status_text": "Файл скачан. Извлечение аудио...", "progress": 99, "speed": speed_str}
+                    )
+                else:
+                    state_callback({"status_text": "Загрузка файла", "progress": percent, "speed": speed_str})
 
             last_ui_update_time = current_time
             last_downloaded = downloaded
@@ -96,8 +102,10 @@ def download_and_extract_stage(
     if status_callback:
         status_callback(f"Загрузка: (завершена) {clean_title}")
 
+    # No need for extra state_callback here as it's handled at the end of progress_callback or after.
+    # But just to be safe if total size was unknown:
     if state_callback:
-        state_callback({"status_text": "Извлечение аудио...", "progress": 100, "speed": ""})
+        state_callback({"status_text": "Извлечение аудио...", "progress": 99, "speed": ""})
 
     if status_callback:
         status_callback(f"Извлечение аудио: {clean_title}")
@@ -116,7 +124,11 @@ def download_and_extract_stage(
 
 
 def transcribe_stage(
-    file_id: str, audio_path: str, video_metadata: dict, status_callback: Callable[[str], None] | None = None
+    file_id: str,
+    audio_path: str,
+    video_metadata: dict,
+    status_callback: Callable[[str], None] | None = None,
+    state_callback: Callable[[dict], None] | None = None,
 ) -> dict[str, Any]:
     """Stage 2: Transcribe via Deepgram, save text to DB, Delete Audio."""
     dg_settings = get_deepgram_settings()
@@ -131,7 +143,42 @@ def transcribe_stage(
     if status_callback:
         status_callback(f"Транскрибация: {video_metadata['title']}")
 
-    raw_payload = engine.transcribe_file(audio_p, diarize=True)
+    if state_callback:
+        state_callback({"status_text": "Начало отправки...", "progress": 0, "speed": ""})
+
+    last_log_time = time.time()
+    last_ui_update_time = 0
+    last_uploaded = 0
+
+    def progress_callback(uploaded, total):
+        nonlocal last_log_time, last_uploaded, last_ui_update_time
+        current_time = time.time()
+        is_finished = uploaded == total
+
+        if is_finished or (current_time - last_ui_update_time >= 2):
+            percent = int((uploaded / total) * 100) if total else 0
+
+            duration = current_time - (last_ui_update_time or last_log_time)
+            delta = uploaded - last_uploaded
+            speed_bps = delta / duration if duration > 0 else 0
+
+            if speed_bps >= 1024 * 1024:
+                speed_str = f"{speed_bps / (1024 * 1024):.1f} MB/s"
+            else:
+                speed_str = f"{speed_bps / 1024:.1f} KB/s"
+
+            if state_callback:
+                if percent >= 100:
+                    state_callback(
+                        {"status_text": "Файл загружен. Ожидание Deepgram...", "progress": 99, "speed": speed_str}
+                    )
+                else:
+                    state_callback({"status_text": "Отправка файла", "progress": percent, "speed": speed_str})
+
+            last_ui_update_time = current_time
+            last_uploaded = uploaded
+
+    raw_payload = engine.transcribe_file(audio_p, diarize=True, progress_callback=progress_callback)
     norm_payload = engine.normalize_response(raw_payload)
 
     # Save files
@@ -144,6 +191,9 @@ def transcribe_stage(
 
     raw_path.write_text(json.dumps(raw_payload, ensure_ascii=False, indent=2), encoding="utf-8")
     norm_path.write_text(json.dumps(norm_payload, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    if state_callback:
+        state_callback({"status_text": "Сохранение в базу...", "progress": 99, "speed": ""})
 
     # DB Operations
     with db_connection(pg_settings) as conn:

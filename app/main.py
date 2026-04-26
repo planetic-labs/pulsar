@@ -54,12 +54,15 @@ def get_global_stats() -> dict[str, Any]:
     settings = get_sqlite_settings()
     try:
         with db_connection(settings) as conn:
-            sql = "SELECT COUNT(*) as count, SUM(duration_sec) as total_sec FROM videos WHERE processing_status = 'indexed_chunks_ready'"
+            sql = (
+                "SELECT COUNT(*) as count, SUM(duration_sec) as total_sec "
+                "FROM videos WHERE processing_status = 'indexed_chunks_ready'"
+            )
             row = conn.execute(sql).fetchone()
             total_sec = row["total_sec"] or 0
             count = row["count"]
             hours = int(total_sec // 3600)
-            
+
             _global_stats_cache["data"] = {"total_videos": count, "total_hours": hours}
             _global_stats_cache["timestamp"] = now
             return _global_stats_cache["data"]
@@ -99,9 +102,12 @@ async def add_global_stats_to_templates(request: Request, call_next):
     # This is a hack to make stats available in all templates without changing every route
     # FastAPI/Jinja2 doesn't have a built-in context processor like Flask/Django
     # so we manually inject it into templates.env.globals
-    templates.env.globals["stats"] = get_global_stats()
+    from typing import cast
+
+    cast(dict, templates.env.globals)["stats"] = get_global_stats()
     response = await call_next(request)
     return response
+
 
 # Session Middleware for Auth
 app.add_middleware(SessionMiddleware, secret_key="super-secret-key")
@@ -294,6 +300,7 @@ async def api_worker_progress(_: str = Depends(require_access_token)):
 
     # Get balance from cache (updated by worker only)
     from app.transcription.deepgram import DeepgramEngine
+
     dg_engine = DeepgramEngine(get_deepgram_settings())
     balance_data = dg_engine.get_balance()
 
