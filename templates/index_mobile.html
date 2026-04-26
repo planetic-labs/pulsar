@@ -44,6 +44,26 @@
                     <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M6 18L18 6M6 6l12 12"></path></svg>
                 </button>
             </form>
+
+            <!-- Search Modes Mobile -->
+            <div class="flex items-center gap-2 overflow-x-auto pb-1 no-scrollbar">
+                <label class="shrink-0 cursor-pointer">
+                    <input type="radio" name="mode" value="hybrid" form="search-form" onchange="this.form.submit()" {% if mode == 'hybrid' or not mode %}checked{% endif %} class="hidden peer">
+                    <span class="px-3 py-1.5 text-[8px] font-black uppercase tracking-wider rounded-xl border border-[#F2F0EB] bg-[#FAF9F6] text-warm-400 peer-checked:bg-brand-500 peer-checked:text-white peer-checked:border-brand-500 transition-all shadow-sm">Умный</span>
+                </label>
+                <label class="shrink-0 cursor-pointer">
+                    <input type="radio" name="mode" value="semantic" form="search-form" onchange="this.form.submit()" {% if mode == 'semantic' %}checked{% endif %} class="hidden peer">
+                    <span class="px-3 py-1.5 text-[8px] font-black uppercase tracking-wider rounded-xl border border-[#F2F0EB] bg-[#FAF9F6] text-warm-400 peer-checked:bg-purple-500 peer-checked:text-white peer-checked:border-purple-500 transition-all shadow-sm">Смысл</span>
+                </label>
+                <label class="shrink-0 cursor-pointer">
+                    <input type="radio" name="mode" value="lexical" form="search-form" onchange="this.form.submit()" {% if mode == 'lexical' %}checked{% endif %} class="hidden peer">
+                    <span class="px-3 py-1.5 text-[8px] font-black uppercase tracking-wider rounded-xl border border-[#F2F0EB] bg-[#FAF9F6] text-warm-400 peer-checked:bg-blue-500 peer-checked:text-white peer-checked:border-blue-500 transition-all shadow-sm">Слова</span>
+                </label>
+                <label class="shrink-0 cursor-pointer">
+                    <input type="radio" name="mode" value="quote" form="search-form" onchange="this.form.submit()" {% if mode == 'quote' %}checked{% endif %} class="hidden peer">
+                    <span class="px-3 py-1.5 text-[8px] font-black uppercase tracking-wider rounded-xl border border-[#F2F0EB] bg-[#FAF9F6] text-warm-400 peer-checked:bg-rose-500 peer-checked:text-white peer-checked:border-rose-500 transition-all shadow-sm">Цитата</span>
+                </label>
+            </div>
         </div>
     </div>
 
@@ -80,7 +100,7 @@
                         </span>
                     </div>
 
-                    <p class="text-xs text-[#5C574F] leading-relaxed line-clamp-3 italic mb-4">
+                    <p class="text-xs text-[#5C574F] leading-relaxed italic mb-4">
                         «{{ item.text | safe }}»
                     </p>
                     
@@ -169,7 +189,7 @@
         playerTitle.textContent = title;
         playerMeta.textContent = ts;
 
-        video.src = `/videos/${videoId}/file#t=${startSec}`;
+        video.src = `/videos/${videoId}/file?token={{ token }}#t=${startSec}`;
         video.play();
         
         // Scroll to top to see the player

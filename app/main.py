@@ -551,14 +551,14 @@ def logout(request: Request, response: Response):
 
 
 @app.get("/", response_class=HTMLResponse)
-async def index_page(request: Request, q: str | None = None):
+async def index_page(request: Request, q: str | None = None, mode: str = "hybrid"):
     app_settings = get_app_settings()
     pg_settings = get_sqlite_settings()
 
     # URL Token Auth
     token_param = request.query_params.get("token")
     if token_param == app_settings.access_token:
-        response = RedirectResponse(url=f"/?q={q or ''}")
+        response = RedirectResponse(url=f"/?q={q or ''}&mode={mode}")
         login_user(response, request, str(token_param))
         return response
 
@@ -569,14 +569,16 @@ async def index_page(request: Request, q: str | None = None):
     results = []
     if q:
         with db_connection(pg_settings) as connection:
-            items = await hybrid_search(connection, q, limit=app_settings.results_limit)
+            items = await hybrid_search(connection, q, limit=app_settings.results_limit, search_mode=mode)
             results = items
 
     ua = request.headers.get("user-agent", "").lower()
     is_mobile = any(m in ua for m in ["mobile", "android", "iphone", "ipad"])
     template = "index_mobile.html" if is_mobile else "index.html"
 
-    return templates.TemplateResponse(request, template, {"query": q or "", "results": results})
+    return templates.TemplateResponse(
+        request, template, {"query": q or "", "results": results, "mode": mode, "token": app_settings.access_token}
+    )
 
 
 @app.get("/import", response_class=HTMLResponse)
@@ -1049,20 +1051,32 @@ async def video_file(video_id: int, request: Request, token: str | None = None) 
 
     if row["source_type"] == "google_drive" and row["source_file_id"]:
         drive_client = GoogleDriveClient(get_google_drive_settings())
+
+        # Open the stream from Google Drive
         resp = await drive_client.open_media_stream(row["source_file_id"], range_header=request.headers.get("range"))
 
+        # Prepare headers for the browser
         headers = {
-            h: str(resp.headers.get(h))
-            for h in ("Content-Range", "Accept-Ranges", "Content-Length")
-            if resp.headers.get(h)
+            "Accept-Ranges": "bytes",
         }
+        if resp.headers.get("Content-Range"):
+            headers["Content-Range"] = str(resp.headers.get("Content-Range"))
+
+        # We DON'T pass Content-Length here to avoid mismatch errors if the stream closes early
+        # or if there's any discrepancy. Browsers will handle chunked or unknown length for video tags.
 
         async def stream_from_resp(r):
             try:
-                async for chunk in r.aiter_bytes(chunk_size=1024 * 1024):
+                # Use smaller chunks for better reactivity
+                async for chunk in r.aiter_bytes(chunk_size=256 * 1024):
                     yield chunk
+            except Exception as e:
+                logger.error(f"Streaming error for video {video_id}: {e}")
             finally:
                 await r.aclose()
+                # Close the associated client
+                if hasattr(r, "_client"):
+                    await r._client.aclose()
 
         return StreamingResponse(
             stream_from_resp(resp),

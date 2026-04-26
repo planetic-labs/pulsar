@@ -1,4 +1,5 @@
 import logging
+import re
 import sqlite3
 from collections.abc import Generator
 from contextlib import contextmanager
@@ -9,6 +10,16 @@ from app.config import SQLiteSettings
 logger = logging.getLogger(__name__)
 
 
+def sqlite_regexp(expr: str, item: str | None) -> bool:
+    """Custom REGEXP implementation for SQLite."""
+    if item is None:
+        return False
+    try:
+        return re.search(expr, item, re.IGNORECASE) is not None
+    except Exception:
+        return False
+
+
 @contextmanager
 def db_connection(settings: SQLiteSettings) -> Generator[sqlite3.Connection, None, None]:
     """Provide a transactional scope around a series of operations."""
@@ -16,6 +27,9 @@ def db_connection(settings: SQLiteSettings) -> Generator[sqlite3.Connection, Non
 
     conn = sqlite3.connect(settings.db_path)
     conn.row_factory = sqlite3.Row
+
+    # Register custom functions
+    conn.create_function("REGEXP", 2, sqlite_regexp)
 
     # --- PERFORMANCE TUNING ---
     conn.execute("PRAGMA journal_mode=WAL;")
