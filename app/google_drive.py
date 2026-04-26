@@ -422,23 +422,27 @@ class GoogleDriveClient:
 
         return destination
 
-    def open_media_stream(self, file_id: str, *, range_header: str | None = None):
-        """Returns an async context manager for streaming."""
+    async def open_media_stream(self, file_id: str, *, range_header: str | None = None):
+        """Returns an httpx.Response object for streaming."""
         query = urlencode({"supportsAllDrives": "true"})
         url = f"https://www.googleapis.com/drive/v3/files/{file_id}?alt=media&{query}"
         headers: dict[str, str] = {}
         if range_header:
             headers["Range"] = range_header
 
-        async def _stream():
-            access_token = await self._get_access_token()
-            headers["Authorization"] = f"Bearer {access_token}"
-            client = httpx.AsyncClient()
-            try:
-                # We return the response object which is an async context manager
-                return await client.stream("GET", url, headers=headers, timeout=None).__aenter__()
-            except Exception:
-                await client.aclose()
-                raise
+        access_token = await self._get_access_token()
+        headers["Authorization"] = f"Bearer {access_token}"
 
-        return _stream()
+        client = httpx.AsyncClient()
+        try:
+            # We use send instead of stream context manager here
+            # to return the response and allow the caller to close it.
+            # The client should be closed when the response is closed.
+            request = client.build_request("GET", url, headers=headers)
+            response = await client.send(request, stream=True)
+            # Attach client to response for cleanup
+            response._client = client  # type: ignore
+            return response
+        except Exception:
+            await client.aclose()
+            raise

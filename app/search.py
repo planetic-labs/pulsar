@@ -77,11 +77,115 @@ def format_timestamp(seconds: float) -> str:
     return f"{minutes:02d}:{secs:02d}"
 
 
+def _build_quote_regex(phrase: str) -> str:
+    """Build a morphological regex that allows gaps between words in sequence."""
+    words = re.findall(r"[а-яА-ЯёЁa-zA-Z0-9]+", phrase.lower())
+    if not words:
+        return ""
+    regex_parts = []
+    for w in words:
+        if len(w) <= 3:
+            # For short words, be very strict
+            root = w
+            regex_parts.append(rf"\b{re.escape(root)}[ёе]*\b")
+        elif len(w) <= 5:
+            # Drop 1 char for medium
+            root = w[:-1]
+            regex_parts.append(rf"\b{re.escape(root)}[а-яА-ЯёЁa-zA-Z0-9]*\b")
+        else:
+            # Drop 2-3 for long
+            drop_len = 2 if len(w) < 7 else 3
+            root = w[:-drop_len]
+            regex_parts.append(rf"\b{re.escape(root)}[а-яА-ЯёЁa-zA-Z0-9]*\b")
+    # Use [\s\S] to match across any character including newlines.
+    # Limit gap to 60 characters - enough for a few small words/punctuation between anchors.
+    return r"[\s\S]{0,60}?".join(regex_parts)
+
+
+def _quote_highlight(text: str, exact_phrases: list[str]) -> str:
+    """Highlight matches in quote mode using the same regex logic."""
+    if not exact_phrases:
+        return text
+    patterns = []
+    for phrase in exact_phrases:
+        pattern = _build_quote_regex(phrase)
+        if pattern:
+            # Add (?i) for case-insensitivity within sub.
+            patterns.append(f"(?i)({pattern})")
+    if not patterns:
+        return text
+    combined_pattern = "|".join(patterns)
+    try:
+        # Use flags for unicode support
+        return re.sub(combined_pattern, lambda m: f"<mark>{m.group(0)}</mark>", text, flags=re.UNICODE)
+    except Exception:
+        return text
+
+
+def _find_best_match(text: str, pattern: str, query_words_count: int) -> tuple[int, int, float]:
+    """Find the best match and return its span and a high-precision score."""
+    try:
+        matches = list(re.finditer(pattern, text, flags=re.IGNORECASE | re.UNICODE | re.DOTALL))
+        if not matches:
+            return 0, len(text), 0.0
+
+        best_m = matches[0]
+        min_len = 100000
+
+        for m in matches:
+            curr_len = m.end() - m.start()
+            if curr_len < min_len:
+                min_len = curr_len
+                best_m = m
+
+        # Precision score:
+        # If words are tight (length ~ words * 10), score is near 1.0.
+        # If words are spread out, score drops rapidly.
+        # We also consider how many words from query we are actually looking for.
+        ideal_len = query_words_count * 8
+        precision = (ideal_len / max(ideal_len, min_len)) ** 2
+
+        return best_m.start(), best_m.end(), precision
+    except Exception:
+        return 0, len(text), 0.0
+
+
+def _crop_around_match(text: str, pattern: str, query_words_count: int, window: int = 250) -> str:
+    """Crop text around the best regex match."""
+    start, end, precision = _find_best_match(text, pattern, query_words_count)
+
+    # If no match found by regex, just show start
+    if precision == 0:
+        return text[: window * 2] + "..."
+
+    # Find a good start point (e.g. at a space)
+    crop_start = max(0, start - window)
+    if crop_start > 0:
+        first_space = text.find(" ", crop_start, start)
+        if first_space != -1:
+            crop_start = first_space + 1
+
+    # Find a good end point
+    crop_end = min(len(text), end + window)
+    if crop_end < len(text):
+        last_space = text.rfind(" ", end, crop_end)
+        if last_space != -1:
+            crop_end = last_space
+
+    snippet = text[crop_start:crop_end]
+    if crop_start > 0:
+        snippet = "..." + snippet
+    if crop_end < len(text):
+        snippet = snippet + "..."
+    return snippet
+
+
 async def hybrid_search(
     connection: sqlite3.Connection,
     query: str,
     *,
     limit: int = 20,
+    search_mode: str = "hybrid",
 ) -> list[SearchResult]:
     qdrant = get_qdrant_client()
     settings = get_qdrant_settings()
@@ -91,6 +195,7 @@ async def hybrid_search(
     speaker_filter: models.Condition | None = None
 
     v_match = re.search(r"(?:video_id|v):(\d+)", query)
+    v_id = None
     if v_match:
         v_id = int(v_match.group(1))
         video_filter = models.FieldCondition(key="video_id", match=models.MatchValue(value=v_id))
@@ -129,7 +234,69 @@ async def hybrid_search(
     scores_map: dict[Any, dict[str, Any]] = {}
     points: list[models.ScoredPoint] | list[models.Record] = []
 
-    if q_filter and not clean_query:
+    if search_mode == "quote" and clean_query:
+        # --- FAST TEXTUAL QUOTE SEARCH (Sliding Window) ---
+        pattern = _build_quote_regex(clean_query)
+        if not pattern:
+            return []
+
+        # We search in a combined text of 3 chunks and return the combined text itself
+        sql = """
+            SELECT
+                c1.id,
+                (c1.text || ' ' || IFNULL(c2.text, '') || ' ' || IFNULL(c3.text, '')) as combined_text
+            FROM chunks c1
+            LEFT JOIN chunks c2 ON c1.video_id = c2.video_id AND c2.chunk_index = c1.chunk_index + 1
+            LEFT JOIN chunks c3 ON c1.video_id = c3.video_id AND c3.chunk_index = c1.chunk_index + 2
+            WHERE 1=1
+        """
+        params = []
+        # Optimization: use LIKE as a pre-filter for the first few words to speed up REGEXP
+        words = re.findall(r"[а-яА-ЯёЁa-zA-Z0-9]{3,}", clean_query.lower())
+        for w in words[:2]:  # Only first two words for pre-filter speed
+            sql += " AND (c1.text || ' ' || IFNULL(c2.text, '') || ' ' || IFNULL(c3.text, '')) LIKE ?"
+            params.append(f"%{w}%")
+
+        sql += " AND (c1.text || ' ' || IFNULL(c2.text, '') || ' ' || IFNULL(c3.text, '')) REGEXP ?"
+        params.append(pattern)
+
+        if v_id:
+            sql += " AND c1.video_id = ?"
+            params.append(v_id)
+
+        rows = connection.execute(sql, params).fetchall()
+
+        # Map ID -> Combined Text for results
+        id_to_full_text = {r["id"]: r["combined_text"] for r in rows}
+        candidate_ids = list(id_to_full_text.keys())
+
+        if candidate_ids:
+            # Fetch payload for metadata (start_sec, video_id, etc.)
+            exact_conditions: list[models.Condition] = [models.HasIdCondition(has_id=candidate_ids)]
+            if must_filters:
+                exact_conditions.extend(must_filters)
+
+            res_scroll = qdrant.scroll(
+                collection_name=settings.collection_name,
+                scroll_filter=models.Filter(must=exact_conditions),
+                limit=limit,
+                with_payload=True,
+            )
+            points = res_scroll[0]
+
+            # Use combined text from SQL and assign high scores
+            scores_map = {}
+            for p in points:
+                scores_map[p.id] = {
+                    "combined": 100.0,
+                    "match_type": "quote",
+                    "quote_phrases": [clean_query],
+                    "override_text": id_to_full_text.get(p.id),
+                }
+        else:
+            points = []
+
+    elif q_filter and not clean_query:
         res_scroll = qdrant.scroll(
             collection_name=settings.collection_name,
             scroll_filter=q_filter,
@@ -138,25 +305,46 @@ async def hybrid_search(
         )
         points = res_scroll[0]
     else:
-        # Hybrid Search via Unified Client
+        # --- TRUE HYBRID SEARCH (VECTORS + SQL QUOTE BOOST) ---
         client = UnifiedEmbeddingClient(get_embedding_settings())
         query_dense, query_sparse = await client.embed_text_async(clean_query or "video", task_type="RETRIEVAL_QUERY")
 
-        # Fetch candidates for merging
-        prefetch_limit = 100
+        # 1. Run SQL Quote Search in parallel (as a boost)
+        # We remove LIMIT to find EVERY exact match in the entire database
+        sql_boost_ids = []
+        id_to_override_text = {}
+        if clean_query:
+            pattern = _build_quote_regex(clean_query)
+            if pattern:
+                sql = """
+                    SELECT c1.id, (c1.text || ' ' || IFNULL(c2.text, '') || ' ' || IFNULL(c3.text, '')) as combined_text
+                    FROM chunks c1
+                    LEFT JOIN chunks c2 ON c1.video_id = c2.video_id AND c2.chunk_index = c1.chunk_index + 1
+                    LEFT JOIN chunks c3 ON c1.video_id = c3.video_id AND c3.chunk_index = c1.chunk_index + 2
+                    WHERE 1=1
+                """
+                params = []
+                words = re.findall(r"[а-яА-ЯёЁa-zA-Z0-9]{3,}", clean_query.lower())
+                for w in words[:2]:
+                    sql += " AND (c1.text || ' ' || IFNULL(c2.text, '') || ' ' || IFNULL(c3.text, '')) LIKE ?"
+                    params.append(f"%{w}%")
+                sql += " AND (c1.text || ' ' || IFNULL(c2.text, '') || ' ' || IFNULL(c3.text, '')) REGEXP ?"
+                params.append(pattern)
+                if v_id:
+                    sql += " AND c1.video_id = ?"
+                    params.append(v_id)
 
-        # 1. Get Dense results
+                # NO LIMIT here - search all videos
+                rows_sql = connection.execute(sql, params).fetchall()
+                sql_boost_ids = [r["id"] for r in rows_sql]
+                id_to_override_text = {r["id"]: r["combined_text"] for r in rows_sql}
+
+        # 2. Get Vector Candidates
+        prefetch_limit = 100
         dense_results = qdrant.query_points(
-            settings.collection_name,
-            query_dense,
-            "default",
-            None,
-            q_filter,
-            limit=prefetch_limit,
-            with_payload=True,
+            settings.collection_name, query_dense, "default", None, q_filter, limit=prefetch_limit, with_payload=True
         ).points
 
-        # 2. Get Sparse results
         sparse_results: list[models.ScoredPoint] = []
         if query_sparse:
             sparse_results = qdrant.query_points(
@@ -169,34 +357,110 @@ async def hybrid_search(
                 with_payload=True,
             ).points
 
-        # 3. Reciprocal Rank Fusion (RRF)
-        # score = sum( 1 / (k + rank) )
+        # 3. Merge with RRF + SQL Boost
         k = 60
         combined_scores: dict[Any, float] = {}
+        points_map = {}
 
-        # Rank Dense results
+        # Base RRF scores
         for rank, p in enumerate(dense_results, start=1):
             combined_scores[p.id] = combined_scores.get(p.id, 0.0) + (1.0 / (k + rank))
+            points_map[p.id] = p
 
-        # Rank Sparse results
         for rank, p in enumerate(sparse_results, start=1):
             combined_scores[p.id] = combined_scores.get(p.id, 0.0) + (1.0 / (k + rank))
-
-        # We also need to keep track of the points themselves for payload
-        points_map = {p.id: p for p in dense_results}
-        for p in sparse_results:
             if p.id not in points_map:
                 points_map[p.id] = p
 
-        # Calculate final sorted list
-        final_list = []
+        # --- APPLY SQL BOOST AND DEDUPLICATE OVERLAPPING WINDOWS ---
+        # We group by video and find chunks that are too close (overlapping windows)
+        video_hits: dict[int, list[dict]] = {}
+        query_words = re.findall(r"[а-яА-ЯёЁa-zA-Z0-9]{3,}", clean_query.lower())
+        q_word_count = len(query_words) if query_words else 1
+
+        for pid in sql_boost_ids:
+            if pid not in points_map:
+                res = qdrant.retrieve(settings.collection_name, ids=[pid], with_payload=True)
+                if res:
+                    points_map[pid] = res[0]
+
+            if pid in points_map:
+                payload = points_map[pid].payload
+                vid = payload.get("video_id")
+                idx = payload.get("chunk_index", 0)
+
+                comb_text = id_to_override_text.get(pid, "")
+                pattern = _build_quote_regex(clean_query)
+                _, _, precision = _find_best_match(comb_text, pattern, q_word_count)
+
+                if vid not in video_hits:
+                    video_hits[vid] = []
+                video_hits[vid].append({"id": pid, "index": idx, "precision": precision})
+
+        # Filter overlapping hits: if hits are within 2 indices, keep only the best one
+        final_sql_boost_ids = set()
+        for _vid, hits in video_hits.items():
+            hits.sort(key=lambda x: x["index"])
+            if not hits:
+                continue
+
+            last_idx = -10
+
+            best_hit = None
+
+            for h in hits:
+                if h["index"] <= last_idx + 2:
+                    # Current hit overlaps with previous. Keep the more precise one.
+                    if best_hit and h["precision"] > best_hit["precision"]:
+                        best_hit = h
+                else:
+                    # New sequence of hits
+                    if best_hit:
+                        final_sql_boost_ids.add(best_hit["id"])
+                    best_hit = h
+                last_idx = h["index"]
+            if best_hit:
+                final_sql_boost_ids.add(best_hit["id"])
+
+        # Apply the actual boost to filtered IDs
+        for pid in final_sql_boost_ids:
+            comb_text = id_to_override_text.get(pid, "")
+            pattern = _build_quote_regex(clean_query)
+            _, _, precision = _find_best_match(comb_text, pattern, q_word_count)
+
+            # Massive exponential boost for precision.
+            # A perfect match gets +100.0, easily winning over ANY vector score (max ~2.0)
+            boost = 10.0 + (precision * 90.0)
+            combined_scores[pid] = combined_scores.get(pid, 0.0) + boost
+
+        # 4. Final sorting and DIVERSIFICATION
+        # We want to avoid one video taking all slots
+        candidates_list = []
         for pid, score in combined_scores.items():
-            final_list.append({"point": points_map[pid], "combined": score})
+            if pid in points_map:
+                m_type = "quote" if pid in final_sql_boost_ids else "hybrid"
+                candidates_list.append(
+                    {
+                        "point": points_map[pid],
+                        "combined": score,
+                        "match_type": m_type,
+                        "override_text": id_to_override_text.get(pid),
+                    }
+                )
 
-        final_list.sort(key=lambda x: x["combined"], reverse=True)
+        candidates_list.sort(key=lambda x: x["combined"], reverse=True)
+
+        # Keep only top 3 per video to ensure variety
+        video_counts = {}
+        final_list = []
+        for item in candidates_list:
+            vid = item["point"].payload.get("video_id")
+            count = video_counts.get(vid, 0)
+            if count < 3:  # Limit to 3 per video
+                final_list.append(item)
+                video_counts[vid] = count + 1
+
         points = [x["point"] for x in final_list[:limit]]
-
-        # Store scores for SearchResult mapping
         scores_map = {x["point"].id: x for x in final_list[:limit]}
 
     video_ids = list({p.payload.get("video_id") for p in points if p.payload})
@@ -215,8 +479,26 @@ async def hybrid_search(
         if not payload:
             continue
 
-        full_text = str(payload.get("text") or "")
-        highlighted_text = _simple_highlight(full_text, query)
+        # Get scores and match metadata from our map
+        point_data = scores_map.get(point.id) or {}
+        combined_score = float(point_data.get("combined", 0.0))
+        semantic_score = float(point_data.get("semantic", 0.0))
+        lexical_score = float(point_data.get("lexical", 0.0))
+        m_type = point_data.get("match_type", "hybrid" if clean_query else "filter")
+
+        # Text extraction (with override and cropping for quote mode)
+        full_text = point_data.get("override_text") or str(payload.get("text") or "")
+
+        if m_type == "quote":
+            # For quote mode, crop around the best match
+            pattern = _build_quote_regex(clean_query)
+            if pattern:
+                query_words = re.findall(r"[а-яА-ЯёЁa-zA-Z0-9]{3,}", clean_query.lower())
+                q_word_count = len(query_words) if query_words else 1
+                full_text = _crop_around_match(full_text, pattern, q_word_count)
+
+        # Use standard individual-word highlighting for everyone
+        highlighted_text = _simple_highlight(full_text, clean_query)
 
         v_id = payload.get("video_id")
         raw_tags = payload.get("speaker") or ""
@@ -227,10 +509,6 @@ async def hybrid_search(
             name = speaker_map.get((v_id, tag.strip()))
             mapped_names.append(name if name else f"Speaker {tag}")
 
-        # Get scores from our map if hybrid, else use point.score
-        point_data = scores_map.get(point.id)
-
-        # Robust field extraction
         def get_float(p_load, key, default=0.0):
             val = p_load.get(key)
             if val is None:
@@ -267,12 +545,12 @@ async def hybrid_search(
                 start_ts=format_timestamp(start_sec),
                 end_ts=format_timestamp(end_sec),
                 text=highlighted_text,
-                combined_score=float(point_data["combined"]) if point_data else float(getattr(point, "score", 0.0)),
-                match_type="hybrid" if clean_query else "filter",
+                combined_score=combined_score,
+                match_type=m_type,
                 raw_text=full_text,
-                lexical_score=0.0,  # RRF uses ranks, not raw scores
-                semantic_score=0.0,
-                vector_score=float(point_data["combined"]) if point_data else float(getattr(point, "score", 0.0)),
+                lexical_score=lexical_score,
+                semantic_score=semantic_score,
+                vector_score=combined_score,
                 speaker=", ".join(mapped_names) if mapped_names else None,
                 alternative_texts={},
             )
