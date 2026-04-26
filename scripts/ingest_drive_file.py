@@ -1,4 +1,5 @@
 import argparse
+import asyncio
 import json
 import logging
 import sys
@@ -33,7 +34,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
-def download_and_extract_stage(
+async def download_and_extract_stage(
     file_id: str,
     status_callback: Callable[[str], None] | None = None,
     in_queue: int = 0,
@@ -44,9 +45,9 @@ def download_and_extract_stage(
     app_settings = get_app_settings()
     drive = GoogleDriveClient(drive_settings)
 
-    file_meta = drive.get_file(file_id)
-    video_path = app_settings.storage_dir / "downloads" / f"{file_id}.mp4"
-    audio_path = app_settings.storage_dir / "audio" / f"{file_id}.wav"
+    file_meta = await drive.get_file(file_id)
+    video_path = app_settings.downloads_dir / f"{file_id}.mp4"
+    audio_path = app_settings.audio_dir / f"{file_id}.wav"
     video_path.parent.mkdir(parents=True, exist_ok=True)
     audio_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -97,19 +98,20 @@ def download_and_extract_stage(
             last_ui_update_time = current_time
             last_downloaded = downloaded
 
-    drive.download_file(file_id, video_path, progress_callback=progress_callback)
+    await drive.download_file(file_id, video_path, progress_callback=progress_callback)
 
     if status_callback:
         status_callback(f"Загрузка: (завершена) {clean_title}")
 
-    # No need for extra state_callback here as it's handled at the end of progress_callback or after.
-    # But just to be safe if total size was unknown:
     if state_callback:
         state_callback({"status_text": "Извлечение аудио...", "progress": 99, "speed": ""})
 
     if status_callback:
         status_callback(f"Извлечение аудио: {clean_title}")
-    extract_audio(video_path, audio_path)
+
+    # Run CPU-bound extraction in a separate thread to not block the event loop
+    loop = asyncio.get_running_loop()
+    await loop.run_in_executor(None, lambda: extract_audio(video_path, audio_path))
 
     # Delete video immediately
     if video_path.exists():
@@ -123,7 +125,7 @@ def download_and_extract_stage(
     }
 
 
-def transcribe_stage(
+async def transcribe_stage(
     file_id: str,
     audio_path: str,
     video_metadata: dict,
@@ -178,7 +180,7 @@ def transcribe_stage(
             last_ui_update_time = current_time
             last_uploaded = uploaded
 
-    raw_payload = engine.transcribe_file(audio_p, diarize=True, progress_callback=progress_callback)
+    raw_payload = await engine.transcribe_file_async(audio_p, diarize=True, progress_callback=progress_callback)
     norm_payload = engine.normalize_response(raw_payload)
 
     # Save files
@@ -245,18 +247,18 @@ def ingest_drive_file(file_id: str, diarize: bool = True):
     print(f"Task queued for file {file_id}")
 
 
-def upsert_folder_chain(drive: GoogleDriveClient, connection: Any, folder_id: str):
+async def upsert_folder_chain_async(drive: GoogleDriveClient, connection: Any, folder_id: str):
     """Recursively upsert folder chain to DB."""
     try:
-        f_meta = drive.get_file(folder_id)
+        f_meta = await drive.get_file(folder_id)
         parent_id = f_meta.parents[0] if f_meta.parents else None
         upsert_folder(connection, folder_id=folder_id, name=f_meta.name, parent_id=parent_id)
         if parent_id and parent_id != "root":
             exists = connection.execute("SELECT id FROM folders WHERE id = ?", (parent_id,)).fetchone()
             if not exists:
-                upsert_folder_chain(drive, connection, parent_id)
+                await upsert_folder_chain_async(drive, connection, parent_id)
     except Exception as e:
-        logger.warning(f"Error in upsert_folder_chain: {e}")
+        logger.warning(f"Error in upsert_folder_chain_async: {e}")
 
 
 if __name__ == "__main__":

@@ -82,12 +82,14 @@ class QdrantSettings:
 @dataclass(frozen=True)
 class AppSettings:
     access_token: str
+    session_secret_key: str
     host: str
     port: int
     results_limit: int
     download_concurrency: int
     process_concurrency: int
     storage_dir: Path
+    data_dir: Path
 
     @property
     def raw_transcripts_dir(self) -> Path:
@@ -96,6 +98,18 @@ class AppSettings:
     @property
     def normalized_transcripts_dir(self) -> Path:
         return self.storage_dir / "transcripts" / "normalized"
+
+    @property
+    def downloads_dir(self) -> Path:
+        return self.storage_dir / "downloads"
+
+    @property
+    def audio_dir(self) -> Path:
+        return self.storage_dir / "audio"
+
+    @property
+    def voice_samples_dir(self) -> Path:
+        return self.storage_dir / "voice_samples"
 
 
 def _env_bool(name: str, default: bool) -> bool:
@@ -106,7 +120,8 @@ def _env_bool(name: str, default: bool) -> bool:
 
 
 def get_sqlite_settings() -> SQLiteSettings:
-    default_db = Path("/srv/search-ui/data/search_ui.db")
+    app_settings = get_app_settings()
+    default_db = app_settings.data_dir / "search_ui.db"
     return SQLiteSettings(db_path=Path(os.getenv("SQLITE_DB_PATH", str(default_db))))
 
 
@@ -156,12 +171,14 @@ def get_deepgram_settings() -> DeepgramSettings:
 def get_app_settings() -> AppSettings:
     return AppSettings(
         access_token=os.getenv("APP_ACCESS_TOKEN", "Master"),
+        session_secret_key=os.getenv("SESSION_SECRET_KEY", "super-secret-key"),
         host=os.getenv("APP_HOST", "0.0.0.0"),
         port=int(os.getenv("APP_PORT", "8000")),
         results_limit=int(os.getenv("APP_RESULTS_LIMIT", "20")),
         download_concurrency=int(os.getenv("INGEST_DOWNLOAD_CONCURRENCY", "1")),
         process_concurrency=int(os.getenv("INGEST_PROCESS_CONCURRENCY", "1")),
         storage_dir=Path(os.getenv("APP_STORAGE_DIR", "/srv/search-ui/storage")),
+        data_dir=Path(os.getenv("APP_DATA_DIR", "/srv/search-ui/data")),
     )
 
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import asyncio
 import sys
 from pathlib import Path
 
@@ -20,7 +21,7 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def main() -> None:
+async def main() -> None:
     parser = build_parser()
     args = parser.parse_args()
     settings = get_app_settings()
@@ -28,7 +29,7 @@ def main() -> None:
 
     with db_connection(pg_settings) as connection:
         init_db(connection)
-        results = hybrid_search(
+        results = await hybrid_search(
             connection,
             args.query,
             limit=args.limit or settings.results_limit,
@@ -45,4 +46,4 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())

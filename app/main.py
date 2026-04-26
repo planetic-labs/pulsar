@@ -110,11 +110,11 @@ async def add_global_stats_to_templates(request: Request, call_next):
 
 
 # Session Middleware for Auth
-app.add_middleware(SessionMiddleware, secret_key="super-secret-key")
+app.add_middleware(SessionMiddleware, secret_key=get_app_settings().session_secret_key)
 
 # Static files for voice samples
-app.mount("/audio", StaticFiles(directory="/srv/search-ui/storage/voice_samples"), name="voice_audio")
-app.mount("/static", StaticFiles(directory="/srv/search-ui/static"), name="static")
+app.mount("/audio", StaticFiles(directory=str(get_app_settings().voice_samples_dir)), name="voice_audio")
+app.mount("/static", StaticFiles(directory=str(ROOT_DIR / "static")), name="static")
 
 
 def _status_rows(connection: Any) -> list[VideoStatusItem]:
@@ -203,6 +203,7 @@ async def api_register_speaker(
 @app.delete("/api/speakers/{speaker_id}")
 async def api_delete_speaker(speaker_id: str, _: str = Depends(require_access_token)):
     q_client = get_qdrant_client()
+    settings = get_app_settings()
 
     # Пытаемся найти инфу о файле перед удалением
     try:
@@ -210,7 +211,7 @@ async def api_delete_speaker(speaker_id: str, _: str = Depends(require_access_to
         if points and points[0].payload:
             filename = points[0].payload.get("sample_file")
             if filename:
-                file_path = Path("/srv/search-ui/storage/voice_samples") / filename
+                file_path = settings.voice_samples_dir / filename
                 if file_path.exists():
                     file_path.unlink()
     except Exception:
@@ -483,9 +484,7 @@ async def api_indexed_sync(_: str = Depends(require_access_token)):
     from scripts.sync_titles import sync_indexed_metadata
 
     try:
-        # Run in executor to avoid blocking the event loop
-        loop = asyncio.get_running_loop()
-        count = await loop.run_in_executor(None, sync_indexed_metadata)
+        count = await sync_indexed_metadata()
         return {"status": "success", "updated_count": count}
     except Exception as e:
         logger.error(f"Metadata sync failed: {e}")
@@ -552,7 +551,7 @@ def logout(request: Request, response: Response):
 
 
 @app.get("/", response_class=HTMLResponse)
-def index_page(request: Request, q: str | None = None):
+async def index_page(request: Request, q: str | None = None):
     app_settings = get_app_settings()
     pg_settings = get_sqlite_settings()
 
@@ -570,7 +569,7 @@ def index_page(request: Request, q: str | None = None):
     results = []
     if q:
         with db_connection(pg_settings) as connection:
-            items = hybrid_search(connection, q, limit=app_settings.results_limit)
+            items = await hybrid_search(connection, q, limit=app_settings.results_limit)
             results = items
 
     ua = request.headers.get("user-agent", "").lower()
@@ -895,7 +894,7 @@ async def api_update_chunk(chunk_id: int, request: Request, _: str = Depends(req
 
         # 3. Генерируем НОВЫЕ векторы
         try:
-            dense_vec, sparse_vec = embed_client.embed_text(new_text, task_type="RETRIEVAL_DOCUMENT")
+            dense_vec, sparse_vec = await embed_client.embed_text_async(new_text, task_type="RETRIEVAL_DOCUMENT")
 
             # 4. Обновляем Qdrant
             vectors: dict[str, Any] = {"default": dense_vec}
@@ -958,7 +957,7 @@ async def api_drive_ls(folder_id: str | None = None, _: str = Depends(require_ac
     target_id = folder_id or "root"
 
     try:
-        items = drive_client.list_folder_contents(target_id)
+        items = await drive_client.list_folder_contents(target_id)
 
         # Check database for indexed status
         sqlite_settings = get_sqlite_settings()
@@ -1021,7 +1020,7 @@ async def api_drive_auth_callback(request: Request):
     # This is the endpoint Google redirects back to
     drive_client = GoogleDriveClient(get_google_drive_settings())
     try:
-        drive_client.auth_exchange(str(request.url))
+        await drive_client.auth_exchange(str(request.url))
         return HTMLResponse("<html><body><script>window.close();</script>Авторизация успешна!</body></html>")
     except Exception as e:
         return HTMLResponse(f"<html><body>Ошибка: {e}</body></html>")
@@ -1031,7 +1030,7 @@ async def api_drive_auth_callback(request: Request):
 
 
 @app.get("/videos/{video_id}/file")
-def video_file(video_id: int, request: Request, token: str | None = None) -> Response:
+async def video_file(video_id: int, request: Request, token: str | None = None) -> Response:
     app_settings = get_app_settings()
     # Check token from session or query param
     current_token = get_session_token(request) or token
@@ -1050,21 +1049,27 @@ def video_file(video_id: int, request: Request, token: str | None = None) -> Res
 
     if row["source_type"] == "google_drive" and row["source_file_id"]:
         drive_client = GoogleDriveClient(get_google_drive_settings())
-        drive_response = drive_client.open_media_stream(
-            row["source_file_id"], range_header=request.headers.get("range")
+        resp = await drive_client.open_media_stream(row["source_file_id"], range_header=request.headers.get("range"))
+
+        headers = {
+            h: str(resp.headers.get(h))
+            for h in ("Content-Range", "Accept-Ranges", "Content-Length")
+            if resp.headers.get(h)
+        }
+
+        async def stream_from_resp(r):
+            try:
+                async for chunk in r.aiter_bytes(chunk_size=1024 * 1024):
+                    yield chunk
+            finally:
+                await r.aclose()
+
+        return StreamingResponse(
+            stream_from_resp(resp),
+            status_code=resp.status_code,
+            media_type=row["mime_type"] or "video/mp4",
+            headers=headers,
         )
-        if drive_response:
-            headers = {
-                h: str(drive_response.headers.get(h))
-                for h in ("Content-Range", "Accept-Ranges", "Content-Length")
-                if drive_response.headers.get(h)
-            }
-            return StreamingResponse(
-                (chunk for chunk in iter(lambda: drive_response.read(1024 * 1024), b"")),
-                status_code=getattr(drive_response, "status", 200),
-                media_type=row["mime_type"] or "video/mp4",
-                headers=headers,
-            )
 
     if not row["local_video_path"]:
         raise HTTPException(status_code=404)

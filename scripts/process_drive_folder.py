@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import asyncio
 import sys
 from pathlib import Path
 
@@ -32,12 +33,12 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def main() -> None:
+async def main() -> None:
     parser = build_parser()
     args = parser.parse_args()
 
     drive = GoogleDriveClient(get_google_drive_settings())
-    files = drive.list_folder_files(
+    files = await drive.list_folder_files(
         args.folder_id,
         order_by="createdTime asc",
         mime_prefix=args.mime_prefix,
@@ -71,4 +72,4 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())

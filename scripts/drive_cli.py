@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import asyncio
 import sys
 from pathlib import Path
 
@@ -43,7 +44,7 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def main() -> None:
+async def main() -> None:
     parser = build_parser()
     args = parser.parse_args()
 
@@ -58,21 +59,21 @@ def main() -> None:
         return
 
     if args.command == "auth-exchange":
-        token_payload = client.auth_exchange(args.callback_url)
+        token_payload = await client.auth_exchange(args.callback_url)
         print(f"Saved token to: {settings.token_path}")
         print(f"Refresh token present: {'yes' if token_payload.get('refresh_token') else 'no'}")
         return
 
     if args.command == "list":
-        files = client.list_files(page_size=args.page_size)
+        files = await client.list_files(page_size=args.page_size)
         for item in files:
             print(f"id={item.file_id} name={item.name!r} mime_type={item.mime_type!r} size={item.size!r}")
         return
 
     output_path = Path(args.output) if args.output else settings.download_dir / args.file_id
-    saved_path = client.download_file(args.file_id, output_path)
+    saved_path = await client.download_file(args.file_id, output_path)
     print(f"Downloaded to: {saved_path}")
 
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())

@@ -40,6 +40,24 @@ class DeepgramEngine(TranscriptionEngine):
             logger.error(f"Failed to fetch Deepgram balance: {str(e)}")
             return self._balance_cache["data"] or {"balances": []}
 
+    async def get_balance_async(self, force_refresh: bool = False) -> dict[str, Any]:
+        """Returns cached balance. Network request ONLY if force_refresh is True."""
+        if not force_refresh:
+            return self._balance_cache["data"] or {"balances": []}
+
+        url = f"https://api.deepgram.com/v1/projects/{self.settings.project_id}/balances"
+        headers = {"Authorization": f"Token {self.settings.api_key}"}
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                response = await client.get(url, headers=headers)
+                response.raise_for_status()
+                data = response.json()
+                DeepgramEngine._balance_cache["data"] = data
+                return data
+        except Exception as e:
+            logger.error(f"Failed to fetch Deepgram balance (async): {str(e)}")
+            return self._balance_cache["data"] or {"balances": []}
+
     def check_balance_threshold(self, threshold: float = 1.0) -> tuple[bool, float]:
         """Check if total balance is above threshold. Updates cache as side-effect."""
         # Worker calls this, forcing real network request
@@ -48,6 +66,14 @@ class DeepgramEngine(TranscriptionEngine):
         if not balances:
             return False, 0.0
 
+        total = sum(float(b.get("amount", 0)) for b in balances)
+        return total >= threshold, total
+
+    async def check_balance_threshold_async(self, threshold: float = 1.0) -> tuple[bool, float]:
+        data = await self.get_balance_async(force_refresh=True)
+        balances = data.get("balances", [])
+        if not balances:
+            return False, 0.0
         total = sum(float(b.get("amount", 0)) for b in balances)
         return total >= threshold, total
 
@@ -113,6 +139,61 @@ class DeepgramEngine(TranscriptionEngine):
             raise RuntimeError(f"Deepgram API returned error {e.response.status_code}") from e
         except Exception as e:
             logger.error(f"Unexpected error during Deepgram transcription: {str(e)}")
+            raise
+
+    async def transcribe_file_async(
+        self, audio_path: Path, progress_callback: Callable[[int, int], None] | None = None, **overrides
+    ) -> dict[str, Any]:
+        params = {
+            "model": overrides.get("model", self.settings.model),
+            "language": overrides.get("language", self.settings.language),
+            "smart_format": str(overrides.get("smart_format", self.settings.smart_format)).lower(),
+            "punctuate": str(overrides.get("punctuate", self.settings.punctuate)).lower(),
+            "utterances": str(overrides.get("utterances", self.settings.utterances)).lower(),
+            "paragraphs": str(overrides.get("paragraphs", self.settings.paragraphs)).lower(),
+            "diarize": str(overrides.get("diarize", self.settings.diarize)).lower(),
+            "filler_words": str(overrides.get("filler_words", self.settings.filler_words)).lower(),
+        }
+
+        file_size = audio_path.stat().st_size
+        logger.info(f"Starting Deepgram transcription (async) for {audio_path.name} ({file_size / 1024 / 1024:.2f} MB)")
+
+        headers = {
+            "Authorization": f"Token {self.settings.api_key}",
+            "Content-Type": "audio/wav",
+        }
+
+        async def async_file_iterator(file_path: Path, chunk_size: int = 65536):
+            uploaded = 0
+            with open(file_path, "rb") as f:
+                while True:
+                    chunk = f.read(chunk_size)
+                    if not chunk:
+                        break
+                    uploaded += len(chunk)
+                    if progress_callback:
+                        progress_callback(uploaded, file_size)
+                    yield chunk
+
+        start_time = time.time()
+        try:
+            async with httpx.AsyncClient(timeout=httpx.Timeout(600.0, connect=60.0)) as client:
+                response = await client.post(
+                    self.settings.base_url,
+                    params=params,
+                    headers=headers,
+                    content=async_file_iterator(audio_path),
+                )
+
+            duration = time.time() - start_time
+            logger.info(f"Deepgram async request finished in {duration:.2f}s with status {response.status_code}")
+
+            if response.status_code != 200:
+                logger.error(f"Deepgram Error ({response.status_code}): {response.text}")
+                response.raise_for_status()
+
+            return response.json()
+        except Exception:
             raise
 
     def normalize_response(self, raw_payload: dict[str, Any]) -> dict[str, Any]:

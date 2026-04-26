@@ -131,12 +131,8 @@ class Worker:
                 self._state["stage_1_download"].update(data)
 
             try:
-                loop = asyncio.get_running_loop()
-                result = await loop.run_in_executor(
-                    None,
-                    lambda: download_and_extract_stage(
-                        file_id, status_callback=logger.info, in_queue=in_queue, state_callback=update_state
-                    ),
+                result = await download_and_extract_stage(
+                    file_id, status_callback=logger.info, in_queue=in_queue, state_callback=update_state
                 )
 
                 new_payload = {**payload, **result}
@@ -159,7 +155,7 @@ class Worker:
             # Check Deepgram Balance before starting
             dg_settings = get_deepgram_settings()
             engine = DeepgramEngine(dg_settings)
-            is_ok, amount = engine.check_balance_threshold(1.0)
+            is_ok, amount = await engine.check_balance_threshold_async(1.0)
 
             if not is_ok:
                 err_msg = f"Отказ в транскрибации: баланс Deepgram (${amount:.2f}) ниже порога $1.00"
@@ -178,12 +174,8 @@ class Worker:
                 self._state["stage_2_transcribe"].update(data)
 
             try:
-                loop = asyncio.get_running_loop()
-                result = await loop.run_in_executor(
-                    None,
-                    lambda: transcribe_stage(
-                        file_id, audio_path, payload, status_callback=logger.info, state_callback=update_state
-                    ),
+                result = await transcribe_stage(
+                    file_id, audio_path, payload, status_callback=logger.info, state_callback=update_state
                 )
 
                 new_payload = {"video_id": result["video_id"], "title": title}
@@ -240,10 +232,7 @@ class Worker:
                         {"progress": progress, "status_text": f"Генерация ({current}/{total})"}
                     )
 
-                loop = asyncio.get_running_loop()
-                embeddings_data = await loop.run_in_executor(
-                    None, lambda: embed_client.embed_batch(texts, progress_callback=on_embed_progress)
-                )
+                embeddings_data = await embed_client.embed_batch_async(texts, progress_callback=on_embed_progress)
 
                 self._state["stage_3_index"].update({"progress": 75, "status_text": "Загрузка в Qdrant"})
                 points = []
@@ -271,9 +260,10 @@ class Worker:
                         )
                     )
 
+                loop = asyncio.get_running_loop()
                 if points:
                     await loop.run_in_executor(
-                        None, lambda: qdrant.upsert(collection_name=q_settings.collection_name, points=points)
+                        None, lambda p=points: qdrant.upsert(collection_name=q_settings.collection_name, points=p)
                     )
 
                 with db_connection(settings) as conn:
@@ -290,12 +280,18 @@ class Worker:
         """Бесконечный цикл обработки задач определенного типа."""
         while self.is_running:
             try:
-                # Ищем одну задачу подходящего типа
+                # Атомарно помечаем задачу как запущенную и получаем её данные
                 placeholders = ",".join(["?"] * len(stage_types))
                 sql = f"""
-                    SELECT id, task_type, payload FROM tasks
-                    WHERE status = 'pending' AND task_type IN ({placeholders})
-                    ORDER BY priority DESC, created_at ASC LIMIT 1
+                    UPDATE tasks
+                    SET status = 'running', updated_at = CURRENT_TIMESTAMP
+                    WHERE id = (
+                        SELECT id FROM tasks
+                        WHERE status = 'pending' AND task_type IN ({placeholders})
+                        ORDER BY priority DESC, created_at ASC
+                        LIMIT 1
+                    )
+                    RETURNING id, task_type, payload;
                 """
                 with db_connection(get_sqlite_settings()) as conn:
                     row = conn.execute(sql, stage_types).fetchone()
@@ -303,11 +299,6 @@ class Worker:
                 if row:
                     tid, ttype, tpayload_json = row["id"], row["task_type"], row["payload"]
                     tpayload = json.loads(tpayload_json)
-
-                    # Помечаем задачу как запущенную
-                    sql_upd = "UPDATE tasks SET status = 'running', updated_at = CURRENT_TIMESTAMP WHERE id = ?"
-                    with db_connection(get_sqlite_settings()) as conn:
-                        conn.execute(sql_upd, (tid,))
 
                     # Выполняем задачу
                     try:

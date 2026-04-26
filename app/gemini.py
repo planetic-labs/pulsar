@@ -43,7 +43,32 @@ class UnifiedEmbeddingClient:
             logger.error(f"Remote embedding failed: {e}")
             raise e
 
-    def embed_batch(
+    async def embed_text_async(
+        self, text: str, task_type: str = "RETRIEVAL_QUERY"
+    ) -> tuple[list[float], models.SparseVector | None]:
+        """Returns (dense_vector, sparse_vector) for a single text."""
+        url = f"{self.settings.api_url.rstrip('/')}/embeddings"
+        headers = {"Authorization": f"Bearer {self.settings.api_token}"} if self.settings.api_token else {}
+        payload = {"model": self.settings.model_id, "input": [text]}
+
+        try:
+            async with httpx.AsyncClient(timeout=60.0) as client:
+                response = await client.post(url, json=payload, headers=headers)
+                response.raise_for_status()
+                res = response.json()
+
+            dense = res["data"][0]["embedding"]
+            sparse = None
+            # Infinity specific sparse handling
+            if "usage" in res and "embeddings_sparse" in res["data"][0]:
+                sparse_data = res["data"][0]["embeddings_sparse"]
+                sparse = models.SparseVector(indices=sparse_data["indices"], values=sparse_data["values"])
+            return dense, sparse
+        except Exception as e:
+            logger.error(f"Remote embedding failed (async): {e}")
+            raise e
+
+    async def embed_batch_async(
         self,
         texts: list[str],
         task_type: str = "RETRIEVAL_DOCUMENT",
@@ -58,31 +83,31 @@ class UnifiedEmbeddingClient:
 
         results = []
         total = len(texts)
-        for i in range(0, total, 50):
-            batch = texts[i : i + 50]
-            current_end = min(i + 50, total)
-            logger.info(f"AI: Обработка батча {i // 50 + 1} (фрагменты {i} - {current_end} из {total})...")
+        async with httpx.AsyncClient(timeout=120.0) as client:
+            for i in range(0, total, 50):
+                batch = texts[i : i + 50]
+                current_end = min(i + 50, total)
+                logger.info(f"AI: Обработка батча {i // 50 + 1} (фрагменты {i} - {current_end} из {total})...")
 
-            if progress_callback:
-                progress_callback(i, total)
+                if progress_callback:
+                    progress_callback(i, total)
 
-            payload = {"model": self.settings.model_id, "input": batch}
-            try:
-                with httpx.Client(timeout=120.0) as client:
-                    response = client.post(url, json=payload, headers=headers)
+                payload = {"model": self.settings.model_id, "input": batch}
+                try:
+                    response = await client.post(url, json=payload, headers=headers)
                     response.raise_for_status()
                     res = response.json()
 
-                for item in res["data"]:
-                    dense = item["embedding"]
-                    sparse = None
-                    if "embeddings_sparse" in item:
-                        s = item["embeddings_sparse"]
-                        sparse = models.SparseVector(indices=s["indices"], values=s["values"])
-                    results.append((dense, sparse))
-            except Exception as e:
-                logger.error(f"Remote batch embedding failed: {e}")
-                raise e
+                    for item in res["data"]:
+                        dense = item["embedding"]
+                        sparse = None
+                        if "embeddings_sparse" in item:
+                            s = item["embeddings_sparse"]
+                            sparse = models.SparseVector(indices=s["indices"], values=s["values"])
+                        results.append((dense, sparse))
+                except Exception as e:
+                    logger.error(f"Remote batch embedding failed (async): {e}")
+                    raise e
 
         if progress_callback:
             progress_callback(total, total)
