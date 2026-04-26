@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import time
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -46,11 +47,13 @@ class DeepgramEngine(TranscriptionEngine):
         balances = data.get("balances", [])
         if not balances:
             return False, 0.0
-        
+
         total = sum(float(b.get("amount", 0)) for b in balances)
         return total >= threshold, total
 
-    def transcribe_file(self, audio_path: Path, **overrides) -> dict[str, Any]:
+    def transcribe_file(
+        self, audio_path: Path, progress_callback: Callable[[int, int], None] | None = None, **overrides
+    ) -> dict[str, Any]:
         params = {
             "model": overrides.get("model", self.settings.model),
             "language": overrides.get("language", self.settings.language),
@@ -70,17 +73,28 @@ class DeepgramEngine(TranscriptionEngine):
             "Content-Type": "audio/wav",
         }
 
+        def file_iterator(file_path: Path, chunk_size: int = 65536):
+            downloaded = 0
+            with open(file_path, "rb") as f:
+                while True:
+                    chunk = f.read(chunk_size)
+                    if not chunk:
+                        break
+                    downloaded += len(chunk)
+                    if progress_callback:
+                        progress_callback(downloaded, file_size)
+                    yield chunk
+
         start_time = time.time()
         try:
             # Use httpx with streaming to handle large files memory-efficiently
-            with open(audio_path, "rb") as f:
-                with httpx.Client(timeout=httpx.Timeout(600.0, connect=60.0)) as client:
-                    response = client.post(
-                        self.settings.base_url,
-                        params=params,
-                        headers=headers,
-                        content=f,  # Streaming content
-                    )
+            with httpx.Client(timeout=httpx.Timeout(600.0, connect=60.0)) as client:
+                response = client.post(
+                    self.settings.base_url,
+                    params=params,
+                    headers=headers,
+                    content=file_iterator(audio_path),
+                )
 
             duration = time.time() - start_time
             logger.info(f"Deepgram request finished in {duration:.2f}s with status {response.status_code}")

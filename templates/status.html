@@ -272,7 +272,7 @@
                     status.innerText = state.status_text;
                     bar.style.width = `${state.progress}%`;
                     
-                    if (stageId === 'stage_1_download' && state.speed) {
+                    if ((stageId === 'stage_1_download' || stageId === 'stage_2_transcribe') && state.speed) {
                         metric.innerText = `${state.progress}% • ${state.speed}`;
                     } else {
                         metric.innerText = `${state.progress}%`;

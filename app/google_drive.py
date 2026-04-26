@@ -290,38 +290,53 @@ class GoogleDriveClient:
         if folder_id == "root":
             # 1. Try to get Shared Drives separately
             try:
-                sd_url = "https://www.googleapis.com/drive/v3/drives?pageSize=100"
-                drives_res = self._authorized_get_json(sd_url)
-                for d in drives_res.get("drives", []):
-                    items.append(
-                        {
-                            "id": d["id"],
-                            "name": f"D: {d['name']}",
-                            "mime_type": "application/vnd.google-apps.folder",
-                            "is_folder": True,
-                        }
-                    )
-                    seen_ids.add(d["id"])
-            except Exception:
-                pass
+                page_token = None
+                while True:
+                    sd_url = "https://www.googleapis.com/drive/v3/drives?pageSize=100"
+                    if page_token:
+                        sd_url += f"&pageToken={page_token}"
+                    drives_res = self._authorized_get_json(sd_url)
+                    for d in drives_res.get("drives", []):
+                        if d["id"] not in seen_ids:
+                            items.append(
+                                {
+                                    "id": d["id"],
+                                    "name": f"D: {d['name']}",
+                                    "mime_type": "application/vnd.google-apps.folder",
+                                    "is_folder": True,
+                                }
+                            )
+                            seen_ids.add(d["id"])
+                    page_token = drives_res.get("nextPageToken")
+                    if not page_token:
+                        break
+            except Exception as e:
+                logger.error(f"Error fetching shared drives: {e}")
 
             # 2. Get EVERYTHING from 'My Drive' (Folders and Videos)
             query_filter = (
                 "trashed = false and (mimeType = 'application/vnd.google-apps.folder' or mimeType contains 'video/')"
             )
-            response = self._list_files_page(page_size=1000, query_filter=query_filter, order_by="name")
-            for f in response.get("files", []):
-                if f["id"] not in seen_ids:
-                    items.append(
-                        {
-                            "id": f["id"],
-                            "name": f["name"],
-                            "mime_type": f["mimeType"],
-                            "web_view_link": f.get("webViewLink"),
-                            "is_folder": f["mimeType"] == "application/vnd.google-apps.folder",
-                        }
-                    )
-                    seen_ids.add(f["id"])
+            page_token = None
+            while True:
+                response = self._list_files_page(
+                    page_size=1000, query_filter=query_filter, order_by="name", page_token=page_token
+                )
+                for f in response.get("files", []):
+                    if f["id"] not in seen_ids:
+                        items.append(
+                            {
+                                "id": f["id"],
+                                "name": f["name"],
+                                "mime_type": f["mimeType"],
+                                "web_view_link": f.get("webViewLink"),
+                                "is_folder": f["mimeType"] == "application/vnd.google-apps.folder",
+                            }
+                        )
+                        seen_ids.add(f["id"])
+                page_token = response.get("nextPageToken")
+                if not page_token:
+                    break
 
             # 3. Get 'Shared with me' items
             shared_filter = (
@@ -329,19 +344,26 @@ class GoogleDriveClient:
                 "(mimeType = 'application/vnd.google-apps.folder' or mimeType contains 'video/')"
             )
             try:
-                shared_res = self._list_files_page(page_size=1000, query_filter=shared_filter, order_by="name")
-                for f in shared_res.get("files", []):
-                    if f["id"] not in seen_ids:
-                        items.append(
-                            {
-                                "id": f["id"],
-                                "name": f"S: {f['name']}",  # Prefix shared items for clarity
-                                "mime_type": f["mimeType"],
-                                "web_view_link": f.get("webViewLink"),
-                                "is_folder": f["mimeType"] == "application/vnd.google-apps.folder",
-                            }
-                        )
-                        seen_ids.add(f["id"])
+                page_token = None
+                while True:
+                    shared_res = self._list_files_page(
+                        page_size=1000, query_filter=shared_filter, order_by="name", page_token=page_token
+                    )
+                    for f in shared_res.get("files", []):
+                        if f["id"] not in seen_ids:
+                            items.append(
+                                {
+                                    "id": f["id"],
+                                    "name": f"S: {f['name']}",  # Prefix shared items for clarity
+                                    "mime_type": f["mimeType"],
+                                    "web_view_link": f.get("webViewLink"),
+                                    "is_folder": f["mimeType"] == "application/vnd.google-apps.folder",
+                                }
+                            )
+                            seen_ids.add(f["id"])
+                    page_token = shared_res.get("nextPageToken")
+                    if not page_token:
+                        break
             except Exception as e:
                 logger.error(f"Error fetching shared items: {e}")
 
@@ -351,19 +373,26 @@ class GoogleDriveClient:
                 f"'{folder_id}' in parents and trashed = false and "
                 "(mimeType = 'application/vnd.google-apps.folder' or mimeType contains 'video/')"
             )
-            response = self._list_files_page(page_size=1000, query_filter=query_filter, order_by="name")
-            for f in response.get("files", []):
-                if f["id"] not in seen_ids:
-                    items.append(
-                        {
-                            "id": f["id"],
-                            "name": f["name"],
-                            "mime_type": f["mimeType"],
-                            "web_view_link": f.get("webViewLink"),
-                            "is_folder": f["mimeType"] == "application/vnd.google-apps.folder",
-                        }
-                    )
-                    seen_ids.add(f["id"])
+            page_token = None
+            while True:
+                response = self._list_files_page(
+                    page_size=1000, query_filter=query_filter, order_by="name", page_token=page_token
+                )
+                for f in response.get("files", []):
+                    if f["id"] not in seen_ids:
+                        items.append(
+                            {
+                                "id": f["id"],
+                                "name": f["name"],
+                                "mime_type": f["mimeType"],
+                                "web_view_link": f.get("webViewLink"),
+                                "is_folder": f["mimeType"] == "application/vnd.google-apps.folder",
+                            }
+                        )
+                        seen_ids.add(f["id"])
+                page_token = response.get("nextPageToken")
+                if not page_token:
+                    break
 
         # Sort folders first, then by name
         return sorted(items, key=lambda x: (not x["is_folder"], str(x["name"]).lower()))

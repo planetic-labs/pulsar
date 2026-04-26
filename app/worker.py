@@ -12,11 +12,11 @@ from app.config import (
     get_qdrant_settings,
     get_sqlite_settings,
 )
-from app.transcription.deepgram import DeepgramEngine
 from app.db import db_connection
 from app.gemini import UnifiedEmbeddingClient
 from app.qdrant import get_qdrant_client
 from app.repository import update_video_status
+from app.transcription.deepgram import DeepgramEngine
 from scripts.ingest_drive_file import download_and_extract_stage, transcribe_stage
 
 
@@ -87,7 +87,7 @@ class Worker:
         self._run_task: asyncio.Task | None = None
         self._state = {
             "stage_1_download": {"active": False, "title": "", "progress": 0, "speed": "", "status_text": "Ожидание"},
-            "stage_2_transcribe": {"active": False, "title": "", "progress": 0, "status_text": "Ожидание"},
+            "stage_2_transcribe": {"active": False, "title": "", "progress": 0, "speed": "", "status_text": "Ожидание"},
             "stage_3_index": {"active": False, "title": "", "progress": 0, "status_text": "Ожидание"},
         }
 
@@ -160,7 +160,7 @@ class Worker:
             dg_settings = get_deepgram_settings()
             engine = DeepgramEngine(dg_settings)
             is_ok, amount = engine.check_balance_threshold(1.0)
-            
+
             if not is_ok:
                 err_msg = f"Отказ в транскрибации: баланс Deepgram (${amount:.2f}) ниже порога $1.00"
                 logger.error(err_msg)
@@ -169,16 +169,21 @@ class Worker:
             file_id = payload["file_id"]
             audio_path = payload["audio_path"]
             title = payload.get("title", file_id)
-            logger.info(f"Транскрибация: {title}")
 
             self._state["stage_2_transcribe"].update(
-                {"active": True, "title": title, "progress": 50, "status_text": "Обработка AI"}
+                {"active": True, "title": title, "progress": 0, "speed": "", "status_text": "Инициализация"}
             )
+
+            def update_state(data: dict):
+                self._state["stage_2_transcribe"].update(data)
 
             try:
                 loop = asyncio.get_running_loop()
                 result = await loop.run_in_executor(
-                    None, lambda: transcribe_stage(file_id, audio_path, payload, status_callback=logger.info)
+                    None,
+                    lambda: transcribe_stage(
+                        file_id, audio_path, payload, status_callback=logger.info, state_callback=update_state
+                    ),
                 )
 
                 new_payload = {"video_id": result["video_id"], "title": title}
@@ -192,7 +197,7 @@ class Worker:
                 logger.info(f"Текст для {title} сохранен.")
             finally:
                 self._state["stage_2_transcribe"].update(
-                    {"active": False, "title": "", "progress": 0, "status_text": "Ожидание"}
+                    {"active": False, "title": "", "progress": 0, "speed": "", "status_text": "Ожидание"}
                 )
 
     async def _run_stage_3_index(self, task_id: int, payload: dict):
