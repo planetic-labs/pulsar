@@ -77,7 +77,7 @@ def format_timestamp(seconds: float) -> str:
     return f"{minutes:02d}:{secs:02d}"
 
 
-def hybrid_search(
+async def hybrid_search(
     connection: sqlite3.Connection,
     query: str,
     *,
@@ -140,7 +140,7 @@ def hybrid_search(
     else:
         # Hybrid Search via Unified Client
         client = UnifiedEmbeddingClient(get_embedding_settings())
-        query_dense, query_sparse = client.embed_text(clean_query or "video", task_type="RETRIEVAL_QUERY")
+        query_dense, query_sparse = await client.embed_text_async(clean_query or "video", task_type="RETRIEVAL_QUERY")
 
         # Fetch candidates for merging
         prefetch_limit = 100
@@ -169,31 +169,31 @@ def hybrid_search(
                 with_payload=True,
             ).points
 
-        # 3. Linear Fusion (Manual)
-        # Weights: 0.7 Semantic (Dense), 0.3 Lexical (Sparse)
-        w_dense = 0.7
-        w_sparse = 0.3
+        # 3. Reciprocal Rank Fusion (RRF)
+        # score = sum( 1 / (k + rank) )
+        k = 60
+        combined_scores: dict[Any, float] = {}
 
-        combined_points: dict[Any, dict[str, Any]] = {}
+        # Rank Dense results
+        for rank, p in enumerate(dense_results, start=1):
+            combined_scores[p.id] = combined_scores.get(p.id, 0.0) + (1.0 / (k + rank))
 
-        for p in dense_results:
-            combined_points[p.id] = {"point": p, "semantic": float(p.score), "lexical": 0.0}
+        # Rank Sparse results
+        for rank, p in enumerate(sparse_results, start=1):
+            combined_scores[p.id] = combined_scores.get(p.id, 0.0) + (1.0 / (k + rank))
 
+        # We also need to keep track of the points themselves for payload
+        points_map = {p.id: p for p in dense_results}
         for p in sparse_results:
-            if p.id in combined_points:
-                combined_points[p.id]["lexical"] = float(p.score)
-            else:
-                combined_points[p.id] = {"point": p, "semantic": 0.0, "lexical": float(p.score)}
+            if p.id not in points_map:
+                points_map[p.id] = p
 
-        # Calculate combined score and sort
+        # Calculate final sorted list
         final_list = []
-        for _pid, data in combined_points.items():
-            # Linear combination. Semantic is Cosine (0-1), Sparse is Dot Product (can be > 1)
-            # We cap Sparse to 1.0 for better fusion balance
-            data["combined"] = (data["semantic"] * w_dense) + (min(float(data["lexical"]), 1.0) * w_sparse)
-            final_list.append(data)
+        for pid, score in combined_scores.items():
+            final_list.append({"point": points_map[pid], "combined": score})
 
-        final_list.sort(key=lambda x: float(x["combined"]), reverse=True)
+        final_list.sort(key=lambda x: x["combined"], reverse=True)
         points = [x["point"] for x in final_list[:limit]]
 
         # Store scores for SearchResult mapping
@@ -270,8 +270,8 @@ def hybrid_search(
                 combined_score=float(point_data["combined"]) if point_data else float(getattr(point, "score", 0.0)),
                 match_type="hybrid" if clean_query else "filter",
                 raw_text=full_text,
-                lexical_score=float(point_data["lexical"]) if point_data else 0.0,
-                semantic_score=float(point_data["semantic"]) if point_data else float(getattr(point, "score", 0.0)),
+                lexical_score=0.0,  # RRF uses ranks, not raw scores
+                semantic_score=0.0,
                 vector_score=float(point_data["combined"]) if point_data else float(getattr(point, "score", 0.0)),
                 speaker=", ".join(mapped_names) if mapped_names else None,
                 alternative_texts={},

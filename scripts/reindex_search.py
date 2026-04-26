@@ -1,7 +1,7 @@
 import argparse
+import asyncio
 import logging
 import sys
-import time
 from pathlib import Path
 from typing import Any
 
@@ -24,7 +24,7 @@ logger = logging.getLogger(__name__)
 CHAR_TO_TOKEN_RATIO = 0.3
 
 
-def rebuild_semantic_index(full_reindex: bool = False):
+async def rebuild_semantic_index(full_reindex: bool = False):
     pg_settings = get_sqlite_settings()
     q_settings = get_qdrant_settings()
 
@@ -46,7 +46,7 @@ def rebuild_semantic_index(full_reindex: bool = False):
     try:
         from scripts.sync_titles import sync_indexed_metadata
 
-        sync_indexed_metadata()
+        await sync_indexed_metadata()
     except Exception as e:
         logger.warning(f"Could not sync titles: {e}")
 
@@ -90,7 +90,7 @@ def rebuild_semantic_index(full_reindex: bool = False):
 
             try:
                 # 1. Get both Dense and Sparse embeddings from unified client
-                embeddings_data = embed_client.embed_batch(texts)
+                embeddings_data = await embed_client.embed_batch_async(texts)
 
                 points: list[models.PointStruct] = []
                 for idx, row in enumerate(batch_rows):
@@ -119,13 +119,17 @@ def rebuild_semantic_index(full_reindex: bool = False):
                     )
 
                 if points:
-                    qdrant.upsert(collection_name=q_settings.collection_name, points=points)
+                    # Run Qdrant upsert (sync) in executor
+                    loop = asyncio.get_running_loop()
+                    await loop.run_in_executor(
+                        None, lambda p=points: qdrant.upsert(collection_name=q_settings.collection_name, points=p)
+                    )
 
                 logger.info(f"Progress: {i + len(batch_rows)}/{total_rows}")
 
             except Exception as e:
                 logger.error(f"Error processing batch starting at {i}: {e}")
-                time.sleep(5)
+                await asyncio.sleep(5)
 
     logger.info("Indexing completed successfully.")
 
@@ -135,4 +139,4 @@ if __name__ == "__main__":
     parser.add_argument("--full", action="store_true", help="Clear Qdrant collection and start from scratch")
     args = parser.parse_args()
 
-    rebuild_semantic_index(full_reindex=args.full)
+    asyncio.run(rebuild_semantic_index(full_reindex=args.full))

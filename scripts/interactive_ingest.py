@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import asyncio
 import sys
 from pathlib import Path
 
@@ -22,7 +23,7 @@ def safe_print(msg: str):
     sys.stdout.flush()
 
 
-def main() -> None:
+async def main() -> None:
     parser = argparse.ArgumentParser(description="Interactive Google Drive Ingestion")
     parser.add_argument("folder_id", help="Google Drive folder ID")
     parser.add_argument("--limit", type=int, default=50, help="Max files to process")
@@ -37,7 +38,7 @@ def main() -> None:
     engine_id = f"deepgram:{dg_settings.model}"
 
     safe_print(f"\n--- Folder Selection (Target: {engine_id}) ---")
-    files = drive.list_folder_files(args.folder_id, mime_prefix="video/")
+    files = await drive.list_folder_files(args.folder_id, mime_prefix="video/")
     if not files:
         safe_print("No video files found.")
         return
@@ -73,4 +74,4 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())

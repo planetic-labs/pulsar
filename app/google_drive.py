@@ -8,9 +8,9 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
-from urllib.error import HTTPError
 from urllib.parse import urlencode
-from urllib.request import Request, urlopen
+
+import httpx
 
 from app.config import GoogleDriveSettings
 
@@ -64,24 +64,24 @@ class GoogleDriveClient:
             raise FileNotFoundError(f"Auth session file not found: {session_path}. Run auth_init() first.")
         return dict(json.loads(session_path.read_text(encoding="utf-8")))
 
-    def _post_form(self, url: str, data: dict[str, Any]) -> dict[str, Any]:
-        body = urlencode(data).encode("utf-8")
-        request = Request(
-            url,
-            data=body,
-            headers={"Content-Type": "application/x-www-form-urlencoded"},
-            method="POST",
-        )
-        try:
-            with urlopen(request) as response:
-                return dict(json.loads(response.read().decode("utf-8")))
-        except HTTPError as e:
-            logger.error(f"HTTP Error during POST to {url}: {e.code} {e.reason}\nBody: {e.read().decode('utf-8')}")
-            raise
+    async def _post_form(self, url: str, data: dict[str, Any]) -> dict[str, Any]:
+        async with httpx.AsyncClient() as client:
+            try:
+                response = await client.post(
+                    url,
+                    data=data,
+                    headers={"Content-Type": "application/x-www-form-urlencoded"},
+                    timeout=30.0,
+                )
+                response.raise_for_status()
+                return dict(response.json())
+            except httpx.HTTPStatusError as e:
+                logger.error(f"HTTP Error during POST to {url}: {e.response.status_code}\nBody: {e.response.text}")
+                raise
 
-    def _refresh_access_token(self, refresh_token: str) -> dict[str, Any]:
+    async def _refresh_access_token(self, refresh_token: str) -> dict[str, Any]:
         config = self._client_config()
-        token_response = self._post_form(
+        token_response = await self._post_form(
             config["token_uri"],
             {
                 "client_id": config["client_id"],
@@ -125,7 +125,7 @@ class GoogleDriveClient:
         )
         return auth_url, session_path
 
-    def auth_exchange(self, callback_url: str) -> dict[str, Any]:
+    async def auth_exchange(self, callback_url: str) -> dict[str, Any]:
         config = self._client_config()
         session_payload = self._read_auth_session()
 
@@ -144,7 +144,7 @@ class GoogleDriveClient:
         if returned_state != session_payload["state"]:
             raise ValueError("OAuth state mismatch.")
 
-        token_response = self._post_form(
+        token_response = await self._post_form(
             config["token_uri"],
             {
                 "client_id": config["client_id"],
@@ -159,7 +159,7 @@ class GoogleDriveClient:
         self._write_token_payload(token_response)
         return token_response
 
-    def _get_access_token(self) -> str:
+    async def _get_access_token(self) -> str:
         token_payload = self._token_payload()
         if token_payload:
             created_at = int(token_payload.get("created_at", 0))
@@ -172,7 +172,7 @@ class GoogleDriveClient:
 
             refresh_token = token_payload.get("refresh_token")
             if refresh_token:
-                refreshed = self._refresh_access_token(str(refresh_token))
+                refreshed = await self._refresh_access_token(str(refresh_token))
                 return str(refreshed["access_token"])
 
         raise RuntimeError(
@@ -180,19 +180,14 @@ class GoogleDriveClient:
             "then complete auth-exchange with the returned callback URL."
         )
 
-    def _authorized_get_json(self, url: str) -> dict[str, Any]:
-        access_token = self._get_access_token()
-        request = Request(url, headers={"Authorization": f"Bearer {access_token}"})
-        with urlopen(request) as response:
-            return dict(json.loads(response.read().decode("utf-8")))
+    async def _authorized_get_json(self, url: str) -> dict[str, Any]:
+        access_token = await self._get_access_token()
+        async with httpx.AsyncClient() as client:
+            response = await client.get(url, headers={"Authorization": f"Bearer {access_token}"}, timeout=30.0)
+            response.raise_for_status()
+            return dict(response.json())
 
-    def _authorized_request(self, url: str, headers: dict[str, str] | None = None) -> Request:
-        request_headers = {"Authorization": f"Bearer {self._get_access_token()}"}
-        if headers:
-            request_headers.update(headers)
-        return Request(url, headers=request_headers)
-
-    def _list_files_page(
+    async def _list_files_page(
         self,
         *,
         page_size: int,
@@ -215,7 +210,7 @@ class GoogleDriveClient:
         query = urlencode(params)
         url = f"https://www.googleapis.com/drive/v3/files?{query}"
         try:
-            return self._authorized_get_json(url)
+            return await self._authorized_get_json(url)
         except Exception as e:
             logger.error(f"Google Drive API error at {url}: {e}")
             raise
@@ -234,21 +229,21 @@ class GoogleDriveClient:
             for item in files
         ]
 
-    def list_files(self, page_size: int = 10) -> list[DriveFile]:
-        response = self._list_files_page(page_size=page_size)
+    async def list_files(self, page_size: int = 10) -> list[DriveFile]:
+        response = await self._list_files_page(page_size=page_size)
         return self._to_drive_files(response.get("files", []))
 
-    def get_file(self, file_id: str) -> DriveFile:
+    async def get_file(self, file_id: str) -> DriveFile:
         query = urlencode(
             {
                 "fields": "id,name,mimeType,size,createdTime,modifiedTime,parents",
                 "supportsAllDrives": "true",
             }
         )
-        response = self._authorized_get_json(f"https://www.googleapis.com/drive/v3/files/{file_id}?{query}")
+        response = await self._authorized_get_json(f"https://www.googleapis.com/drive/v3/files/{file_id}?{query}")
         return self._to_drive_files([response])[0]
 
-    def list_folder_files(
+    async def list_folder_files(
         self,
         folder_id: str,
         *,
@@ -268,7 +263,7 @@ class GoogleDriveClient:
         page_token: str | None = None
         collected: list[DriveFile] = []
         while True:
-            response = self._list_files_page(
+            response = await self._list_files_page(
                 page_size=page_size,
                 page_token=page_token,
                 query_filter=query_filter,
@@ -282,7 +277,7 @@ class GoogleDriveClient:
                 break
         return collected
 
-    def list_folder_contents(self, folder_id: str) -> list[dict[str, Any]]:
+    async def list_folder_contents(self, folder_id: str) -> list[dict[str, Any]]:
         """Lists folders and videos. Minimal filtering to guarantee results."""
         items: list[dict[str, Any]] = []
         seen_ids = set()
@@ -295,7 +290,7 @@ class GoogleDriveClient:
                     sd_url = "https://www.googleapis.com/drive/v3/drives?pageSize=100"
                     if page_token:
                         sd_url += f"&pageToken={page_token}"
-                    drives_res = self._authorized_get_json(sd_url)
+                    drives_res = await self._authorized_get_json(sd_url)
                     for d in drives_res.get("drives", []):
                         if d["id"] not in seen_ids:
                             items.append(
@@ -319,7 +314,7 @@ class GoogleDriveClient:
             )
             page_token = None
             while True:
-                response = self._list_files_page(
+                response = await self._list_files_page(
                     page_size=1000, query_filter=query_filter, order_by="name", page_token=page_token
                 )
                 for f in response.get("files", []):
@@ -346,7 +341,7 @@ class GoogleDriveClient:
             try:
                 page_token = None
                 while True:
-                    shared_res = self._list_files_page(
+                    shared_res = await self._list_files_page(
                         page_size=1000, query_filter=shared_filter, order_by="name", page_token=page_token
                     )
                     for f in shared_res.get("files", []):
@@ -375,7 +370,7 @@ class GoogleDriveClient:
             )
             page_token = None
             while True:
-                response = self._list_files_page(
+                response = await self._list_files_page(
                     page_size=1000, query_filter=query_filter, order_by="name", page_token=page_token
                 )
                 for f in response.get("files", []):
@@ -397,7 +392,7 @@ class GoogleDriveClient:
         # Sort folders first, then by name
         return sorted(items, key=lambda x: (not x["is_folder"], str(x["name"]).lower()))
 
-    def download_file(
+    async def download_file(
         self,
         file_id: str,
         destination: Path,
@@ -405,30 +400,45 @@ class GoogleDriveClient:
     ) -> Path:
         destination.parent.mkdir(parents=True, exist_ok=True)
 
-        meta = self.get_file(file_id)
+        meta = await self.get_file(file_id)
         total_size = int(meta.size) if meta.size else None
 
+        access_token = await self._get_access_token()
         url = f"https://www.googleapis.com/drive/v3/files/{file_id}?alt=media&supportsAllDrives=true"
-        request = self._authorized_request(url)
 
-        with urlopen(request) as response, destination.open("wb") as file_handle:
-            downloaded = 0
-            while True:
-                chunk = response.read(1024 * 1024)
-                if not chunk:
-                    break
-                file_handle.write(chunk)
-                downloaded += len(chunk)
-                if progress_callback and total_size:
-                    progress_callback(downloaded, total_size)
+        async with httpx.AsyncClient() as client:
+            async with client.stream(
+                "GET", url, headers={"Authorization": f"Bearer {access_token}"}, timeout=None
+            ) as response:
+                response.raise_for_status()
+
+                with destination.open("wb") as f:
+                    downloaded = 0
+                    async for chunk in response.aiter_bytes(chunk_size=1024 * 1024):
+                        f.write(chunk)
+                        downloaded += len(chunk)
+                        if progress_callback and total_size:
+                            progress_callback(downloaded, total_size)
 
         return destination
 
     def open_media_stream(self, file_id: str, *, range_header: str | None = None):
+        """Returns an async context manager for streaming."""
         query = urlencode({"supportsAllDrives": "true"})
         url = f"https://www.googleapis.com/drive/v3/files/{file_id}?alt=media&{query}"
         headers: dict[str, str] = {}
         if range_header:
             headers["Range"] = range_header
-        request = self._authorized_request(url, headers=headers)
-        return urlopen(request)
+
+        async def _stream():
+            access_token = await self._get_access_token()
+            headers["Authorization"] = f"Bearer {access_token}"
+            client = httpx.AsyncClient()
+            try:
+                # We return the response object which is an async context manager
+                return await client.stream("GET", url, headers=headers, timeout=None).__aenter__()
+            except Exception:
+                await client.aclose()
+                raise
+
+        return _stream()

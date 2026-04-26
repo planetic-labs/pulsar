@@ -1,3 +1,4 @@
+import asyncio
 import json
 import logging
 import sys
@@ -18,10 +19,10 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(
 logger = logging.getLogger(__name__)
 
 
-def upsert_folder_chain(drive: GoogleDriveClient, connection: Any, folder_id: str):
+async def upsert_folder_chain_async(drive: GoogleDriveClient, connection: Any, folder_id: str):
     """Recursively upsert folder chain to DB. Reused from ingest script."""
     try:
-        f_meta = drive.get_file(folder_id)
+        f_meta = await drive.get_file(folder_id)
         parent_id = f_meta.parents[0] if f_meta.parents else None
         upsert_folder(connection, folder_id=folder_id, name=f_meta.name, parent_id=parent_id)
 
@@ -29,12 +30,12 @@ def upsert_folder_chain(drive: GoogleDriveClient, connection: Any, folder_id: st
             # Check if parent exists to avoid redundant API calls
             exists = connection.execute("SELECT 1 FROM folders WHERE id = ?", (parent_id,)).fetchone()
             if not exists:
-                upsert_folder_chain(drive, connection, parent_id)
+                await upsert_folder_chain_async(drive, connection, parent_id)
     except Exception as e:
-        logger.warning(f"Error in upsert_folder_chain for {folder_id}: {e}")
+        logger.warning(f"Error in upsert_folder_chain_async for {folder_id}: {e}")
 
 
-def sync_indexed_metadata():
+async def sync_indexed_metadata():
     """
     Synchronizes titles and folder hierarchy for all indexed Google Drive files.
     Also updates folder names if they have changed.
@@ -50,7 +51,7 @@ def sync_indexed_metadata():
         for f_row in folder_rows:
             try:
                 f_id = f_row["id"]
-                drive_f = drive_client.get_file(f_id)
+                drive_f = await drive_client.get_file(f_id)
                 if drive_f.name != f_row["name"]:
                     conn.execute("UPDATE folders SET name = ? WHERE id = ?", (drive_f.name, f_id))
                     logger.info(f"Folder renamed: {f_id} -> {drive_f.name}")
@@ -79,7 +80,7 @@ def sync_indexed_metadata():
 
             try:
                 # Get fresh metadata
-                drive_file = drive_client.get_file(file_id)
+                drive_file = await drive_client.get_file(file_id)
                 new_title = drive_file.name
                 new_parent = drive_file.parents[0] if drive_file.parents else None
 
@@ -105,7 +106,7 @@ def sync_indexed_metadata():
                     needs_update = True
                     # If parent changed, ensure new parent chain is indexed
                     if new_parent:
-                        upsert_folder_chain(drive_client, conn, new_parent)
+                        await upsert_folder_chain_async(drive_client, conn, new_parent)
 
                 if new_duration and new_duration != row.get("duration_sec"):
                     needs_update = True
@@ -127,5 +128,5 @@ def sync_indexed_metadata():
 
 
 if __name__ == "__main__":
-    count = sync_indexed_metadata()
+    count = asyncio.run(sync_indexed_metadata())
     print(f"Sync completed. Updated {count} items.")
