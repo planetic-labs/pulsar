@@ -18,6 +18,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Search indexed transcript chunks")
     parser.add_argument("query")
     parser.add_argument("--limit", type=int)
+    parser.add_argument("--mode", default="hybrid", choices=["hybrid", "semantic", "lexical", "quote"])
     return parser
 
 
@@ -33,6 +34,7 @@ async def main() -> None:
             connection,
             args.query,
             limit=args.limit or settings.results_limit,
+            search_mode=args.mode,
         )
 
     for item in results:

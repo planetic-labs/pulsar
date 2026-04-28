@@ -29,6 +29,7 @@ from app.repository import (
     upsert_video,
 )
 from app.transcription.deepgram import DeepgramEngine
+from app.transcription.postprocessing import apply_postprocessing_to_raw
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -181,6 +182,10 @@ async def transcribe_stage(
             last_uploaded = uploaded
 
     raw_payload = await engine.transcribe_file_async(audio_p, diarize=True, progress_callback=progress_callback)
+    
+    # Apply post-processing (e.g. master -> Master)
+    raw_payload = apply_postprocessing_to_raw(raw_payload)
+    
     norm_payload = engine.normalize_response(raw_payload)
 
     # Save files

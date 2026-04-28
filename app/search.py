@@ -305,48 +305,26 @@ async def hybrid_search(
         )
         points = res_scroll[0]
     else:
-        # --- TRUE HYBRID SEARCH (VECTORS + SQL QUOTE BOOST) ---
+        # --- VECTOR SEARCH (SEMANTIC, LEXICAL, HYBRID) ---
         client = UnifiedEmbeddingClient(get_embedding_settings())
-        query_dense, query_sparse = await client.embed_text_async(clean_query or "video", task_type="RETRIEVAL_QUERY")
+        try:
+            query_dense, query_sparse = await client.embed_text_async(clean_query or "video", task_type="RETRIEVAL_QUERY")
+        except Exception as e:
+            import logging
+            logging.error(f"Search failed because embedding service is unavailable: {e}")
+            return []
 
-        # 1. Run SQL Quote Search in parallel (as a boost)
-        # We remove LIMIT to find EVERY exact match in the entire database
-        sql_boost_ids = []
-        id_to_override_text = {}
-        if clean_query:
-            pattern = _build_quote_regex(clean_query)
-            if pattern:
-                sql = """
-                    SELECT c1.id, (c1.text || ' ' || IFNULL(c2.text, '') || ' ' || IFNULL(c3.text, '')) as combined_text
-                    FROM chunks c1
-                    LEFT JOIN chunks c2 ON c1.video_id = c2.video_id AND c2.chunk_index = c1.chunk_index + 1
-                    LEFT JOIN chunks c3 ON c1.video_id = c3.video_id AND c3.chunk_index = c1.chunk_index + 2
-                    WHERE 1=1
-                """
-                params = []
-                words = re.findall(r"[а-яА-ЯёЁa-zA-Z0-9]{3,}", clean_query.lower())
-                for w in words[:2]:
-                    sql += " AND (c1.text || ' ' || IFNULL(c2.text, '') || ' ' || IFNULL(c3.text, '')) LIKE ?"
-                    params.append(f"%{w}%")
-                sql += " AND (c1.text || ' ' || IFNULL(c2.text, '') || ' ' || IFNULL(c3.text, '')) REGEXP ?"
-                params.append(pattern)
-                if v_id:
-                    sql += " AND c1.video_id = ?"
-                    params.append(v_id)
-
-                # NO LIMIT here - search all videos
-                rows_sql = connection.execute(sql, params).fetchall()
-                sql_boost_ids = [r["id"] for r in rows_sql]
-                id_to_override_text = {r["id"]: r["combined_text"] for r in rows_sql}
-
-        # 2. Get Vector Candidates
         prefetch_limit = 100
-        dense_results = qdrant.query_points(
-            settings.collection_name, query_dense, "default", None, q_filter, limit=prefetch_limit, with_payload=True
-        ).points
-
+        dense_results: list[models.ScoredPoint] = []
         sparse_results: list[models.ScoredPoint] = []
-        if query_sparse:
+
+        # 1. Fetch results based on mode
+        if search_mode in ["semantic", "hybrid"]:
+            dense_results = qdrant.query_points(
+                settings.collection_name, query_dense, "default", None, q_filter, limit=prefetch_limit, with_payload=True
+            ).points
+
+        if search_mode in ["lexical", "hybrid"] and query_sparse:
             sparse_results = qdrant.query_points(
                 settings.collection_name,
                 models.SparseVector(indices=query_sparse.indices, values=query_sparse.values),
@@ -357,121 +335,81 @@ async def hybrid_search(
                 with_payload=True,
             ).points
 
-        # 3. Merge with RRF + SQL Boost
+        # 2. Merge results using RRF
         k = 60
         combined_scores: dict[Any, float] = {}
         points_map = {}
+        id_to_semantic_score = {}
+        id_to_lexical_score = {}
 
-        # Base RRF scores
         for rank, p in enumerate(dense_results, start=1):
             combined_scores[p.id] = combined_scores.get(p.id, 0.0) + (1.0 / (k + rank))
             points_map[p.id] = p
+            id_to_semantic_score[p.id] = p.score
 
         for rank, p in enumerate(sparse_results, start=1):
             combined_scores[p.id] = combined_scores.get(p.id, 0.0) + (1.0 / (k + rank))
-            if p.id not in points_map:
-                points_map[p.id] = p
+            points_map[p.id] = p
+            id_to_lexical_score[p.id] = p.score
 
-        # --- APPLY SQL BOOST AND DEDUPLICATE OVERLAPPING WINDOWS ---
-        # We group by video and find chunks that are too close (overlapping windows)
-        video_hits: dict[int, list[dict]] = {}
-        query_words = re.findall(r"[а-яА-ЯёЁa-zA-Z0-9]{3,}", clean_query.lower())
-        q_word_count = len(query_words) if query_words else 1
-
-        for pid in sql_boost_ids:
-            if pid not in points_map:
-                res = qdrant.retrieve(settings.collection_name, ids=[pid], with_payload=True)
-                if res:
-                    points_map[pid] = res[0]
-
-            if pid in points_map:
-                payload = points_map[pid].payload
-                vid = payload.get("video_id")
-                idx = payload.get("chunk_index", 0)
-
-                comb_text = id_to_override_text.get(pid, "")
-                pattern = _build_quote_regex(clean_query)
-                _, _, precision = _find_best_match(comb_text, pattern, q_word_count)
-
-                if vid not in video_hits:
-                    video_hits[vid] = []
-                video_hits[vid].append({"id": pid, "index": idx, "precision": precision})
-
-        # Filter overlapping hits: if hits are within 2 indices, keep only the best one
-        final_sql_boost_ids = set()
-        for _vid, hits in video_hits.items():
-            hits.sort(key=lambda x: x["index"])
-            if not hits:
-                continue
-
-            last_idx = -10
-
-            best_hit = None
-
-            for h in hits:
-                if h["index"] <= last_idx + 2:
-                    # Current hit overlaps with previous. Keep the more precise one.
-                    if best_hit and h["precision"] > best_hit["precision"]:
-                        best_hit = h
-                else:
-                    # New sequence of hits
-                    if best_hit:
-                        final_sql_boost_ids.add(best_hit["id"])
-                    best_hit = h
-                last_idx = h["index"]
-            if best_hit:
-                final_sql_boost_ids.add(best_hit["id"])
-
-        # Apply the actual boost to filtered IDs
-        for pid in final_sql_boost_ids:
-            comb_text = id_to_override_text.get(pid, "")
-            pattern = _build_quote_regex(clean_query)
-            _, _, precision = _find_best_match(comb_text, pattern, q_word_count)
-
-            # Massive exponential boost for precision.
-            # A perfect match gets +100.0, easily winning over ANY vector score (max ~2.0)
-            boost = 10.0 + (precision * 90.0)
-            combined_scores[pid] = combined_scores.get(pid, 0.0) + boost
-
-        # 4. Final sorting and DIVERSIFICATION
-        # We want to avoid one video taking all slots
+        # 3. Final sorting and diversification
         candidates_list = []
         for pid, score in combined_scores.items():
             if pid in points_map:
-                m_type = "quote" if pid in final_sql_boost_ids else "hybrid"
+                # Determine match type based on which results contained the point
+                m_type = "hybrid"
+                if search_mode == "semantic" or (pid in id_to_semantic_score and pid not in id_to_lexical_score):
+                    m_type = "semantic"
+                elif search_mode == "lexical" or (pid in id_to_lexical_score and pid not in id_to_semantic_score):
+                    m_type = "keyword"
+
                 candidates_list.append(
                     {
                         "point": points_map[pid],
                         "combined": score,
+                        "semantic": id_to_semantic_score.get(pid, 0.0),
+                        "lexical": id_to_lexical_score.get(pid, 0.0),
                         "match_type": m_type,
-                        "override_text": id_to_override_text.get(pid),
                     }
                 )
 
         candidates_list.sort(key=lambda x: x["combined"], reverse=True)
 
-        # Keep only top 3 per video to ensure variety
+        # Diversification: Limit per video
         video_counts = {}
         final_list = []
         for item in candidates_list:
             vid = item["point"].payload.get("video_id")
             count = video_counts.get(vid, 0)
-            if count < 3:  # Limit to 3 per video
+            if count < 3:
                 final_list.append(item)
                 video_counts[vid] = count + 1
 
         points = [x["point"] for x in final_list[:limit]]
         scores_map = {x["point"].id: x for x in final_list[:limit]}
 
+
+    # 1. Collect all video IDs to fetch missing metadata
     video_ids = list({p.payload.get("video_id") for p in points if p.payload})
     speaker_map = {}
+    video_metadata = {}
+
     if video_ids:
         placeholders = ",".join(["?"] * len(video_ids))
-        rows = connection.execute(
+        
+        # Fetch Speakers
+        rows_s = connection.execute(
             f"SELECT video_id, speaker_tag, name FROM speakers WHERE video_id IN ({placeholders})", video_ids
         ).fetchall()
-        for r in rows:
+        for r in rows_s:
             speaker_map[(r["video_id"], r["speaker_tag"])] = r["name"]
+            
+        # Fetch Video Metadata (source_file_id)
+        rows_v = connection.execute(
+            f"SELECT id, source_file_id FROM videos WHERE id IN ({placeholders})", video_ids
+        ).fetchall()
+        for r in rows_v:
+            video_metadata[r["id"]] = r["source_file_id"]
 
     results = []
     for point in points:
@@ -501,6 +439,13 @@ async def hybrid_search(
         highlighted_text = _simple_highlight(full_text, clean_query)
 
         v_id = payload.get("video_id")
+        
+        # --- FIX: Ensure we have source_file_id and source_url ---
+        source_file_id = payload.get("source_file_id") or video_metadata.get(v_id)
+        source_url = payload.get("source_url")
+        if not source_url and source_file_id:
+            source_url = f"https://drive.google.com/file/d/{source_file_id}/view"
+
         raw_tags = payload.get("speaker") or ""
         mapped_names = []
         for tag in str(raw_tags).split(", "):
@@ -531,17 +476,23 @@ async def hybrid_search(
         start_sec = get_float(payload, "start_sec")
         end_sec = get_float(payload, "end_sec")
 
+        source_file_id = payload.get("source_file_id")
+        source_url = payload.get("source_url")
+        if not source_url and source_file_id:
+            source_url = f"https://drive.google.com/file/d/{source_file_id}/view"
+
         results.append(
             SearchResult(
                 chunk_id=chunk_id,
                 video_id=get_int(payload, "video_id"),
                 transcript_id=get_int(payload, "transcript_id"),
                 title=str(payload.get("title") or ""),
-                source_file_id=payload.get("source_file_id"),
-                source_url=payload.get("source_url"),
+                source_file_id=source_file_id,
+                source_url=source_url,
                 chunk_index=get_int(payload, "chunk_index"),
                 start_sec=start_sec,
                 end_sec=end_sec,
+
                 start_ts=format_timestamp(start_sec),
                 end_ts=format_timestamp(end_sec),
                 text=highlighted_text,
