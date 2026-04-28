@@ -48,12 +48,22 @@ _global_stats_cache: dict[str, Any] = {"data": None, "timestamp": 0}
 def get_global_stats() -> dict[str, Any]:
     global _global_stats_cache
     now = time.time()
-    if now - _global_stats_cache["timestamp"] < 60 and _global_stats_cache["data"]:
-        return _global_stats_cache["data"]
-
+    # Check tasks status every time (or with very short cache) to keep UI responsive
     settings = get_sqlite_settings()
+    worker_busy = False
     try:
         with db_connection(settings) as conn:
+            task_check = conn.execute(
+                "SELECT 1 FROM tasks WHERE status IN ('pending', 'running') LIMIT 1"
+            ).fetchone()
+            worker_busy = task_check is not None
+            
+            # Cache the rest of the stats for 60s
+            if now - _global_stats_cache["timestamp"] < 60 and _global_stats_cache["data"]:
+                data = _global_stats_cache["data"].copy()
+                data["worker_busy"] = worker_busy
+                return data
+
             sql = (
                 "SELECT COUNT(*) as count, SUM(duration_sec) as total_sec "
                 "FROM videos WHERE processing_status = 'indexed_chunks_ready'"
@@ -65,9 +75,12 @@ def get_global_stats() -> dict[str, Any]:
 
             _global_stats_cache["data"] = {"total_videos": count, "total_hours": hours}
             _global_stats_cache["timestamp"] = now
-            return _global_stats_cache["data"]
+            
+            data = _global_stats_cache["data"].copy()
+            data["worker_busy"] = worker_busy
+            return data
     except Exception:
-        return {"total_videos": 0, "total_hours": 0}
+        return {"total_videos": 0, "total_hours": 0, "worker_busy": False}
 
 
 @asynccontextmanager
@@ -577,7 +590,14 @@ async def index_page(request: Request, q: str | None = None, mode: str = "hybrid
     template = "index_mobile.html" if is_mobile else "index.html"
 
     return templates.TemplateResponse(
-        request, template, {"query": q or "", "results": results, "mode": mode, "token": app_settings.access_token}
+        request,
+        template,
+        {
+            "query": q or "",
+            "results": results,
+            "mode": mode,
+            "token": app_settings.access_token,
+        },
     )
 
 
