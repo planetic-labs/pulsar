@@ -12,6 +12,7 @@ from app.config import get_app_settings, get_deepgram_settings, get_sqlite_setti
 from app.db import db_connection, init_db
 from app.repository import replace_chunks, replace_transcript, update_video_status, upsert_video
 from app.transcription.deepgram import DeepgramEngine
+from app.transcription.postprocessing import apply_postprocessing_to_raw
 
 
 def rebuild():
@@ -59,7 +60,14 @@ def rebuild():
             )
 
             print(f"  - File: {latest_file.name}")
-            raw_payload = json.loads(latest_file.read_text(encoding="utf-8"))
+            try:
+                raw_payload = json.loads(latest_file.read_text(encoding="utf-8"))
+            except json.JSONDecodeError as e:
+                print(f"    Error loading JSON: {e}")
+                continue
+
+            # Apply post-processing (e.g. мастер -> Мастер)
+            raw_payload = apply_postprocessing_to_raw(raw_payload)
 
             try:
                 normalized = engine.normalize_response(raw_payload)
