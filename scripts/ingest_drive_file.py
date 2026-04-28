@@ -182,16 +182,16 @@ async def transcribe_stage(
             last_uploaded = uploaded
 
     raw_payload = await engine.transcribe_file_async(audio_p, diarize=True, progress_callback=progress_callback)
-    
+
     # Apply post-processing (e.g. master -> Master)
     raw_payload = apply_postprocessing_to_raw(raw_payload)
-    
+
     norm_payload = engine.normalize_response(raw_payload)
 
     # Save files
-    raw_filename = f"dg_{int(time.time())}.json"
+    raw_filename = f"dg_nova3_{file_id}.json"
     raw_path = app_settings.raw_transcripts_dir / file_id / raw_filename
-    norm_filename = f"{file_id}_dg.json"
+    norm_filename = f"{file_id}_deepgram.json"
     norm_path = app_settings.normalized_transcripts_dir / norm_filename
     raw_path.parent.mkdir(parents=True, exist_ok=True)
     norm_path.parent.mkdir(parents=True, exist_ok=True)
