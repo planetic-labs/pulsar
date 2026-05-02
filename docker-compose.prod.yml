@@ -6,7 +6,7 @@ services:
     # ports:
     #   - "127.0.0.1:6333:6333"
     networks:
-      - search-ui-net
+      - homelab-net
     volumes:
       - qdrant_data:/qdrant/storage
 
@@ -17,7 +17,7 @@ services:
     ports:
       - "127.0.0.1:8000:8000"
     networks:
-      - search-ui-net
+      - homelab-net
     environment:
       - HF_HOME=/srv/search-ui/models_cache
       - HF_TOKEN=${HF_TOKEN:-}
@@ -41,5 +41,5 @@ volumes:
   qdrant_data:
 
 networks:
-  search-ui-net:
-    driver: bridge
+  homelab-net:
+    external: true
