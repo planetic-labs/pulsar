@@ -49,6 +49,19 @@ gh release create "$VERSION" \
 
 if [ $? -eq 0 ]; then
     echo "✅ Release $VERSION successfully created!"
+    
+    # 4. Очистка старых релизов (держим только последние 10)
+    MAX_RELEASES=10
+    echo "🧹 Cleaning up old releases (keeping top $MAX_RELEASES)..."
+    
+    # Получаем список всех релизов, кроме последних 10
+    OLD_RELEASES=$(gh release list --limit 100 | awk -v max=$MAX_RELEASES 'NR > max {print $1}')
+    
+    for OLD_TAG in $OLD_RELEASES; do
+        echo "Deleting old release: $OLD_TAG"
+        gh release delete "$OLD_TAG" --yes --cleanup-tag
+    done
+    
     echo "🔍 Track build progress: gh run watch"
 else
     echo "❌ Failed to create release. Make sure you are logged in: gh auth login"
