@@ -12,6 +12,7 @@ services:
 
   app:
     image: ghcr.io/arassypnov/search-ui:latest
+    user: "${UID:-1000}:${GID:-1000}"
     restart: always
     ports:
       - "127.0.0.1:8000:8000"
