@@ -270,6 +270,13 @@ def main():
                 shutil.copytree(src, dest, dirs_exist_ok=True)
                 logger.info(f"✅ {sub_dir} restored.")
 
+        logger.info("⚙️ Restoring configuration files...")
+        for f_name in [".env", "google.json", "token.json", "token.auth.json"]:
+            src = extract_root / f_name
+            if src.exists():
+                shutil.copy2(src, PROJECT_ROOT / f_name)
+                logger.info(f"✅ {f_name} restored.")
+
         restore_qdrant(extract_root)
         logger.info("\n✨ RESTORATION FINISHED ✨")
 
