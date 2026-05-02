@@ -74,7 +74,11 @@ class GoogleDriveClient:
                     timeout=30.0,
                 )
                 response.raise_for_status()
-                return dict(response.json())
+                try:
+                    return dict(response.json())
+                except json.JSONDecodeError as e:
+                    logger.error(f"JSON decode error from {url}. Status: {response.status_code}, Body snippet: {response.text[:200]}")
+                    raise e
             except httpx.HTTPStatusError as e:
                 logger.error(f"HTTP Error during POST to {url}: {e.response.status_code}\nBody: {e.response.text}")
                 raise
@@ -185,7 +189,11 @@ class GoogleDriveClient:
         async with httpx.AsyncClient() as client:
             response = await client.get(url, headers={"Authorization": f"Bearer {access_token}"}, timeout=30.0)
             response.raise_for_status()
-            return dict(response.json())
+            try:
+                return dict(response.json())
+            except json.JSONDecodeError as e:
+                logger.error(f"JSON decode error from {url}. Status: {response.status_code}, Body snippet: {response.text[:200]}")
+                raise e
 
     async def _list_files_page(
         self,

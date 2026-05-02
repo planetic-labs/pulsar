@@ -196,15 +196,23 @@ def backup_qdrant(dest_dir: Path):
 def copy_files(dest_dir: Path):
     logger.info("📂 Copying static files and configuration...")
     try:
+        # 1. Copy storage subdirectories
         for sub_dir in ["transcripts", "voice_samples"]:
             src = STORAGE_DIR / sub_dir
             if src.exists():
                 shutil.copytree(src, dest_dir / "storage" / sub_dir, dirs_exist_ok=True)
-        for f_name in [".env", "google.json", "token.json", "token.auth.json"]:
-            src = PROJECT_ROOT / f_name
-            if src.exists():
-                shutil.copy2(src, dest_dir / f_name)
-        logger.info("✅ Configuration files copy complete.")
+        
+        # 2. Copy the entire config/ directory
+        config_src = PROJECT_ROOT / "config"
+        if config_src.exists():
+            shutil.copytree(config_src, dest_dir / "config", dirs_exist_ok=True)
+            
+        # 3. Copy .env from project root
+        env_src = PROJECT_ROOT / ".env"
+        if env_src.exists():
+            shutil.copy2(env_src, dest_dir / ".env")
+            
+        logger.info("✅ Configuration and data copy complete.")
     except Exception as e:
         logger.error(f"❌ Files copy failed: {e}")
         raise
