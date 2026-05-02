@@ -6,18 +6,18 @@
 # 1. Генерируем версию на основе даты
 DATE_TAG=$(date +'%Y.%m.%d')
 # Проверяем, были ли уже теги сегодня
-LAST_TAG_TODAY=$(git tag -l "${DATE_TAG}*" | sort -V | tail -n 1)
+LAST_TAG_TODAY=$(git tag -l "v${DATE_TAG}*" | sort -V | tail -n 1)
 
 if [ -z "$LAST_TAG_TODAY" ]; then
-    VERSION="${DATE_TAG}"
+    VERSION="v${DATE_TAG}"
 else
     # Если тег уже есть, проверяем есть ли уже патчи
     if [[ "$LAST_TAG_TODAY" == *"-patch"* ]]; then
         PATCH_NUM=$(echo $LAST_TAG_TODAY | awk -F"-patch" '{print $2}')
         NEXT_PATCH=$((PATCH_NUM + 1))
-        VERSION="${DATE_TAG}-patch${NEXT_PATCH}"
+        VERSION="v${DATE_TAG}-patch${NEXT_PATCH}"
     else
-        VERSION="${DATE_TAG}-patch1"
+        VERSION="v${DATE_TAG}-patch1"
     fi
 fi
 
