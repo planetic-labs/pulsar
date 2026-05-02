@@ -298,19 +298,28 @@ def main():
                 logger.info(f"✅ {sub_dir} restored.")
 
         logger.info("⚙️ Restoring configuration files...")
-        for f_name in [".env", "google.json", "token.json", "token.auth.json"]:
-            src = extract_root / f_name
-            if src.exists():
-                dest = PROJECT_ROOT / f_name
-                if f_name == ".env" and dest.exists():
-                    print(f"\n❓ File {f_name} already exists in project root.")
-                    choice = input(f"   Overwrite {f_name} with version from backup? (y/N): ").strip().lower()
-                    if choice != "y":
-                        logger.info(f"   Skipped {f_name} restoration.")
-                        continue
+        
+        # 1. Restore config/ directory
+        config_src = extract_root / "config"
+        if config_src.exists():
+            shutil.copytree(config_src, PROJECT_ROOT / "config", dirs_exist_ok=True)
+            logger.info("✅ config/ directory restored.")
 
-                shutil.copy2(src, dest)
-                logger.info(f"✅ {f_name} restored.")
+        # 2. Restore .env separately
+        env_src = extract_root / ".env"
+        if env_src.exists():
+            dest = PROJECT_ROOT / ".env"
+            if dest.exists():
+                print("\n❓ File .env already exists in project root.")
+                choice = input("   Overwrite .env with version from backup? (y/N): ").strip().lower()
+                if choice == "y":
+                    shutil.copy2(env_src, dest)
+                    logger.info("✅ .env restored.")
+                else:
+                    logger.info("   Skipped .env restoration.")
+            else:
+                shutil.copy2(env_src, dest)
+                logger.info("✅ .env restored.")
 
         restore_qdrant(extract_root)
         logger.info("\n✨ RESTORATION FINISHED ✨")
