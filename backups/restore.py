@@ -287,7 +287,7 @@ def main():
         if db_backup.exists():
             logger.info("📦 Restoring SQLite database...")
             DATA_DIR.mkdir(exist_ok=True)
-            shutil.copy2(db_backup, DATA_DIR / "/search_ui.db")
+            shutil.copy2(db_backup, DATA_DIR / "search_ui.db")
             logger.info("✅ SQLite restored.")
 
         logger.info("📂 Restoring static files...")
@@ -300,14 +300,18 @@ def main():
 
         logger.info("⚙️ Restoring configuration files...")
 
-        # 1. Restore config/ directory
+        # 1. Restore config/ directory files individually to avoid metadata issues
         config_src = extract_root / "config"
         if config_src.exists():
             try:
-                shutil.copytree(config_src, PROJECT_ROOT / "config", dirs_exist_ok=True)
-                logger.info("✅ config/ directory restored.")
+                config_dest = PROJECT_ROOT / "config"
+                config_dest.mkdir(exist_ok=True)
+                for f in config_src.glob("*"):
+                    if f.is_file():
+                        shutil.copy2(f, config_dest / f.name)
+                logger.info("✅ config/ files restored.")
             except Exception as e:
-                logger.error(f"❌ Failed to restore config/ folder: {e}")
+                logger.error(f"❌ Failed to restore config/ files: {e}")
                 logger.error("💡 Try running: sudo chown -R $USER:$USER config/")
                 raise
 
