@@ -3,6 +3,7 @@ import logging
 import os
 import shutil
 import subprocess
+import sys
 import tarfile
 from pathlib import Path
 
@@ -11,8 +12,8 @@ import httpx
 from botocore.exceptions import ClientError
 from dotenv import load_dotenv
 
-# Setup logging
-logging.basicConfig(level=logging.INFO, format="[%(asctime)s] %(levelname)s: %(message)s")
+# Setup clean logging (no timestamps as requested)
+logging.basicConfig(level=logging.INFO, format="%(message)s")
 logger = logging.getLogger("restore")
 
 # Load local .env file
@@ -64,7 +65,7 @@ def check_disk_space(archive_path: Path):
         return True
 
     archive_size = archive_path.stat().st_size
-    required_space = archive_size * 5  # Margin for extraction + DB replacement
+    required_space = archive_size * 5
 
     usage = shutil.disk_usage(BACKUP_TOOL_DIR)
     if usage.free < required_space:
@@ -89,9 +90,12 @@ def manage_app_container(action: str):
 def list_backups():
     logger.info("🔍 Available local backups (in local/):")
     local_backups = sorted(LOCAL_BACKUP_DIR.glob("*.tar.gz"), reverse=True)
-    for i, b in enumerate(local_backups):
-        p = Path(b)
-        logger.info(f"  [{i}] {p.name} (Local)")
+    if local_backups:
+        for i, b in enumerate(local_backups):
+            p = Path(b)
+            logger.info(f"  [{i}] {p.name} (Local)")
+    else:
+        logger.info("  (No local backups found)")
 
     s3 = get_s3_client()
     s3_backups = []
@@ -105,26 +109,49 @@ def list_backups():
                 )
                 for i, b in enumerate(s3_backups):
                     logger.info(f"  [S{i}] {b} (S3)")
+            else:
+                logger.info("  (No S3 backups found)")
         except ClientError as e:
             logger.error(f"Failed to list S3 backups: {e}")
     return local_backups, s3_backups
 
 
+def download_with_progress(s3_client, bucket, key, dest_path):
+    """Download from S3 with a simple progress indicator."""
+    try:
+        response = s3_client.head_object(Bucket=bucket, Key=key)
+        total_size = float(response["ContentLength"])
+    except Exception:
+        total_size = None
+
+    downloaded = 0
+
+    def progress(bytes_amount):
+        nonlocal downloaded
+        downloaded += bytes_amount
+        if total_size:
+            percent = (downloaded / total_size) * 100
+            sys.stdout.write(f"\r⬇️ Downloading: {percent:.1f}% ({downloaded / 1024 / 1024:.1f} MB)")
+            sys.stdout.flush()
+
+    logger.info(f"⬇️ Downloading {key} from S3 to local/...")
+    s3_client.download_file(bucket, key, str(dest_path), Callback=progress)
+    sys.stdout.write("\n")
+    logger.info("✅ Download complete.")
+
+
 def download_from_s3(key: str):
-    # Download to local/ directory as requested
     dest_path = LOCAL_BACKUP_DIR / key
     if dest_path.exists():
         logger.info(f"Using already downloaded file: {dest_path}")
         return dest_path
 
-    logger.info(f"⬇️ Downloading {key} from S3 to local/...")
     s3 = get_s3_client()
     if not s3:
         raise RuntimeError("S3 client not configured")
 
     LOCAL_BACKUP_DIR.mkdir(parents=True, exist_ok=True)
-    s3.download_file(S3_BUCKET, key, str(dest_path))
-    logger.info("✅ Download complete.")
+    download_with_progress(s3, S3_BUCKET, key, dest_path)
     return dest_path
 
 

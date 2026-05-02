@@ -3,6 +3,7 @@ import logging
 import os
 import shutil
 import sqlite3
+import sys
 import tarfile
 from pathlib import Path
 from typing import cast
@@ -12,8 +13,8 @@ import httpx
 from botocore.exceptions import ClientError
 from dotenv import load_dotenv
 
-# Setup logging
-logging.basicConfig(level=logging.INFO, format="[%(asctime)s] %(levelname)s: %(message)s")
+# Setup clean logging (no timestamps for consistency)
+logging.basicConfig(level=logging.INFO, format="%(message)s")
 logger = logging.getLogger("backup")
 
 # Load local .env file
@@ -24,7 +25,6 @@ else:
     logger.warning(f"Local .env file not found in {ENV_PATH.parent}. Using system environment variables.")
 
 # Configuration
-# Since script is now in /backups/backup.py
 BACKUP_TOOL_DIR = Path(__file__).parent.resolve()
 PROJECT_ROOT = BACKUP_TOOL_DIR.parent
 DATA_DIR = Path(os.getenv("DATA_DIR", PROJECT_ROOT / "data"))
@@ -33,8 +33,9 @@ STORAGE_DIR = Path(os.getenv("STORAGE_DIR", PROJECT_ROOT / "storage"))
 LOCAL_BACKUP_DIR = BACKUP_TOOL_DIR / "local"
 TEMP_DIR = BACKUP_TOOL_DIR / "tmp"
 
-LOCAL_BACKUP_DIR.mkdir(exist_ok=True)
-TEMP_DIR.mkdir(exist_ok=True)
+# Auto-create folders at start
+LOCAL_BACKUP_DIR.mkdir(exist_ok=True, parents=True)
+TEMP_DIR.mkdir(exist_ok=True, parents=True)
 
 # App Config
 DB_PATH = DATA_DIR / "search_ui.db"
@@ -69,7 +70,6 @@ def get_s3_client():
 
 def check_disk_space():
     """Check if there is enough space for temp data and final archive (estimated 5x current data)."""
-    # Estimate current data size from DB and storage
     total_size = 0
     if DB_PATH.exists():
         total_size += DB_PATH.stat().st_size
@@ -91,11 +91,11 @@ def check_disk_space():
 
 def cleanup_local_backups(keep_file: Path):
     """Keep only the latest backup in local/ folder."""
-    logger.info("🧹 Cleaning up old local backups (keeping only the latest)...")
+    logger.info("🧹 Cleaning up old local backups...")
     local_backups = sorted(LOCAL_BACKUP_DIR.glob("videodb_backup_*.tar.gz"), key=os.path.getmtime, reverse=True)
     for old_backup in local_backups:
         # Cast to Path to avoid type-check issues with glob results
-        p = cast(Path, old_backup)
+        p = Path(cast(str, old_backup))
         if p.name != keep_file.name:
             logger.info(f"Removing old local backup: {p.name}")
             p.unlink()
@@ -125,12 +125,24 @@ def upload_to_s3(file_path: Path):
         logger.error("❌ S3 credentials not configured. Cannot upload.")
         raise RuntimeError("S3 configuration missing")
 
-    logger.info(f"☁️ Uploading {file_path.name} to S3 bucket '{S3_BUCKET}'...")
+    file_size = file_path.stat().st_size
+    uploaded = 0
+
+    def progress(bytes_amount):
+        nonlocal uploaded
+        uploaded += bytes_amount
+        percent = (uploaded / file_size) * 100
+        sys.stdout.write(f"\r☁️ Uploading to S3: {percent:.1f}% ({uploaded / 1024 / 1024:.1f} MB)")
+        sys.stdout.flush()
+
+    logger.info(f"☁️ Uploading {file_path.name} to bucket '{S3_BUCKET}'...")
     try:
-        s3_client.upload_file(str(file_path), S3_BUCKET, file_path.name)
+        s3_client.upload_file(str(file_path), S3_BUCKET, file_path.name, Callback=progress)
+        sys.stdout.write("\n")
         logger.info("✅ S3 upload successful.")
         return True
     except ClientError as e:
+        sys.stdout.write("\n")
         logger.error(f"❌ S3 upload failed: {e}")
         raise
 
@@ -157,7 +169,7 @@ def backup_sqlite(dest_dir: Path):
 
 
 def backup_qdrant(dest_dir: Path):
-    logger.info(f"📡 Creating Qdrant snapshot for collection '{COLLECTION_NAME}'...")
+    logger.info("📡 Creating Qdrant snapshot...")
     try:
         with httpx.Client(timeout=600.0) as client:
             res = client.post(f"{QDRANT_URL}/collections/{COLLECTION_NAME}/snapshots")
@@ -172,7 +184,7 @@ def backup_qdrant(dest_dir: Path):
                 with open(snap_path, "wb") as f:
                     for chunk in r.iter_bytes(chunk_size=65536):
                         f.write(chunk)
-            logger.info(f"✅ Snapshot downloaded to {snap_path}")
+            logger.info("✅ Snapshot downloaded.")
 
             client.delete(f"{QDRANT_URL}/collections/{COLLECTION_NAME}/snapshots/{snapshot_name}")
             logger.info("✅ Qdrant storage cleaned up.")
@@ -187,13 +199,12 @@ def copy_files(dest_dir: Path):
         for sub_dir in ["transcripts", "voice_samples"]:
             src = STORAGE_DIR / sub_dir
             if src.exists():
-                logger.info(f"Copying {sub_dir} from {src}")
                 shutil.copytree(src, dest_dir / "storage" / sub_dir, dirs_exist_ok=True)
         for f_name in [".env", "google.json", "token.json", "token.auth.json"]:
             src = PROJECT_ROOT / f_name
             if src.exists():
                 shutil.copy2(src, dest_dir / f_name)
-        logger.info("✅ Static files copy complete.")
+        logger.info("✅ Configuration files copy complete.")
     except Exception as e:
         logger.error(f"❌ Files copy failed: {e}")
         raise
@@ -201,7 +212,7 @@ def copy_files(dest_dir: Path):
 
 def create_archive(source_dir: Path):
     archive_path = LOCAL_BACKUP_DIR / f"{BACKUP_PREFIX}.tar.gz"
-    logger.info(f"🗜️ Creating compressed archive in local/: {archive_path.name}...")
+    logger.info(f"🗜️ Creating compressed archive: {archive_path.name}...")
     try:
         with tarfile.open(archive_path, "w:gz") as tar:
             tar.add(source_dir, arcname=BACKUP_PREFIX)
@@ -236,7 +247,7 @@ def main():
         logger.info("🧹 Cleaning up temporary files...")
         shutil.rmtree(TEMP_DIR)
         logger.info("\n✨ BACKUP FINISHED SUCCESSFULLY ✨")
-        logger.info(f"Stored in local/: {archive_path.name}")
+        logger.info(f"Local file: {archive_path.name}")
 
     except Exception as e:
         logger.error(f"💥 GLOBAL BACKUP FAILURE: {e}")
