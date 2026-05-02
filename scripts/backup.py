@@ -6,7 +6,9 @@ import sqlite3
 import tarfile
 from pathlib import Path
 
+import boto3
 import httpx
+from botocore.exceptions import ClientError
 
 # Setup logging
 logging.basicConfig(level=logging.INFO, format="[%(asctime)s] %(levelname)s: %(message)s")
@@ -21,12 +23,40 @@ BACKUP_DIR.mkdir(exist_ok=True)
 
 # Config
 DB_PATH = DATA_DIR / "search_ui.db"
-# Use service name from docker-compose if running inside docker, else localhost
 QDRANT_URL = os.getenv("QDRANT_URL", "http://qdrant:6333")
 COLLECTION_NAME = os.getenv("QDRANT_COLLECTION", "videodb")
 TIMESTAMP = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
 BACKUP_PREFIX = f"videodb_backup_{TIMESTAMP}"
 TEMP_DIR = BACKUP_DIR / BACKUP_PREFIX
+
+# S3 Config
+S3_ENDPOINT = os.getenv("S3_ENDPOINT_URL")
+S3_ACCESS_KEY = os.getenv("S3_ACCESS_KEY")
+S3_SECRET_KEY = os.getenv("S3_SECRET_KEY")
+S3_BUCKET = os.getenv("S3_BUCKET_NAME")
+S3_REGION = os.getenv("S3_REGION_NAME", "us-east-1")
+
+
+def upload_to_s3(file_path: Path):
+    if not all([S3_ENDPOINT, S3_ACCESS_KEY, S3_SECRET_KEY, S3_BUCKET]):
+        logger.warning("⚠️ S3 credentials not fully configured. Skipping upload.")
+        return False
+
+    logger.info(f"☁️ Uploading {file_path.name} to S3 bucket '{S3_BUCKET}'...")
+    try:
+        s3_client = boto3.client(
+            "s3",
+            endpoint_url=S3_ENDPOINT,
+            aws_access_key_id=S3_ACCESS_KEY,
+            aws_secret_access_key=S3_SECRET_KEY,
+            region_name=S3_REGION,
+        )
+        s3_client.upload_file(str(file_path), S3_BUCKET, file_path.name)
+        logger.info("✅ S3 upload successful.")
+        return True
+    except ClientError as e:
+        logger.error(f"❌ S3 upload failed: {e}")
+        return False
 
 
 def backup_sqlite(dest_dir: Path):
@@ -141,13 +171,15 @@ def main():
         # 4. Compress
         archive_path = create_archive(TEMP_DIR)
 
-        # 5. Cleanup
+        # 5. S3 Upload
+        upload_to_s3(archive_path)
+
+        # 6. Cleanup
         logger.info("🧹 Cleaning up temporary files...")
         shutil.rmtree(TEMP_DIR)
 
         logger.info("\n✨ BACKUP FINISHED SUCCESSFULLY ✨")
         logger.info(f"Location: {archive_path}")
-        logger.info("S3 Upload logic is pending (stubbed).")
 
     except Exception as e:
         logger.error(f"💥 GLOBAL BACKUP FAILURE: {e}")
