@@ -5,9 +5,9 @@ It can be used independently of the main repository.
 
 ## Installation
 
-Ensure you have the required dependencies:
+Ensure you have `uv` installed. To install dependencies:
 ```bash
-pip install boto3 httpx python-dotenv
+uv sync
 ```
 
 ## Configuration
@@ -20,12 +20,12 @@ pip install boto3 httpx python-dotenv
 
 ### Backup
 ```bash
-python backup.py
+uv run backup.py
 ```
 This will create a local archive in the `backups/` folder and upload it to S3.
 
 ### Restore
 ```bash
-python restore.py
+uv run restore.py
 ```
 This is an interactive script that lets you choose from local or S3 backups.
