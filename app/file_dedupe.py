@@ -9,17 +9,17 @@ WHITESPACE_PATTERN = re.compile(r"\s+")
 
 
 def canonicalize_title(title: str) -> str:
-    stem, dot, suffix = title.rpartition(".")
-    base = stem if dot else title
-    extension = suffix.lower() if dot else ""
-
-    base = GALLERY_PATTERN.sub(" ", base)
-    base = re.sub(r"[._\-]+", " ", base)
-    base = WHITESPACE_PATTERN.sub(" ", base).strip().lower()
-
-    if extension:
-        return f"{base}.{extension}"
-    return base
+    # Lowercase first
+    t = title.lower()
+    
+    # Replace all separators (including dots) with spaces
+    t = re.sub(r"[._\-]+", " ", t)
+    
+    # Remove gallery markers (word boundaries will work fine now)
+    t = GALLERY_PATTERN.sub(" ", t)
+    
+    # Collapse whitespace and strip
+    return WHITESPACE_PATTERN.sub(" ", t).strip()
 
 
 def has_gallery_marker(title: str) -> bool:
