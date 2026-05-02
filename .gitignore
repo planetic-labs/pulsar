@@ -14,4 +14,4 @@ models_cache/
 core
 storage/
 .xxxx/
-backups/
+backups/tmp/
