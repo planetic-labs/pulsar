@@ -189,7 +189,7 @@ def copy_files(dest_dir: Path):
             if src.exists():
                 logger.info(f"Copying {sub_dir} from {src}")
                 shutil.copytree(src, dest_dir / "storage" / sub_dir, dirs_exist_ok=True)
-        for f_name in [".env", "google.json"]:
+        for f_name in [".env", "google.json", "token.json", "token.auth.json"]:
             src = PROJECT_ROOT / f_name
             if src.exists():
                 shutil.copy2(src, dest_dir / f_name)
