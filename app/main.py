@@ -53,11 +53,9 @@ def get_global_stats() -> dict[str, Any]:
     worker_busy = False
     try:
         with db_connection(settings) as conn:
-            task_check = conn.execute(
-                "SELECT 1 FROM tasks WHERE status IN ('pending', 'running') LIMIT 1"
-            ).fetchone()
+            task_check = conn.execute("SELECT 1 FROM tasks WHERE status IN ('pending', 'running') LIMIT 1").fetchone()
             worker_busy = task_check is not None
-            
+
             # Cache the rest of the stats for 60s
             if now - _global_stats_cache["timestamp"] < 60 and _global_stats_cache["data"]:
                 data = _global_stats_cache["data"].copy()
@@ -75,7 +73,7 @@ def get_global_stats() -> dict[str, Any]:
 
             _global_stats_cache["data"] = {"total_videos": count, "total_hours": hours}
             _global_stats_cache["timestamp"] = now
-            
+
             data = _global_stats_cache["data"].copy()
             data["worker_busy"] = worker_busy
             return data
@@ -125,8 +123,21 @@ async def add_global_stats_to_templates(request: Request, call_next):
 # Session Middleware for Auth
 app.add_middleware(SessionMiddleware, secret_key=get_app_settings().session_secret_key)
 
+# Ensure required directories exist
+settings = get_app_settings()
+for d in [
+    settings.data_dir,
+    settings.storage_dir,
+    settings.downloads_dir,
+    settings.audio_dir,
+    settings.voice_samples_dir,
+    settings.raw_transcripts_dir,
+    settings.normalized_transcripts_dir,
+]:
+    d.mkdir(parents=True, exist_ok=True)
+
 # Static files for voice samples
-app.mount("/audio", StaticFiles(directory=str(get_app_settings().voice_samples_dir)), name="voice_audio")
+app.mount("/audio", StaticFiles(directory=str(settings.voice_samples_dir)), name="voice_audio")
 app.mount("/static", StaticFiles(directory=str(ROOT_DIR / "static")), name="static")
 
 
