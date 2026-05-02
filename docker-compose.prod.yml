@@ -23,11 +23,12 @@ services:
       - HF_TOKEN=${HF_TOKEN:-}
       - QDRANT_URL=http://qdrant:6333
       - SQLITE_DB_PATH=/srv/search-ui/data/search_ui.db
+      - GOOGLE_DRIVE_CREDENTIALS_PATH=/srv/search-ui/config/google.json
+      - GOOGLE_DRIVE_TOKEN_PATH=/srv/search-ui/config/token.json
     env_file: .env
     depends_on:
       qdrant:
         condition: service_started
-    command: ["uv", "run", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
     volumes:
       # Только данные, код уже внутри контейнера
       - ./downloads:/srv/search-ui/downloads
@@ -35,7 +36,6 @@ services:
       - ./storage:/srv/search-ui/storage
       - ./models_cache:/srv/search-ui/models_cache
       - ./config:/srv/search-ui/config
-      - ./static:/srv/search-ui/static
 
 volumes:
   qdrant_data:
