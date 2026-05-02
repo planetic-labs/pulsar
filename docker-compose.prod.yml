@@ -33,6 +33,9 @@ services:
       - ./data:/srv/search-ui/data
       - ./storage:/srv/search-ui/storage
       - ./models_cache:/srv/search-ui/models_cache
+      - ./google.json:/srv/search-ui/google.json
+      - ./token.json:/srv/search-ui/token.json
+      - ./token.auth.json:/srv/search-ui/token.auth.json
 
 volumes:
   qdrant_data:
