@@ -8,22 +8,30 @@ from pathlib import Path
 import boto3
 import httpx
 from botocore.exceptions import ClientError
+from dotenv import load_dotenv
 
 # Setup logging
 logging.basicConfig(level=logging.INFO, format="[%(asctime)s] %(levelname)s: %(message)s")
 logger = logging.getLogger("restore")
 
-# Paths
-BASE_DIR = Path(__file__).resolve().parents[1]
-DATA_DIR = BASE_DIR / "data"
-STORAGE_DIR = BASE_DIR / "storage"
-BACKUP_DIR = BASE_DIR / "backups"
+# Load local .env file
+ENV_PATH = Path(__file__).parent / ".env"
+if ENV_PATH.exists():
+    load_dotenv(ENV_PATH)
+else:
+    logger.warning(f"Local .env file not found in {ENV_PATH.parent}. Using system environment variables.")
+
+# Configuration from ENV
+PROJECT_ROOT = Path(os.getenv("PROJECT_ROOT", Path(__file__).resolve().parents[1]))
+DATA_DIR = Path(os.getenv("DATA_DIR", PROJECT_ROOT / "data"))
+STORAGE_DIR = Path(os.getenv("STORAGE_DIR", PROJECT_ROOT / "storage"))
+BACKUP_DIR = Path(os.getenv("BACKUP_DIR", PROJECT_ROOT / "backups"))
 BACKUP_DIR.mkdir(exist_ok=True)
 TEMP_RESTORE_DIR = BACKUP_DIR / "temp_restore"
 
-# Config
+# App Config
 QDRANT_URL = os.getenv("QDRANT_URL", "http://qdrant:6333")
-COLLECTION_NAME = os.getenv("QDRANT_COLLECTION", "videodb")
+COLLECTION_NAME = os.getenv("QDRANT_COLLECTION", "chunks_m3")
 
 # S3 Config
 S3_ENDPOINT = os.getenv("S3_ENDPOINT_URL")
@@ -65,7 +73,6 @@ def list_backups():
                     logger.info(f"  [S{i}] {b} (S3)")
         except ClientError as e:
             logger.error(f"Failed to list S3 backups: {e}")
-
     return local_backups, s3_backups
 
 
@@ -74,12 +81,10 @@ def download_from_s3(key: str):
     if dest_path.exists():
         logger.info(f"Using already downloaded file: {dest_path}")
         return dest_path
-
     logger.info(f"⬇️ Downloading {key} from S3...")
     s3 = get_s3_client()
     if not s3:
         raise RuntimeError("S3 client not configured")
-
     s3.download_file(S3_BUCKET, key, str(dest_path))
     logger.info("✅ Download complete.")
     return dest_path
@@ -87,26 +92,19 @@ def download_from_s3(key: str):
 
 def restore_qdrant(extract_dir: Path):
     logger.info("📡 Restoring Qdrant collection...")
-    # Find snapshot file
     snapshots = list(extract_dir.glob("*.snapshot"))
     if not snapshots:
         logger.warning("No Qdrant snapshot found in backup.")
         return
-
     snapshot_path = snapshots[0]
     logger.info(f"Found snapshot: {snapshot_path.name}")
-
     try:
-        # 1. Upload snapshot to Qdrant
         with open(snapshot_path, "rb") as f:
             with httpx.Client(timeout=600.0) as client:
                 logger.info("Uploading snapshot to Qdrant...")
                 files = {"snapshot": (snapshot_path.name, f)}
                 res = client.post(f"{QDRANT_URL}/collections/{COLLECTION_NAME}/snapshots/upload", files=files)
                 res.raise_for_status()
-                logger.info("✅ Snapshot uploaded.")
-
-                # 2. Recover from snapshot
                 logger.info(f"Recovering collection '{COLLECTION_NAME}' from snapshot...")
                 res = client.put(
                     f"{QDRANT_URL}/collections/{COLLECTION_NAME}/snapshots/recover",
@@ -114,14 +112,7 @@ def restore_qdrant(extract_dir: Path):
                         "location": f"http://localhost:6333/collections/{COLLECTION_NAME}/snapshots/{snapshot_path.name}"
                     },
                 )
-                # Note: 'location' inside the request to Qdrant might need adjustment
-                # if Qdrant is in Docker and we are calling it from another container.
-                # Actually, Qdrant can recover from a local file if it's already uploaded.
-
-                # If the above fails, we might need a different approach.
-                # But typically Qdrant expects a URL or a name of a snapshot already in its storage.
-
-                logger.info("✅ Qdrant recovery triggered. Note: This might take some time.")
+                logger.info("✅ Qdrant recovery triggered.")
     except Exception as e:
         logger.error(f"❌ Qdrant restoration failed: {e}")
 
@@ -130,9 +121,7 @@ def main():
     parser = argparse.ArgumentParser(description="Restore VideoDB from backup")
     parser.add_argument("--file", help="Path to backup file (local or S3 key)")
     args = parser.parse_args()
-
     local_backups, s3_backups = list_backups()
-
     if args.file:
         target = args.file
     else:
@@ -144,37 +133,27 @@ def main():
         else:
             idx = int(choice)
             target = local_backups[idx]
-
     archive_path = Path(target)
     if not archive_path.exists() and str(target) in s3_backups:
         archive_path = download_from_s3(str(target))
 
     logger.info(f"🛠️ Starting restoration from {archive_path.name}")
-
     if TEMP_RESTORE_DIR.exists():
         shutil.rmtree(TEMP_RESTORE_DIR)
     TEMP_RESTORE_DIR.mkdir(parents=True)
-
     try:
-        # 1. Extract
         logger.info("🗜️ Extracting archive...")
         with tarfile.open(archive_path, "r:gz") as tar:
             tar.extractall(path=TEMP_RESTORE_DIR)
-
-        # The archive contains a folder with the backup prefix
         extract_root = next(TEMP_RESTORE_DIR.iterdir())
-        logger.info(f"Extract root: {extract_root}")
 
-        # 2. Restore SQLite
         db_backup = extract_root / "search_ui.db"
         if db_backup.exists():
             logger.info("📦 Restoring SQLite database...")
-            # Ensure data dir exists
             DATA_DIR.mkdir(exist_ok=True)
             shutil.copy2(db_backup, DATA_DIR / "search_ui.db")
             logger.info("✅ SQLite restored.")
 
-        # 3. Restore Static Files
         logger.info("📂 Restoring static files...")
         for sub_dir in ["transcripts", "voice_samples"]:
             src = extract_root / "storage" / sub_dir
@@ -183,20 +162,10 @@ def main():
                 shutil.copytree(src, dest, dirs_exist_ok=True)
                 logger.info(f"✅ {sub_dir} restored.")
 
-        # 4. Restore Qdrant
         restore_qdrant(extract_root)
-
-        # 5. Restore Configs (optional)
-        logger.info("💡 Configuration files (.env, google.json) were found in backup.")
-        logger.info("   They were NOT restored automatically to prevent overwriting secrets.")
-        logger.info(f"   You can find them in {extract_root}")
-
         logger.info("\n✨ RESTORATION FINISHED ✨")
-        logger.info("Please restart the services to apply changes.")
-
     finally:
         if TEMP_RESTORE_DIR.exists():
-            logger.info("🧹 Cleaning up temporary restoration files...")
             shutil.rmtree(TEMP_RESTORE_DIR)
 
 
