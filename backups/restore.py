@@ -12,7 +12,7 @@ import httpx
 from botocore.exceptions import ClientError
 from dotenv import load_dotenv
 
-# Setup clean logging (no timestamps as requested)
+# Setup clean logging
 logging.basicConfig(level=logging.INFO, format="%(message)s")
 logger = logging.getLogger("restore")
 
@@ -60,7 +60,7 @@ def get_s3_client():
 
 
 def check_disk_space(archive_path: Path):
-    """Check if there is enough space to extract the archive (estimated 5x archive size)."""
+    """Check if there is enough space (5x archive size)."""
     if not archive_path.exists():
         return True
 
@@ -78,8 +78,9 @@ def check_disk_space(archive_path: Path):
 
 def manage_app_container(action: str):
     """Start or stop the app container using docker compose."""
-    cmd = ["docker", "compose", action, "app"]
-    logger.info(f"🐳 Docker: {action}ing app container...")
+    compose_file = os.getenv("COMPOSE_FILE", "docker-compose.yml")
+    cmd = ["docker", "compose", "-f", compose_file, action, "app"]
+    logger.info(f"🐳 Docker: {action}ing app container using {compose_file}...")
     try:
         subprocess.run(cmd, cwd=PROJECT_ROOT, check=True, capture_output=True)
         logger.info(f"✅ App container {action}ed successfully.")
@@ -286,7 +287,7 @@ def main():
         if db_backup.exists():
             logger.info("📦 Restoring SQLite database...")
             DATA_DIR.mkdir(exist_ok=True)
-            shutil.copy2(db_backup, DATA_DIR / "search_ui.db")
+            shutil.copy2(db_backup, DATA_DIR / "/search_ui.db")
             logger.info("✅ SQLite restored.")
 
         logger.info("📂 Restoring static files...")
@@ -298,12 +299,17 @@ def main():
                 logger.info(f"✅ {sub_dir} restored.")
 
         logger.info("⚙️ Restoring configuration files...")
-        
+
         # 1. Restore config/ directory
         config_src = extract_root / "config"
         if config_src.exists():
-            shutil.copytree(config_src, PROJECT_ROOT / "config", dirs_exist_ok=True)
-            logger.info("✅ config/ directory restored.")
+            try:
+                shutil.copytree(config_src, PROJECT_ROOT / "config", dirs_exist_ok=True)
+                logger.info("✅ config/ directory restored.")
+            except Exception as e:
+                logger.error(f"❌ Failed to restore config/ folder: {e}")
+                logger.error("💡 Try running: sudo chown -R $USER:$USER config/")
+                raise
 
         # 2. Restore .env separately
         env_src = extract_root / ".env"

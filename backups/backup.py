@@ -3,6 +3,7 @@ import logging
 import os
 import shutil
 import sqlite3
+import subprocess
 import sys
 import tarfile
 from pathlib import Path
@@ -13,7 +14,7 @@ import httpx
 from botocore.exceptions import ClientError
 from dotenv import load_dotenv
 
-# Setup clean logging (no timestamps for consistency)
+# Setup clean logging
 logging.basicConfig(level=logging.INFO, format="%(message)s")
 logger = logging.getLogger("backup")
 
@@ -69,7 +70,7 @@ def get_s3_client():
 
 
 def check_disk_space():
-    """Check if there is enough space for temp data and final archive (estimated 5x current data)."""
+    """Check if there is enough space (2x current data)."""
     total_size = 0
     if DB_PATH.exists():
         total_size += DB_PATH.stat().st_size
@@ -78,7 +79,7 @@ def check_disk_space():
         if p.exists():
             total_size += sum(f.stat().st_size for f in p.glob("**/*") if f.is_file())
 
-    required_space = total_size * 5
+    required_space = total_size * 2
     usage = shutil.disk_usage(BACKUP_TOOL_DIR)
 
     if usage.free < required_space:
@@ -89,12 +90,23 @@ def check_disk_space():
     return True
 
 
+def manage_app_container(action: str):
+    """Start or stop the app container using docker compose."""
+    compose_file = os.getenv("COMPOSE_FILE", "docker-compose.yml")
+    cmd = ["docker", "compose", "-f", compose_file, action, "app"]
+    logger.info(f"🐳 Docker: {action}ing app container using {compose_file}...")
+    try:
+        subprocess.run(cmd, cwd=PROJECT_ROOT, check=True, capture_output=True)
+        logger.info(f"✅ App container {action}ed successfully.")
+    except subprocess.CalledProcessError as e:
+        logger.warning(f"⚠️ Failed to {action} app container: {e.stderr.decode().strip()}")
+
+
 def cleanup_local_backups(keep_file: Path):
     """Keep only the latest backup in local/ folder."""
     logger.info("🧹 Cleaning up old local backups...")
     local_backups = sorted(LOCAL_BACKUP_DIR.glob("videodb_backup_*.tar.gz"), key=os.path.getmtime, reverse=True)
     for old_backup in local_backups:
-        # Cast to Path to avoid type-check issues with glob results
         p = Path(cast(str, old_backup))
         if p.name != keep_file.name:
             logger.info(f"Removing old local backup: {p.name}")
@@ -132,7 +144,7 @@ def upload_to_s3(file_path: Path):
         nonlocal uploaded
         uploaded += bytes_amount
         percent = (uploaded / file_size) * 100
-        sys.stdout.write(f"\r☁️ Uploading to S3: {percent:.1f}% ({uploaded / 1024 / 1024:.1f} MB)")
+        sys.stdout.write(f"\r☁️ Uploading to S3: {percent:.1f}% ({uploaded/1024/1024:.1f} MB)")
         sys.stdout.flush()
 
     logger.info(f"☁️ Uploading {file_path.name} to bucket '{S3_BUCKET}'...")
