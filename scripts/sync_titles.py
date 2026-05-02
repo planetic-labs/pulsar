@@ -85,7 +85,7 @@ async def sync_indexed_metadata():
                 new_parent = drive_file.parents[0] if drive_file.parents else None
 
                 # Fetch duration from normalized JSON if missing in DB
-                new_duration = row.get("duration_sec")
+                new_duration = row["duration_sec"]
                 if not new_duration:
                     # Try to find transcript for this video to get duration
                     sql_t = "SELECT normalized_json_path FROM transcripts WHERE video_id = ?"
@@ -108,7 +108,7 @@ async def sync_indexed_metadata():
                     if new_parent:
                         await upsert_folder_chain_async(drive_client, conn, new_parent)
 
-                if new_duration and new_duration != row.get("duration_sec"):
+                if new_duration and new_duration != row["duration_sec"]:
                     needs_update = True
 
                 if needs_update:

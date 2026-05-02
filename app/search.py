@@ -308,9 +308,12 @@ async def hybrid_search(
         # --- VECTOR SEARCH (SEMANTIC, LEXICAL, HYBRID) ---
         client = UnifiedEmbeddingClient(get_embedding_settings())
         try:
-            query_dense, query_sparse = await client.embed_text_async(clean_query or "video", task_type="RETRIEVAL_QUERY")
+            query_dense, query_sparse = await client.embed_text_async(
+                clean_query or "video", task_type="RETRIEVAL_QUERY"
+            )
         except Exception as e:
             import logging
+
             logging.error(f"Search failed because embedding service is unavailable: {e}")
             return []
 
@@ -321,7 +324,13 @@ async def hybrid_search(
         # 1. Fetch results based on mode
         if search_mode in ["semantic", "hybrid"]:
             dense_results = qdrant.query_points(
-                settings.collection_name, query_dense, "default", None, q_filter, limit=prefetch_limit, with_payload=True
+                settings.collection_name,
+                query_dense,
+                "default",
+                None,
+                q_filter,
+                limit=prefetch_limit,
+                with_payload=True,
             ).points
 
         if search_mode in ["lexical", "hybrid"] and query_sparse:
@@ -388,7 +397,6 @@ async def hybrid_search(
         points = [x["point"] for x in final_list[:limit]]
         scores_map = {x["point"].id: x for x in final_list[:limit]}
 
-
     # 1. Collect all video IDs to fetch missing metadata
     video_ids = list({p.payload.get("video_id") for p in points if p.payload})
     speaker_map = {}
@@ -396,20 +404,20 @@ async def hybrid_search(
 
     if video_ids:
         placeholders = ",".join(["?"] * len(video_ids))
-        
+
         # Fetch Speakers
         rows_s = connection.execute(
             f"SELECT video_id, speaker_tag, name FROM speakers WHERE video_id IN ({placeholders})", video_ids
         ).fetchall()
         for r in rows_s:
             speaker_map[(r["video_id"], r["speaker_tag"])] = r["name"]
-            
-        # Fetch Video Metadata (source_file_id)
+
+        # Fetch Video Metadata (source_file_id, title)
         rows_v = connection.execute(
-            f"SELECT id, source_file_id FROM videos WHERE id IN ({placeholders})", video_ids
+            f"SELECT id, source_file_id, title FROM videos WHERE id IN ({placeholders})", video_ids
         ).fetchall()
         for r in rows_v:
-            video_metadata[r["id"]] = r["source_file_id"]
+            video_metadata[r["id"]] = {"source_file_id": r["source_file_id"], "title": r["title"]}
 
     results = []
     for point in points:
@@ -439,9 +447,11 @@ async def hybrid_search(
         highlighted_text = _simple_highlight(full_text, clean_query)
 
         v_id = payload.get("video_id")
-        
-        # --- FIX: Ensure we have source_file_id and source_url ---
-        source_file_id = payload.get("source_file_id") or video_metadata.get(v_id)
+        v_meta = video_metadata.get(v_id, {})
+
+        # --- FIX: Ensure we have current title, source_file_id and source_url from DB ---
+        title = v_meta.get("title") or str(payload.get("title") or "Unknown Video")
+        source_file_id = v_meta.get("source_file_id") or payload.get("source_file_id")
         source_url = payload.get("source_url")
         if not source_url and source_file_id:
             source_url = f"https://drive.google.com/file/d/{source_file_id}/view"
@@ -476,23 +486,17 @@ async def hybrid_search(
         start_sec = get_float(payload, "start_sec")
         end_sec = get_float(payload, "end_sec")
 
-        source_file_id = payload.get("source_file_id")
-        source_url = payload.get("source_url")
-        if not source_url and source_file_id:
-            source_url = f"https://drive.google.com/file/d/{source_file_id}/view"
-
         results.append(
             SearchResult(
                 chunk_id=chunk_id,
                 video_id=get_int(payload, "video_id"),
                 transcript_id=get_int(payload, "transcript_id"),
-                title=str(payload.get("title") or ""),
+                title=title,
                 source_file_id=source_file_id,
                 source_url=source_url,
                 chunk_index=get_int(payload, "chunk_index"),
                 start_sec=start_sec,
                 end_sec=end_sec,
-
                 start_ts=format_timestamp(start_sec),
                 end_ts=format_timestamp(end_sec),
                 text=highlighted_text,
