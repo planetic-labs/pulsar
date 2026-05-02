@@ -274,7 +274,15 @@ def main():
         for f_name in [".env", "google.json", "token.json", "token.auth.json"]:
             src = extract_root / f_name
             if src.exists():
-                shutil.copy2(src, PROJECT_ROOT / f_name)
+                dest = PROJECT_ROOT / f_name
+                if f_name == ".env" and dest.exists():
+                    print(f"\n❓ File {f_name} already exists in project root.")
+                    choice = input(f"   Overwrite {f_name} with version from backup? (y/N): ").strip().lower()
+                    if choice != "y":
+                        logger.info(f"   Skipped {f_name} restoration.")
+                        continue
+
+                shutil.copy2(src, dest)
                 logger.info(f"✅ {f_name} restored.")
 
         restore_qdrant(extract_root)
