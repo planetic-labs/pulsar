@@ -83,11 +83,12 @@ class UnifiedEmbeddingClient:
 
         results = []
         total = len(texts)
-        async with httpx.AsyncClient(timeout=120.0) as client:
-            for i in range(0, total, 50):
-                batch = texts[i : i + 50]
-                current_end = min(i + 50, total)
-                logger.info(f"AI: Обработка батча {i // 50 + 1} (фрагменты {i} - {current_end} из {total})...")
+        batch_size = 50  # Restored to 50 as requested
+        async with httpx.AsyncClient(timeout=300.0) as client:
+            for i in range(0, total, batch_size):
+                batch = texts[i : i + batch_size]
+                current_end = min(i + batch_size, total)
+                logger.info(f"AI: Обработка батча {i // batch_size + 1} (фрагменты {i} - {current_end} из {total})...")
 
                 if progress_callback:
                     progress_callback(i, total)
