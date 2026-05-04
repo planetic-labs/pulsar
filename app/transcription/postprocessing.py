@@ -4,10 +4,14 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
-# Dictionary of replacements: {pattern: replacement}
+# Dictionary of replacements: {pattern: replacement_base}
 # Using \b for word boundaries and capturing Russian suffixes
+# The replacement_base is the capitalized version of the word root.
 REPLACEMENTS = {
-    r"\bмастер([ауеы]|ом|ам|ами|ах)?\b": r"Мастер\1",
+    r"\bмастер([ауеы]|ом|ам|ами|ах)?\b": "Мастер",
+    r"\bдисциплин([аыеу]|ой|ою)?\b": "Дисциплин",
+    r"\bпросветлени([еяюи]|ем)?\b": "Просветлени",
+    r"\bистин([аыеу]|ой|ою)?\b": "Истин",
 }
 
 
@@ -16,8 +20,13 @@ def apply_text_replacements(text: str) -> str:
     if not text:
         return text
 
-    for pattern, replacement in REPLACEMENTS.items():
-        text = re.sub(pattern, replacement, text)
+    for pattern, base in REPLACEMENTS.items():
+
+        def repl(match: re.Match, base_val: str = base) -> str:
+            suffix = match.group(1) or ""
+            return base_val + suffix.lower()
+
+        text = re.sub(pattern, repl, text, flags=re.IGNORECASE)
     return text
 
 
