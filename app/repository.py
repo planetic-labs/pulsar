@@ -9,31 +9,36 @@ from typing import Any
 def extract_date_from_title(title: str) -> str | None:
     """
     Extracts date from the BEGINNING of the title.
-    Supports only:
+    Supports:
     - YYYY.MM.DD
-    - YY.MM.DD (where YY is 20-30)
+    - DD.MM.YYYY
+    - YY.MM.DD
     Returns date in ISO format YYYY-MM-DD or None.
     """
-    # Pattern for YYYY.MM.DD or YY.MM.DD at the START of string
-    # We use \d{2,4} to capture 2 or 4 digits for the year
-    match = re.match(r"^(\d{2,4})\.(\d{2})\.(\d{2})\b", title.strip())
-    if not match:
-        return None
-
-    y_str, m_str, d_str = match.groups()
-    try:
-        y, m, d = int(y_str), int(m_str), int(d_str)
-        
-        # Normalize year
-        if len(y_str) == 2:
-            # Assume 20xx for 2-digit years (YY.MM.DD)
-            # Limit to logical range 2020-2030 if needed, but let's be flexible with 2000-2099
-            y = 2000 + y
-            
-        if 2000 <= y <= 2100 and 1 <= m <= 12 and 1 <= d <= 31:
+    t = title.strip()
+    
+    # 1. Try YYYY.MM.DD
+    m1 = re.match(r"^(\d{4})\.(\d{2})\.(\d{2})\b", t)
+    if m1:
+        y, m, d = map(int, m1.groups())
+        if 1 <= m <= 12 and 1 <= d <= 31:
             return f"{y:04d}-{m:02d}-{d:02d}"
-    except ValueError:
-        pass
+
+    # 2. Try DD.MM.YYYY
+    m2 = re.match(r"^(\d{2})\.(\d{2})\.(\d{4})\b", t)
+    if m2:
+        d, m, y = map(int, m2.groups())
+        if 1 <= m <= 12 and 1 <= d <= 31:
+            return f"{y:04d}-{m:02d}-{d:02d}"
+
+    # 3. Try YY.MM.DD
+    m3 = re.match(r"^(\d{2})\.(\d{2})\.(\d{2})\b", t)
+    if m3:
+        y, m, d = map(int, m3.groups())
+        # Assume 20xx for 2-digit year (consistent with YY.MM.DD requirement)
+        y = 2000 + y
+        if 1 <= m <= 12 and 1 <= d <= 31:
+            return f"{y:04d}-{m:02d}-{d:02d}"
 
     return None
 
