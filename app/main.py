@@ -985,12 +985,12 @@ async def api_update_chunk(chunk_id: int, request: Request, _: str = Depends(req
 
 
 @app.get("/api/drive/ls")
-async def api_drive_ls(folder_id: str | None = None, _: str = Depends(require_access_token)):
+async def api_drive_ls(folder_id: str | None = None, refresh: bool = False, _: str = Depends(require_access_token)):
     drive_client = GoogleDriveClient(get_google_drive_settings())
     target_id = folder_id or "root"
 
     try:
-        items = await drive_client.list_folder_contents(target_id)
+        items = await drive_client.list_folder_contents(target_id, use_cache=not refresh)
 
         # Check database for indexed status
         sqlite_settings = get_sqlite_settings()
