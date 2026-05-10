@@ -219,6 +219,13 @@ def copy_files(dest_dir: Path):
         if config_src.exists():
             shutil.copytree(config_src, dest_dir / "config", dirs_exist_ok=True)
             
+            # Specific check for Service Account key
+            key_path = config_src / "service-key.json"
+            if not key_path.exists():
+                logger.warning("⚠️  Google Drive 'service-key.json' not found in config/. Backup might be incomplete!")
+            else:
+                logger.info("✅ Google Drive service-key.json included in backup.")
+            
         # 3. Copy .env from project root
         env_src = PROJECT_ROOT / ".env"
         if env_src.exists():
