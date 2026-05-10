@@ -82,15 +82,24 @@
                             </div>
                         </div>
 
-                        {% if (date_from or date_to) and video_type != 'short' %}
-                        <button type="button" onclick="clearDates(document.getElementById('search-form'))" class="shrink-0 flex items-center gap-1.5 px-3 py-1.5 bg-rose-50 text-rose-500 rounded-xl text-[9px] font-black uppercase tracking-wider border border-rose-100 shadow-sm">
-                            <span>сброс дат</span>
-                        </button>
-                        {% endif %}
-                    </div>
+                        <!-- Timeline Toggle Mobile with integrated Reset -->
+                        <div class="relative flex items-center shrink-0">
+                            <button type="button" onclick="toggleTimeline()" 
+                                    class="flex items-center gap-2 px-3 py-1.5 bg-white border border-[#F2F0EB] rounded-xl text-[9px] font-black uppercase tracking-wider shadow-sm {% if date_from or date_to %}text-brand-600 border-brand-200 bg-brand-50/30 pr-8{% else %}text-[#4A453E]{% endif %}">
+                                <svg class="w-3.5 h-3.5 {% if date_from or date_to %}text-brand-500{% else %}text-warm-400{% endif %}" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg>
+                                <span>Период</span>
+                            </button>
+                            {% if date_from or date_to %}
+                            <button type="button" onclick="event.stopPropagation(); clearDates(document.getElementById('search-form'))" 
+                                    class="absolute right-2 text-rose-500 p-1">
+                                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M6 18L18 6M6 6l12 12"></path></svg>
+                            </button>
+                            {% endif %}
+                        </div>
+                        </div>
 
-                    <!-- Row 2: Timeline Mobile -->
-                    <div class="bg-white border border-[#F2F0EB] rounded-2xl p-4 shadow-sm {% if video_type == 'short' %}opacity-30 pointer-events-none select-none grayscale{% endif %}">
+                        <!-- Row 2: Timeline Mobile -->
+                        <div id="timeline-container-mob" class="{% if not (date_from or date_to) %}hidden{% endif %} bg-white border border-[#F2F0EB] rounded-2xl p-4 shadow-sm {% if video_type == 'short' %}opacity-30 pointer-events-none select-none grayscale{% endif %} transition-all animate-in slide-in-from-top-1">
                         <div class="flex items-center justify-between mb-3">
                             <span class="text-[9px] font-black text-warm-400 uppercase tracking-widest">период</span>
                             <div id="timeline-range-text-mob" class="text-[9px] font-black uppercase tracking-wider text-brand-500 text-right">
@@ -119,29 +128,9 @@
                                           [&::-webkit-slider-thumb]:w-[5px] [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:bg-brand-500 
                                           [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:shadow-md">
                         </div>
-                        
-                        <!-- Quick Date Selectors Mobile -->
-                        <div class="flex items-center gap-2">
-                            <div onclick="openDatePicker(this, '2020-01-01', 'display-date-from-mob')" class="flex-1 flex items-center gap-2 bg-[#FAF9F6] border border-[#F2F0EB] rounded-xl px-2.5 py-1.5 shadow-inner relative h-8">
-                                <span class="text-[7px] font-black text-warm-400 uppercase">От</span>
-                                <span id="display-date-from-mob" class="text-[9px] font-black uppercase tracking-widest text-[#4A453E]">
-                                    {% if date_from %}{{ date_from.replace('-', '.') }}{% else %}.... . ..{% endif %}
-                                </span>
-                                <!-- NO NAME HERE -->
-                                <input type="date" value="{{ date_from }}" onchange="syncAndSubmit(this, 'f-date-from-mob', 'display-date-from-mob')" class="absolute inset-0 opacity-0 w-full h-full">
-                            </div>
-                            <div onclick="openDatePicker(this, '{{ today_val }}', 'display-date-to-mob')" class="flex-1 flex items-center gap-2 bg-[#FAF9F6] border border-[#F2F0EB] rounded-xl px-2.5 py-1.5 shadow-inner relative h-8">
-                                <span class="text-[7px] font-black text-warm-400 uppercase">До</span>
-                                <span id="display-date-to-mob" class="text-[9px] font-black uppercase tracking-widest text-[#4A453E]">
-                                    {% if date_to %}{{ date_to.replace('-', '.') }}{% else %}.... . ..{% endif %}
-                                </span>
-                                <!-- NO NAME HERE -->
-                                <input type="date" value="{{ date_to }}" onchange="syncAndSubmit(this, 'f-date-to-mob', 'display-date-to-mob')" class="absolute inset-0 opacity-0 w-full h-full">
-                            </div>
-                        </div>
                     </div>
                 </div>
-            </form>
+            </div>
         </div>
     </div>
 
@@ -257,6 +246,11 @@
         form.submit();
     }
 
+    function toggleTimeline() {
+        const timeline = document.getElementById('timeline-container-mob');
+        timeline.classList.toggle('hidden');
+    }
+
     // Timeline Logic Mobile
     (function() {
         const sliderFrom = document.getElementById('timeline-slider-from-mob');
@@ -354,5 +348,68 @@
         document.getElementById('player-content').classList.add('hidden');
         document.getElementById('player-placeholder').classList.remove('hidden');
     }
+
+    // Close dropdowns on click outside
+    window.addEventListener('click', function(e) {
+        if (e.target && !e.target.closest('.dropdown-container')) {
+            document.querySelectorAll('.dropdown-container div[id]').forEach(d => {
+                d.classList.add('hidden');
+            });
+        }
+    });
+
+    // Timeline Logic Mobile
+    (function() {
+        const sliderFrom = document.getElementById('timeline-slider-from-mob');
+        const sliderTo = document.getElementById('timeline-slider-to-mob');
+        const rangeBar = document.getElementById('timeline-range-bar-mob');
+        const rangeText = document.getElementById('timeline-range-text-mob');
+        const dateFromInput = document.getElementById('f-date-from-mob');
+        const dateToInput = document.getElementById('f-date-to-mob');
+        
+        if (!sliderFrom || !sliderTo) return;
+
+        const startTimestamp = new Date('2020-01-01T00:00:00').getTime();
+        const today = new Date();
+        today.setHours(23, 59, 59, 999);
+        const endTimestamp = today.getTime();
+        const totalDuration = endTimestamp - startTimestamp;
+
+        function updateTimelineVisuals() {
+            let valFrom = parseInt(sliderFrom.value);
+            let valTo = parseInt(sliderTo.value);
+            if (valFrom > valTo) { [valFrom, valTo] = [valTo, valFrom]; }
+            rangeBar.style.left = (valFrom / 10) + '%';
+            rangeBar.style.right = (100 - (valTo / 10)) + '%';
+            
+            const d1s = new Date(startTimestamp + (valFrom / 1000) * totalDuration).toISOString().split('T')[0];
+            const d2s = new Date(startTimestamp + (valTo / 1000) * totalDuration).toISOString().split('T')[0];
+            rangeText.innerText = d1s.split('-').join('.') + ' — ' + d2s.split('-').join('.');
+            return {d1s, d2s};
+        }
+
+        function setSlidersFromInputs() {
+            const v1 = dateFromInput.value || '2020-01-01';
+            const v2 = dateToInput.value || new Date().toISOString().split('T')[0];
+            sliderFrom.value = (new Date(v1).getTime() - startTimestamp) / totalDuration * 1000;
+            sliderTo.value = (new Date(v2).getTime() - startTimestamp) / totalDuration * 1000;
+            updateTimelineVisuals();
+        }
+
+        sliderFrom.oninput = updateTimelineVisuals;
+        sliderTo.oninput = updateTimelineVisuals;
+        sliderFrom.onchange = () => {
+            const {d1s} = updateTimelineVisuals();
+            dateFromInput.value = d1s;
+            document.getElementById('search-form').submit();
+        };
+        sliderTo.onchange = () => {
+            const {d2s} = updateTimelineVisuals();
+            dateToInput.value = d2s;
+            document.getElementById('search-form').submit();
+        };
+
+        setSlidersFromInputs();
+    })();
 </script>
 {% endblock %}

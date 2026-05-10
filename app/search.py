@@ -209,13 +209,17 @@ async def hybrid_search(
     if date_from or date_to:
         # User requirement: ignore date filters for short videos
         if video_type != "short":
-            date_filter = models.FieldCondition(
-                key="recorded_date",
-                range=models.DatetimeRange(
-                    gte=f"{date_from}T00:00:00Z" if date_from else None,
-                    lte=f"{date_to}T23:59:59Z" if date_to else None,
-                ),
-            )
+            gte_val = f"{date_from}T00:00:00Z" if date_from and len(date_from) > 1 else None
+            lte_val = f"{date_to}T23:59:59Z" if date_to and len(date_to) > 1 else None
+            
+            if gte_val or lte_val:
+                date_filter = models.FieldCondition(
+                    key="recorded_date",
+                    range=models.DatetimeRange(
+                        gte=gte_val,
+                        lte=lte_val,
+                    ),
+                )
 
     v_match = re.search(r"(?:video_id|v):(\d+)", query)
     v_id = None
