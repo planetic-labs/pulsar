@@ -575,7 +575,13 @@ def logout(request: Request, response: Response):
 
 
 @app.get("/", response_class=HTMLResponse)
-async def index_page(request: Request, q: str | None = None, mode: str = "hybrid"):
+async def index_page(
+    request: Request,
+    q: str | None = None,
+    mode: str = "hybrid",
+    date_from: str | None = None,
+    date_to: str | None = None,
+):
     app_settings = get_app_settings()
     pg_settings = get_sqlite_settings()
 
@@ -593,12 +599,23 @@ async def index_page(request: Request, q: str | None = None, mode: str = "hybrid
     results = []
     if q:
         with db_connection(pg_settings) as connection:
-            items = await hybrid_search(connection, q, limit=app_settings.results_limit, search_mode=mode)
+            items = await hybrid_search(
+                connection,
+                q,
+                limit=app_settings.results_limit,
+                search_mode=mode,
+                date_from=date_from,
+                date_to=date_to,
+            )
             results = items
 
     ua = request.headers.get("user-agent", "").lower()
     is_mobile = any(m in ua for m in ["mobile", "android", "iphone", "ipad"])
     template = "index_mobile.html" if is_mobile else "index.html"
+
+    from datetime import date
+    today = date.today().isoformat()
+    default_start = "2020-01-01"
 
     return templates.TemplateResponse(
         request,
@@ -607,6 +624,8 @@ async def index_page(request: Request, q: str | None = None, mode: str = "hybrid
             "query": q or "",
             "results": results,
             "mode": mode,
+            "date_from": date_from or default_start,
+            "date_to": date_to or today,
             "token": app_settings.access_token,
         },
     )

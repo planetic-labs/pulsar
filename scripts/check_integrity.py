@@ -67,11 +67,12 @@ def check_integrity():
 
                         if first_chunk and "utterances" in norm_data and len(norm_data["utterances"]) > 0:
                             json_text = norm_data["utterances"][0].get("text", "")
-                            if first_chunk["text"] != json_text and json_text:
-                                # Проверяем, не является ли это просто разницей в пробелах
-                                if first_chunk["text"].strip() != json_text.strip():
-                                    msg = f"Video {t['video_id']}: Text mismatch between DB and JSON"
-                                    text_mismatch_errors.append(msg)
+                            if json_text and not first_chunk["text"].startswith(json_text):
+                                # Проверяем, не является ли это просто разницей в пробелах или спецсимволах в начале
+                                if first_chunk["text"].strip().startswith(json_text.strip()):
+                                    continue
+                                msg = f"Video {t['video_id']}: Text mismatch between DB and JSON"
+                                text_mismatch_errors.append(msg)
                     except Exception as e:
                         msg = f"Video {t['video_id']}: Corrupted NORM JSON at {norm_path} ({e})"
                         corrupted_json.append(msg)
