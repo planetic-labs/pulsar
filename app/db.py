@@ -60,7 +60,7 @@ def init_db(connection: sqlite3.Connection) -> None:
         )
     """)
 
-    # 1. Videos table (UPDATED: added parent_folder_id)
+    # 1. Videos table (UPDATED: added recorded_date)
     connection.execute("""
         CREATE TABLE IF NOT EXISTS videos (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -68,6 +68,7 @@ def init_db(connection: sqlite3.Connection) -> None:
             source_file_id TEXT NOT NULL,
             parent_folder_id TEXT,
             title TEXT NOT NULL,
+            recorded_date DATE,
             source_url TEXT,
             mime_type TEXT,
             size_bytes BIGINT,
@@ -81,12 +82,16 @@ def init_db(connection: sqlite3.Connection) -> None:
         )
     """)
 
-    # --- MIGRATION: Add parent_folder_id if missing ---
+    # --- MIGRATIONS ---
     cursor = connection.execute("PRAGMA table_info(videos)")
     columns = [row["name"] for row in cursor.fetchall()]
     if "parent_folder_id" not in columns:
         logger.info("Migrating database: Adding parent_folder_id column to videos table.")
         connection.execute("ALTER TABLE videos ADD COLUMN parent_folder_id TEXT")
+    
+    if "recorded_date" not in columns:
+        logger.info("Migrating database: Adding recorded_date column to videos table.")
+        connection.execute("ALTER TABLE videos ADD COLUMN recorded_date DATE")
 
     # 2. Transcripts table (SIMPLIFIED: engine removed)
     connection.execute("""

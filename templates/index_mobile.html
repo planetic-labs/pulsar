@@ -45,24 +45,64 @@
                 </button>
             </form>
 
-            <!-- Search Modes Mobile -->
-            <div class="flex items-center gap-2 overflow-x-auto pb-1 no-scrollbar">
-                <label class="shrink-0 cursor-pointer">
-                    <input type="radio" name="mode" value="hybrid" form="search-form" onchange="this.form.submit()" {% if mode == 'hybrid' or not mode %}checked{% endif %} class="hidden peer">
-                    <span class="px-3 py-1.5 text-[8px] font-black uppercase tracking-wider rounded-xl border border-[#F2F0EB] bg-[#FAF9F6] text-warm-400 peer-checked:bg-brand-500 peer-checked:text-white peer-checked:border-brand-500 transition-all shadow-sm">Гибридный</span>
-                </label>
-                <label class="shrink-0 cursor-pointer">
-                    <input type="radio" name="mode" value="semantic" form="search-form" onchange="this.form.submit()" {% if mode == 'semantic' %}checked{% endif %} class="hidden peer">
-                    <span class="px-3 py-1.5 text-[8px] font-black uppercase tracking-wider rounded-xl border border-[#F2F0EB] bg-[#FAF9F6] text-warm-400 peer-checked:bg-purple-500 peer-checked:text-white peer-checked:border-purple-500 transition-all shadow-sm">Смысл</span>
-                </label>
-                <label class="shrink-0 cursor-pointer">
-                    <input type="radio" name="mode" value="lexical" form="search-form" onchange="this.form.submit()" {% if mode == 'lexical' %}checked{% endif %} class="hidden peer">
-                    <span class="px-3 py-1.5 text-[8px] font-black uppercase tracking-wider rounded-xl border border-[#F2F0EB] bg-[#FAF9F6] text-warm-400 peer-checked:bg-blue-500 peer-checked:text-white peer-checked:border-blue-500 transition-all shadow-sm">Слова</span>
-                </label>
-                <label class="shrink-0 cursor-pointer">
-                    <input type="radio" name="mode" value="quote" form="search-form" onchange="this.form.submit()" {% if mode == 'quote' %}checked{% endif %} class="hidden peer">
-                    <span class="px-3 py-1.5 text-[8px] font-black uppercase tracking-wider rounded-xl border border-[#F2F0EB] bg-[#FAF9F6] text-warm-400 peer-checked:bg-rose-500 peer-checked:text-white peer-checked:border-rose-500 transition-all shadow-sm">Цитата</span>
-                </label>
+            <!-- Search Modes and Filters Mobile -->
+            <div class="flex flex-col gap-2">
+                <div class="flex items-center gap-2 overflow-x-auto pb-1 no-scrollbar">
+                    <label class="shrink-0 cursor-pointer">
+                        <input type="radio" name="mode" value="hybrid" form="search-form" onchange="this.form.submit()" {% if mode == 'hybrid' or not mode %}checked{% endif %} class="hidden peer">
+                        <span class="px-3 py-1.5 text-[8px] font-black uppercase tracking-wider rounded-xl border border-[#F2F0EB] bg-[#FAF9F6] text-warm-400 peer-checked:bg-brand-500 peer-checked:text-white peer-checked:border-brand-500 transition-all shadow-sm">Гибридный</span>
+                    </label>
+                    <label class="shrink-0 cursor-pointer">
+                        <input type="radio" name="mode" value="semantic" form="search-form" onchange="this.form.submit()" {% if mode == 'semantic' %}checked{% endif %} class="hidden peer">
+                        <span class="px-3 py-1.5 text-[8px] font-black uppercase tracking-wider rounded-xl border border-[#F2F0EB] bg-[#FAF9F6] text-warm-400 peer-checked:bg-purple-500 peer-checked:text-white peer-checked:border-purple-500 transition-all shadow-sm">Смысл</span>
+                    </label>
+                    <label class="shrink-0 cursor-pointer">
+                        <input type="radio" name="mode" value="lexical" form="search-form" onchange="this.form.submit()" {% if mode == 'lexical' %}checked{% endif %} class="hidden peer">
+                        <span class="px-3 py-1.5 text-[8px] font-black uppercase tracking-wider rounded-xl border border-[#F2F0EB] bg-[#FAF9F6] text-warm-400 peer-checked:bg-blue-500 peer-checked:text-white peer-checked:border-blue-500 transition-all shadow-sm">Слова</span>
+                    </label>
+                    <label class="shrink-0 cursor-pointer">
+                        <input type="radio" name="mode" value="quote" form="search-form" onchange="this.form.submit()" {% if mode == 'quote' %}checked{% endif %} class="hidden peer">
+                        <span class="px-3 py-1.5 text-[8px] font-black uppercase tracking-wider rounded-xl border border-[#F2F0EB] bg-[#FAF9F6] text-warm-400 peer-checked:bg-rose-500 peer-checked:text-white peer-checked:border-rose-500 transition-all shadow-sm">Цитата</span>
+                    </label>
+                </div>
+                
+                <div class="flex items-center gap-2">
+                    <!-- Date From Mobile -->
+                    <div onclick="this.querySelector('input').showPicker()"
+                         class="relative flex-1 flex items-center gap-2 bg-[#FAF9F6] border border-[#F2F0EB] rounded-xl px-2 py-1.5 shadow-inner h-[30px] cursor-pointer">
+                        <span class="text-[8px] font-black uppercase tracking-wider text-warm-400 shrink-0 pointer-events-none">От</span>
+                        <span id="display-date-from" class="text-[8px] font-black uppercase tracking-wider text-[#4A453E] pointer-events-none">
+                            {{ date_from.replace('-', '.') }}
+                        </span>
+                        <input type="date" name="date_from" id="input-date-from" value="{{ date_from }}" 
+                               form="search-form"
+                               onchange="updateDisplayDate(this, 'display-date-from')"
+                               onkeydown="return false"
+                               min="2020-01-01"
+                               class="absolute inset-0 opacity-0 w-full h-full cursor-pointer z-20">
+                    </div>
+
+                    <!-- Date To Mobile -->
+                    <div onclick="this.querySelector('input').showPicker()"
+                         class="relative flex-1 flex items-center gap-2 bg-[#FAF9F6] border border-[#F2F0EB] rounded-xl px-2 py-1.5 shadow-inner h-[30px] cursor-pointer">
+                        <span class="text-[8px] font-black uppercase tracking-wider text-warm-400 shrink-0 pointer-events-none">До</span>
+                        <span id="display-date-to" class="text-[8px] font-black uppercase tracking-wider text-[#4A453E] pointer-events-none">
+                            {{ date_to.replace('-', '.') }}
+                        </span>
+                        <input type="date" name="date_to" id="input-date-to" value="{{ date_to }}" 
+                               form="search-form"
+                               onchange="updateDisplayDate(this, 'display-date-to')"
+                               onkeydown="return false"
+                               min="2020-01-01"
+                               class="absolute inset-0 opacity-0 w-full h-full cursor-pointer z-20">
+                    </div>
+
+                    {% if date_from != '2020-01-01' or date_to != today_val %}
+                    <button type="button" onclick="clearDates(document.getElementById('search-form'))" class="p-1.5 text-rose-500 z-30">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M6 18L18 6M6 6l12 12"></path></svg>
+                    </button>
+                    {% endif %}
+                </div>
             </div>
         </div>
     </div>
@@ -182,11 +222,35 @@
         clearSearchBtn.classList.toggle('hidden', !searchInput.value);
     });
 
+    // Set date limits
+    (function() {
+        const today = new Date().toISOString().split('T')[0];
+        document.querySelectorAll('input[type="date"]').forEach(input => {
+            input.max = today;
+        });
+    })();
+
     clearSearchBtn.addEventListener('click', () => {
         searchInput.value = '';
         clearSearchBtn.classList.add('hidden');
         searchInput.focus();
     });
+
+    function updateDisplayDate(input, displayId) {
+        if (input.value) {
+            document.getElementById(displayId).innerText = input.value.split('-').join('.');
+            input.form.submit();
+        }
+    }
+
+    function clearDates(form) {
+        const today = new Date().toISOString().split('T')[0];
+        form.date_from.value = '2020-01-01';
+        form.date_to.value = today;
+        document.getElementById('display-date-from').innerText = '2020.01.01';
+        document.getElementById('display-date-to').innerText = today.split('-').join('.');
+        form.submit();
+    }
 
     let activeChunkId = null;
 

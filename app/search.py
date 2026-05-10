@@ -186,6 +186,8 @@ async def hybrid_search(
     *,
     limit: int = 20,
     search_mode: str = "hybrid",
+    date_from: str | None = None,
+    date_to: str | None = None,
 ) -> list[SearchResult]:
     qdrant = get_qdrant_client()
     settings = get_qdrant_settings()
@@ -193,6 +195,16 @@ async def hybrid_search(
     # 1. Parse Filters
     video_filter: models.Condition | None = None
     speaker_filter: models.Condition | None = None
+    date_filter: models.Condition | None = None
+
+    if date_from or date_to:
+        date_filter = models.FieldCondition(
+            key="recorded_date",
+            range=models.DatetimeRange(
+                gte=f"{date_from}T00:00:00Z" if date_from else None,
+                lte=f"{date_to}T23:59:59Z" if date_to else None,
+            ),
+        )
 
     v_match = re.search(r"(?:video_id|v):(\d+)", query)
     v_id = None
@@ -228,6 +240,8 @@ async def hybrid_search(
         must_filters.append(video_filter)
     if speaker_filter:
         must_filters.append(speaker_filter)
+    if date_filter:
+        must_filters.append(date_filter)
 
     q_filter = models.Filter(must=must_filters) if must_filters else None
 
