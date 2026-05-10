@@ -27,6 +27,8 @@ class SearchResult:
     text: str
     combined_score: float
     match_type: str
+    recorded_date: str | None = None
+    is_short: bool = False
     raw_text: str = ""
     version: int = 42
     lexical_score: float = 0.0
@@ -527,6 +529,8 @@ async def hybrid_search(
                 text=highlighted_text,
                 combined_score=combined_score,
                 match_type=m_type,
+                recorded_date=payload.get("recorded_date"),
+                is_short=bool(payload.get("is_short", False)),
                 raw_text=full_text,
                 lexical_score=lexical_score,
                 semantic_score=semantic_score,

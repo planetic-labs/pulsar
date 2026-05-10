@@ -87,6 +87,10 @@
                             <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"></path></svg>
                             <span class="text-sm">Индекс</span>
                         </a>
+                        <a href="/experiment" class="flex items-center gap-3 px-4 py-3 rounded-xl transition-all group {% if request.url.path == '/experiment' %} sidebar-active {% else %} muted-text hover:bg-white/50 hover:text-slate-900 {% endif %}">
+                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a2 2 0 00-1.96 1.414l-.718 2.875a2 2 0 001.913 2.478h4.5a2 2 0 001.913-2.478l-.718-2.875a2 2 0 00-.547-1.022zM12.9 2.1c-.173-.448-.633-.743-1.127-.743s-.954.295-1.127.743L7.9 7.75c-.447 1.15.34 2.25 1.573 2.25h4.054c1.233 0 2.02-1.1 1.573-2.25L12.9 2.1zM4.5 13.5c-1.105 0-2 .895-2 2s.895 2 2 2h3c1.105 0 2-.895 2-2s-.895-2-2-2h-3z"></path></svg>
+                            <span class="text-sm">Эксперимент (Dark)</span>
+                        </a>
 
                         <a href="/import" class="hidden lg:flex items-center gap-3 px-4 py-3 rounded-xl transition-all group {% if request.url.path == '/import' %} sidebar-active {% else %} muted-text hover:bg-white/50 hover:text-slate-900 {% endif %}">
                             <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 13h6m-3-3v6m-9 1V7a2 2 0 012-2h6l2 2h6a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2z"></path></svg>
