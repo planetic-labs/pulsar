@@ -85,7 +85,7 @@ def upsert_video(
         recorded_date = extract_date_from_title(title)
 
     if is_short is None:
-        is_short = bool(duration_sec and duration_sec <= 600)
+        is_short = bool(duration_sec and duration_sec <= 1800)
 
     cursor = connection.execute(
         """
