@@ -63,17 +63,25 @@
                         </div>
                     </div>
 
-                    <!-- Reset All Filters -->
-                    {% if (date_from or date_to) and video_type != 'short' %}
-                    <button type="button" onclick="clearDates(this.form)" class="flex items-center gap-1.5 px-3 py-1.5 bg-rose-50 text-rose-500 rounded-full text-[10px] font-black uppercase tracking-widest hover:bg-rose-100 transition-all shadow-sm border border-rose-100">
-                        <span>сбросить даты</span>
-                        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M6 18L18 6M6 6l12 12"></path></svg>
-                    </button>
-                    {% endif %}
+                    <!-- Timeline Toggle Button with integrated Reset -->
+                    <div class="relative flex items-center">
+                        <button type="button" onclick="toggleTimeline()" 
+                                class="flex items-center gap-2 px-3 py-1.5 bg-white border border-[#E5E1D8] rounded-full text-[10px] font-black uppercase tracking-widest hover:border-brand-300 transition-all shadow-sm {% if date_from or date_to %}text-brand-600 border-brand-200 bg-brand-50/30 pr-8{% else %}text-[#4A453E]{% endif %}">
+                            <svg class="w-4 h-4 {% if date_from or date_to %}text-brand-500{% else %}text-warm-400{% endif %}" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg>
+                            <span>Период</span>
+                        </button>
+                        {% if date_from or date_to %}
+                        <button type="button" onclick="event.stopPropagation(); clearDates(this.form)" 
+                                class="absolute right-2.5 text-brand-400 hover:text-rose-500 transition-colors" 
+                                title="Сбросить даты">
+                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M6 18L18 6M6 6l12 12"></path></svg>
+                        </button>
+                        {% endif %}
+                    </div>
                 </div>
 
-                <!-- Row 2: Advanced Timeline Filter -->
-                <div class="max-w-3xl bg-white border border-[#E5E1D8] rounded-2xl py-3 px-5 shadow-sm {% if video_type == 'short' %}opacity-30 pointer-events-none select-none grayscale{% endif %} transition-all">
+                <!-- Row 2: Advanced Timeline Filter (Toggleable) -->
+                <div id="timeline-container" class="{% if not (date_from or date_to) %}hidden{% endif %} max-w-3xl bg-white border border-[#E5E1D8] rounded-2xl py-3 px-5 shadow-sm {% if video_type == 'short' %}opacity-30 pointer-events-none grayscale{% endif %} transition-all animate-in slide-in-from-top-1 duration-200">
                     <div class="flex items-center justify-between mb-2">
                         <div class="flex items-center gap-2 text-warm-400">
                             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg>
@@ -132,40 +140,6 @@
                                           [&::-webkit-slider-thumb]:cursor-pointer [&::-webkit-slider-thumb]:transition-transform
                                           [&::-webkit-slider-thumb]:hover:scale-125">
                         </div>
-                        </div>
-                        </div>
-                        </div>
-
-                <!-- Row 3: Quick Selectors Row -->
-                <div class="flex items-center gap-2 {% if video_type == 'short' %}opacity-30 pointer-events-none select-none grayscale{% endif %}">
-                    <!-- Date From -->
-                    <div onclick="openDatePicker(this, '2020-01-01', 'display-date-from')" 
-                         class="relative flex items-center gap-2 bg-white border border-[#E5E1D8] rounded-full px-3 py-1 shadow-sm h-[26px] group hover:border-brand-300 transition-all cursor-pointer">
-                        <span class="text-[10px] font-black uppercase tracking-widest text-warm-400 shrink-0 pointer-events-none">От</span>
-                        <span id="display-date-from" class="text-[10px] font-black uppercase tracking-widest text-[#4A453E] pointer-events-none">
-                            {% if date_from %}{{ date_from.replace('-', '.') }}{% else %}.... . .. . ..{% endif %}
-                        </span>
-                        <!-- NO NAME ATTRIBUTE HERE TO AVOID CONFLICT -->
-                        <input type="date" id="picker-date-from" value="{{ date_from }}" 
-                               onchange="syncAndSubmit(this, 'f-date-from', 'display-date-from')"
-                               onkeydown="return false"
-                               min="2020-01-01"
-                               class="absolute inset-0 opacity-0 w-full h-full cursor-pointer z-20">
-                    </div>
-
-                    <!-- Date To -->
-                    <div onclick="openDatePicker(this, '{{ today_val }}', 'display-date-to')"
-                         class="relative flex items-center gap-2 bg-white border border-[#E5E1D8] rounded-full px-3 py-1 shadow-sm h-[26px] group hover:border-brand-300 transition-all cursor-pointer">
-                        <span class="text-[10px] font-black uppercase tracking-widest text-warm-400 shrink-0 pointer-events-none">До</span>
-                        <span id="display-date-to" class="text-[10px] font-black uppercase tracking-widest text-[#4A453E] pointer-events-none">
-                            {% if date_to %}{{ date_to.replace('-', '.') }}{% else %}.... . .. . ..{% endif %}
-                        </span>
-                        <!-- NO NAME ATTRIBUTE HERE TO AVOID CONFLICT -->
-                        <input type="date" id="picker-date-to" value="{{ date_to }}" 
-                               onchange="syncAndSubmit(this, 'f-date-to', 'display-date-to')"
-                               onkeydown="return false"
-                               min="2020-01-01"
-                               class="absolute inset-0 opacity-0 w-full h-full cursor-pointer z-20">
                     </div>
                 </div>
             </div>
@@ -391,6 +365,11 @@
         help.classList.toggle('hidden');
     }
 
+    function toggleTimeline() {
+        const timeline = document.getElementById('timeline-container');
+        timeline.classList.toggle('hidden');
+    }
+
     function toggleDropdown(id) {
         document.querySelectorAll('.dropdown-container div[id]').forEach(d => {
             if (d.id !== id) d.classList.add('hidden');
@@ -429,13 +408,13 @@
     }
 
     // Close dropdowns on click outside
-    window.onclick = function(event) {
-        if (!event.target.closest('.dropdown-container')) {
+    window.addEventListener('click', function(e) {
+        if (e.target && !e.target.closest('.dropdown-container')) {
             document.querySelectorAll('.dropdown-container div[id]').forEach(d => {
                 d.classList.add('hidden');
             });
         }
-    }
+    });
 
     // Timeline Logic
     (function() {
