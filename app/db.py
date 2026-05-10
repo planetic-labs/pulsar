@@ -150,10 +150,23 @@ def init_db(connection: sqlite3.Connection) -> None:
         )
     """)
 
-    # 6. Indexes for speed
+    # 6. Query cache table
+    connection.execute("""
+        CREATE TABLE IF NOT EXISTS query_cache (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            query TEXT UNIQUE NOT NULL,
+            dense_vector BLOB NOT NULL,
+            sparse_indices BLOB,
+            sparse_values BLOB,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+
+    # 7. Indexes for speed
     connection.execute("CREATE INDEX IF NOT EXISTS idx_chunks_video_id ON chunks(video_id)")
     connection.execute("CREATE INDEX IF NOT EXISTS idx_speakers_video_id ON speakers(video_id)")
     connection.execute("CREATE INDEX IF NOT EXISTS idx_videos_parent_folder ON videos(parent_folder_id)")
+    connection.execute("CREATE INDEX IF NOT EXISTS idx_query_cache_query ON query_cache(query)")
 
     connection.commit()
     logger.info("SQLite database schema initialized.")
