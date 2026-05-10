@@ -8,37 +8,32 @@ from typing import Any
 
 def extract_date_from_title(title: str) -> str | None:
     """
-    Extracts date from title.
-    Supports:
+    Extracts date from the BEGINNING of the title.
+    Supports only:
     - YYYY.MM.DD
     - YY.MM.DD (where YY is 20-30)
-    - DD.MM.YY (fallback)
     Returns date in ISO format YYYY-MM-DD or None.
     """
-    # 1. Try YYYY.MM.DD
-    match_iso = re.search(r"(\d{4})\.(\d{1,2})\.(\d{1,2})", title)
-    if match_iso:
-        y, m, d = match_iso.groups()
-        try:
-            iy, im, id_ = int(y), int(m), int(d)
-            if 1900 <= iy <= 2100 and 1 <= im <= 12 and 1 <= id_ <= 31:
-                return f"{iy:04d}-{im:02d}-{id_:02d}"
-        except ValueError:
-            pass
+    # Pattern for YYYY.MM.DD or YY.MM.DD at the START of string
+    # We use \d{2,4} to capture 2 or 4 digits for the year
+    match = re.match(r"^(\d{2,4})\.(\d{2})\.(\d{2})\b", title.strip())
+    if not match:
+        return None
 
-    # 2. Try YY.MM.DD (Year 20-30)
-    match_yy = re.search(r"\b(\d{2})\.(\d{2})\.(\d{2})\b", title)
-    if match_yy:
-        g1, g2, g3 = match_yy.groups()
-        ig1, ig2, g3i = int(g1), int(g2), int(g3)
+    y_str, m_str, d_str = match.groups()
+    try:
+        y, m, d = int(y_str), int(m_str), int(d_str)
         
-        # Priority 1: YY.MM.DD (for sorting, e.g., 24.12.21)
-        if 20 <= ig1 <= 30 and 1 <= ig2 <= 12 and 1 <= g3i <= 31:
-            return f"20{ig1:02d}-{ig2:02d}-{g3i:02d}"
+        # Normalize year
+        if len(y_str) == 2:
+            # Assume 20xx for 2-digit years (YY.MM.DD)
+            # Limit to logical range 2020-2030 if needed, but let's be flexible with 2000-2099
+            y = 2000 + y
             
-        # Priority 2: DD.MM.YY (classic, e.g., 01.05.24)
-        if 1 <= ig1 <= 31 and 1 <= ig2 <= 12 and 20 <= g3i <= 30:
-            return f"20{g3i:02d}-{ig2:02d}-{ig1:02d}"
+        if 2000 <= y <= 2100 and 1 <= m <= 12 and 1 <= d <= 31:
+            return f"{y:04d}-{m:02d}-{d:02d}"
+    except ValueError:
+        pass
 
     return None
 
