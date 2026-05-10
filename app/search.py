@@ -188,6 +188,7 @@ async def hybrid_search(
     search_mode: str = "hybrid",
     date_from: str | None = None,
     date_to: str | None = None,
+    video_type: str = "all",
 ) -> list[SearchResult]:
     qdrant = get_qdrant_client()
     settings = get_qdrant_settings()
@@ -196,15 +197,23 @@ async def hybrid_search(
     video_filter: models.Condition | None = None
     speaker_filter: models.Condition | None = None
     date_filter: models.Condition | None = None
+    type_filter: models.Condition | None = None
+
+    if video_type == "short":
+        type_filter = models.FieldCondition(key="is_short", match=models.MatchValue(value=True))
+    elif video_type == "long":
+        type_filter = models.FieldCondition(key="is_short", match=models.MatchValue(value=False))
 
     if date_from or date_to:
-        date_filter = models.FieldCondition(
-            key="recorded_date",
-            range=models.DatetimeRange(
-                gte=f"{date_from}T00:00:00Z" if date_from else None,
-                lte=f"{date_to}T23:59:59Z" if date_to else None,
-            ),
-        )
+        # User requirement: ignore date filters for short videos
+        if video_type != "short":
+            date_filter = models.FieldCondition(
+                key="recorded_date",
+                range=models.DatetimeRange(
+                    gte=f"{date_from}T00:00:00Z" if date_from else None,
+                    lte=f"{date_to}T23:59:59Z" if date_to else None,
+                ),
+            )
 
     v_match = re.search(r"(?:video_id|v):(\d+)", query)
     v_id = None
@@ -242,6 +251,8 @@ async def hybrid_search(
         must_filters.append(speaker_filter)
     if date_filter:
         must_filters.append(date_filter)
+    if type_filter:
+        must_filters.append(type_filter)
 
     q_filter = models.Filter(must=must_filters) if must_filters else None
 

@@ -204,6 +204,9 @@ async def transcribe_stage(
 
     # DB Operations
     with db_connection(pg_settings) as conn:
+        duration_sec = float(norm_payload.get("duration", 0.0)) or None
+        is_short = bool(duration_sec and duration_sec <= 600)
+
         video_id = upsert_video(
             conn,
             source_type="google_drive",
@@ -213,7 +216,8 @@ async def transcribe_stage(
             source_url=f"https://drive.google.com/file/d/{file_id}/view",
             mime_type=video_metadata["mime_type"],
             size_bytes=None,
-            duration_sec=float(norm_payload.get("duration", 0.0)) or None,
+            duration_sec=duration_sec,
+            is_short=is_short,
             local_video_path=None,
             local_audio_path=str(audio_p),
             processing_status="transcribed",
@@ -229,7 +233,7 @@ async def transcribe_stage(
         )
 
         raw_chunks = norm_payload.get("utterances") or norm_payload.get("chunks") or []
-        chunks_data = chunk_from_utterances(raw_chunks)
+        chunks_data = chunk_from_utterances(raw_chunks, single_chunk=is_short)
         replace_chunks(conn, video_id=video_id, transcript_id=transcript_id, chunks=chunks_data)
 
     # Delete audio immediately

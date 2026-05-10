@@ -209,7 +209,7 @@ class Worker:
 
                 with db_connection(settings) as conn:
                     update_video_status(conn, video_id=video_id, processing_status="indexing")
-                    sql_v = "SELECT title, source_file_id, source_url, recorded_date FROM videos WHERE id = ?"
+                    sql_v = "SELECT title, source_file_id, source_url, recorded_date, is_short FROM videos WHERE id = ?"
                     v_row = conn.execute(sql_v, (video_id,)).fetchone()
                     sql_c = """
                         SELECT id, transcript_id, chunk_index, text, start_sec, end_sec FROM chunks
@@ -255,6 +255,7 @@ class Worker:
                                 "video_id": video_id,
                                 "title": v_row["title"],
                                 "recorded_date": v_row["recorded_date"],
+                                "is_short": bool(v_row["is_short"]),
                                 "source_file_id": v_row["source_file_id"],
                                 "is_primary": True,
                             },

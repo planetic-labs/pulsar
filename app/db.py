@@ -69,6 +69,7 @@ def init_db(connection: sqlite3.Connection) -> None:
             parent_folder_id TEXT,
             title TEXT NOT NULL,
             recorded_date DATE,
+            is_short BOOLEAN DEFAULT FALSE,
             source_url TEXT,
             mime_type TEXT,
             size_bytes BIGINT,
@@ -92,6 +93,10 @@ def init_db(connection: sqlite3.Connection) -> None:
     if "recorded_date" not in columns:
         logger.info("Migrating database: Adding recorded_date column to videos table.")
         connection.execute("ALTER TABLE videos ADD COLUMN recorded_date DATE")
+
+    if "is_short" not in columns:
+        logger.info("Migrating database: Adding is_short column to videos table.")
+        connection.execute("ALTER TABLE videos ADD COLUMN is_short BOOLEAN DEFAULT FALSE")
 
     # 2. Transcripts table (SIMPLIFIED: engine removed)
     connection.execute("""

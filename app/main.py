@@ -379,6 +379,65 @@ def indexed_page(request: Request):
     return templates.TemplateResponse(request, "indexed.html", {})
 
 
+@app.post("/api/v1/indexed/videos/{video_id}/toggle_short")
+async def api_toggle_short(video_id: int, _: str = Depends(require_access_token)):
+    """Toggles is_short status and re-queues for indexing."""
+    pg_settings = get_sqlite_settings()
+    app_settings = get_app_settings()
+    q_settings = get_qdrant_settings()
+
+    from app.repository import replace_chunks
+    from app.chunking import chunk_from_utterances
+    from app.qdrant import get_qdrant_client
+
+    with db_connection(pg_settings) as conn:
+        # 1. Toggle status
+        row = conn.execute("SELECT is_short, title FROM videos WHERE id = ?", (video_id,)).fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Video not found")
+        
+        new_is_short = not bool(row["is_short"])
+        conn.execute("UPDATE videos SET is_short = ? WHERE id = ?", (new_is_short, video_id))
+
+        # 2. Get transcript to re-chunk
+        t_row = conn.execute("SELECT id, normalized_json_path FROM transcripts WHERE video_id = ?", (video_id,)).fetchone()
+        if t_row and t_row["normalized_json_path"]:
+            norm_path = Path(t_row["normalized_json_path"])
+            if norm_path.exists():
+                norm_payload = json.loads(norm_path.read_text(encoding="utf-8"))
+                raw_chunks = norm_payload.get("utterances") or norm_payload.get("chunks") or []
+                
+                # 3. Re-chunk
+                new_chunks = chunk_from_utterances(raw_chunks, single_chunk=new_is_short)
+                
+                # 4. Clear Qdrant old points
+                old_chunk_ids = [r["id"] for r in conn.execute("SELECT id FROM chunks WHERE video_id = ?", (video_id,)).fetchall()]
+                if old_chunk_ids:
+                    qdrant = get_qdrant_client()
+                    qdrant.delete(
+                        collection_name=q_settings.collection_name,
+                        points_selector=models.PointIdsList(points=old_chunk_ids),
+                    )
+
+                # 5. Clear SQLite chunks and save new ones
+                replace_chunks(conn, video_id=video_id, transcript_id=t_row["id"], chunks=new_chunks)
+
+                # 6. Re-queue for Stage 3 indexing
+                conn.execute(
+                    "INSERT INTO tasks (task_type, payload) VALUES (?, ?)",
+                    ("stage_3_index", json.dumps({"video_id": video_id})),
+                )
+                
+                # Auto-start worker if needed
+                worker = get_worker()
+                if not worker.is_running:
+                    asyncio.create_task(worker.run())
+
+        conn.commit()
+
+    return {"status": "ok", "is_short": new_is_short, "queued": True}
+
+
 @app.get("/api/v1/indexed/ls")
 async def api_indexed_ls(folder_id: str | None = None, _: str = Depends(require_access_token)):
     """Lists indexed folders and videos from local DB with metadata."""
@@ -401,7 +460,7 @@ async def api_indexed_ls(folder_id: str | None = None, _: str = Depends(require_
         # 2. Get videos in this folder with rich metadata
         video_sql = """
             SELECT
-                v.id, v.title, v.mime_type, v.duration_sec, v.updated_at, v.source_file_id,
+                v.id, v.title, v.mime_type, v.duration_sec, v.updated_at, v.source_file_id, v.is_short,
                 t.language, t.confidence,
                 (SELECT COUNT(*) FROM chunks c WHERE c.video_id = v.id) as chunk_count
             FROM videos v
@@ -442,13 +501,13 @@ async def api_indexed_ls(folder_id: str | None = None, _: str = Depends(require_
                 "name": r["title"],
                 "is_folder": False,
                 "mime_type": r["mime_type"],
+                "is_short": bool(r["is_short"]),
                 "source_file_id": r["source_file_id"],
                 "duration_sec": r["duration_sec"],
                 "chunk_count": r["chunk_count"],
                 "language": r["language"],
                 "confidence": r["confidence"],
                 "updated_at": r["updated_at"],
-                "engine": "Deepgram",
             }
         )
 
@@ -581,6 +640,7 @@ async def index_page(
     mode: str = "hybrid",
     date_from: str | None = None,
     date_to: str | None = None,
+    video_type: str = "all",
 ):
     app_settings = get_app_settings()
     pg_settings = get_sqlite_settings()
@@ -606,6 +666,7 @@ async def index_page(
                 search_mode=mode,
                 date_from=date_from,
                 date_to=date_to,
+                video_type=video_type,
             )
             results = items
 
@@ -624,8 +685,11 @@ async def index_page(
             "query": q or "",
             "results": results,
             "mode": mode,
-            "date_from": date_from or default_start,
-            "date_to": date_to or today,
+            "date_from": date_from or "",
+            "date_to": date_to or "",
+            "today_val": today,
+            "default_start": default_start,
+            "video_type": video_type,
             "token": app_settings.access_token,
         },
     )
