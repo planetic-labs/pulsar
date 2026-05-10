@@ -309,6 +309,8 @@ def main():
                 for f in config_src.glob("*"):
                     if f.is_file():
                         shutil.copy2(f, config_dest / f.name)
+                        if f.name == "service-key.json":
+                            logger.info("✅ Restored Google Drive service-key.json")
                 logger.info("✅ config/ files restored.")
             except Exception as e:
                 logger.error(f"❌ Failed to restore config/ files: {e}")
