@@ -1,6 +1,9 @@
 import asyncio
 import sys
+import logging
 from pathlib import Path
+
+logging.basicConfig(level=logging.INFO)
 
 # Add project root to path
 ROOT_DIR = Path(__file__).resolve().parents[1]

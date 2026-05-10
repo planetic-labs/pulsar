@@ -1037,30 +1037,10 @@ async def api_drive_ls(folder_id: str | None = None, _: str = Depends(require_ac
     except Exception as e:
         # If it's an auth error, we return a specific hint for the UI
         if "token" in str(e).lower() or "auth" in str(e).lower():
-            raise HTTPException(status_code=401, detail="Google Drive re-authentication required") from e
+            raise HTTPException(
+                status_code=401, detail="Google Drive access error. Check service account permissions."
+            ) from e
         raise HTTPException(status_code=500, detail=str(e)) from e
-
-
-@app.get("/api/drive/auth/init")
-async def api_drive_auth_init(_token: str = Depends(require_access_token)):
-    try:
-        drive_client = GoogleDriveClient(get_google_drive_settings())
-        auth_url, _ = drive_client.auth_init()
-        return {"auth_url": auth_url}
-    except Exception as e:
-        logger.error(f"Failed to initiate Google Drive auth: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@app.get("/api/drive/auth/callback")
-async def api_drive_auth_callback(request: Request):
-    # This is the endpoint Google redirects back to
-    drive_client = GoogleDriveClient(get_google_drive_settings())
-    try:
-        await drive_client.auth_exchange(str(request.url))
-        return HTMLResponse("<html><body><script>window.close();</script>Авторизация успешна!</body></html>")
-    except Exception as e:
-        return HTMLResponse(f"<html><body>Ошибка: {e}</body></html>")
 
 
 # --- API & STREAMING ---

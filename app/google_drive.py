@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import logging
-import secrets
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -11,6 +10,8 @@ from typing import Any
 from urllib.parse import urlencode
 
 import httpx
+from google.oauth2 import service_account
+from google.auth.transport.requests import Request
 
 from app.config import GoogleDriveSettings
 
@@ -31,158 +32,22 @@ class DriveFile:
 class GoogleDriveClient:
     def __init__(self, settings: GoogleDriveSettings) -> None:
         self.settings = settings
+        self._creds: service_account.Credentials | None = None
 
-    def _client_config(self) -> dict[str, Any]:
-        payload = json.loads(self.settings.credentials_path.read_text(encoding="utf-8"))
-        installed = payload.get("installed")
-        if not installed:
-            raise ValueError("Expected OAuth installed-app credentials in google.json under 'installed'.")
-        return dict(installed)
-
-    def _token_payload(self) -> dict[str, Any] | None:
-        if not self.settings.token_path.exists():
-            return None
-        return dict(json.loads(self.settings.token_path.read_text(encoding="utf-8")))
-
-    def _write_token_payload(self, payload: dict[str, Any]) -> None:
-        self.settings.token_path.write_text(
-            json.dumps(payload, ensure_ascii=True, indent=2),
-            encoding="utf-8",
-        )
-
-    def _write_auth_session(self, payload: dict[str, Any]) -> Path:
-        session_path = self.settings.token_path.with_suffix(".auth.json")
-        session_path.write_text(
-            json.dumps(payload, ensure_ascii=True, indent=2),
-            encoding="utf-8",
-        )
-        return session_path
-
-    def _read_auth_session(self) -> dict[str, Any]:
-        session_path = self.settings.token_path.with_suffix(".auth.json")
-        if not session_path.exists():
-            raise FileNotFoundError(f"Auth session file not found: {session_path}. Run auth_init() first.")
-        return dict(json.loads(session_path.read_text(encoding="utf-8")))
-
-    async def _post_form(self, url: str, data: dict[str, Any]) -> dict[str, Any]:
-        async with httpx.AsyncClient() as client:
-            try:
-                response = await client.post(
-                    url,
-                    data=data,
-                    headers={"Content-Type": "application/x-www-form-urlencoded"},
-                    timeout=30.0,
-                )
-                response.raise_for_status()
-                try:
-                    return dict(response.json())
-                except json.JSONDecodeError as e:
-                    logger.error(f"JSON decode error from {url}. Status: {response.status_code}, Body snippet: {response.text[:200]}")
-                    raise e
-            except httpx.HTTPStatusError as e:
-                logger.error(f"HTTP Error during POST to {url}: {e.response.status_code}\nBody: {e.response.text}")
-                raise
-
-    async def _refresh_access_token(self, refresh_token: str) -> dict[str, Any]:
-        config = self._client_config()
-        token_response = await self._post_form(
-            config["token_uri"],
-            {
-                "client_id": config["client_id"],
-                "client_secret": config["client_secret"],
-                "refresh_token": refresh_token,
-                "grant_type": "refresh_token",
-            },
-        )
-        token_response["refresh_token"] = refresh_token
-        token_response["created_at"] = int(time.time())
-        self._write_token_payload(token_response)
-        return token_response
-
-    def auth_init(self) -> tuple[str, Path]:
-        config = self._client_config()
-        code_verifier = secrets.token_urlsafe(64)
-        state = secrets.token_urlsafe(24)
-        redirect_uri = config["redirect_uris"][0]
-
-        auth_url = f"{config['auth_uri']}?" + urlencode(
-            {
-                "client_id": config["client_id"],
-                "redirect_uri": redirect_uri,
-                "response_type": "code",
-                "scope": " ".join(self.settings.scopes),
-                "access_type": "offline",
-                "prompt": "consent",
-                "state": state,
-                "code_challenge": code_verifier,
-                "code_challenge_method": "plain",
-            }
-        )
-
-        session_path = self._write_auth_session(
-            {
-                "state": state,
-                "redirect_uri": redirect_uri,
-                "code_verifier": code_verifier,
-                "created_at": int(time.time()),
-            }
-        )
-        return auth_url, session_path
-
-    async def auth_exchange(self, callback_url: str) -> dict[str, Any]:
-        config = self._client_config()
-        session_payload = self._read_auth_session()
-
-        from urllib.parse import parse_qs, urlparse
-
-        parsed = urlparse(callback_url)
-        query = parse_qs(parsed.query)
-        returned_state = query.get("state", [None])[0]
-        code = query.get("code", [None])[0]
-        error = query.get("error", [None])[0]
-
-        if error:
-            raise RuntimeError(f"Google OAuth returned error: {error}")
-        if not code:
-            raise ValueError("Callback URL does not contain OAuth code.")
-        if returned_state != session_payload["state"]:
-            raise ValueError("OAuth state mismatch.")
-
-        token_response = await self._post_form(
-            config["token_uri"],
-            {
-                "client_id": config["client_id"],
-                "client_secret": config["client_secret"],
-                "redirect_uri": session_payload["redirect_uri"],
-                "grant_type": "authorization_code",
-                "code": code,
-                "code_verifier": session_payload["code_verifier"],
-            },
-        )
-        token_response["created_at"] = int(time.time())
-        self._write_token_payload(token_response)
-        return token_response
+    def _get_creds(self) -> service_account.Credentials:
+        if self._creds is None:
+            self._creds = service_account.Credentials.from_service_account_file(
+                str(self.settings.credentials_path), scopes=self.settings.scopes
+            )
+        return self._creds
 
     async def _get_access_token(self) -> str:
-        token_payload = self._token_payload()
-        if token_payload:
-            created_at = int(token_payload.get("created_at", 0))
-            expires_in = int(token_payload.get("expires_in", 0))
-            expires_at = created_at + expires_in - 60
-
-            access_token = token_payload.get("access_token")
-            if access_token and time.time() < expires_at:
-                return str(access_token)
-
-            refresh_token = token_payload.get("refresh_token")
-            if refresh_token:
-                refreshed = await self._refresh_access_token(str(refresh_token))
-                return str(refreshed["access_token"])
-
-        raise RuntimeError(
-            "No valid Google token found. Run auth-init, authorize in browser, "
-            "then complete auth-exchange with the returned callback URL."
-        )
+        creds = self._get_creds()
+        if not creds.valid:
+            # Refreshing credentials requires a transport. 
+            # We use a synchronous request here because it's only once an hour.
+            creds.refresh(Request())
+        return str(creds.token)
 
     async def _authorized_get_json(self, url: str) -> dict[str, Any]:
         access_token = await self._get_access_token()

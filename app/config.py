@@ -33,7 +33,6 @@ class SQLiteSettings:
 @dataclass(frozen=True)
 class GoogleDriveSettings:
     credentials_path: Path
-    token_path: Path
     download_dir: Path
     scopes: tuple[str, ...]
 
@@ -145,8 +144,7 @@ def get_local_ai_settings() -> LocalAISettings:
 def get_google_drive_settings() -> GoogleDriveSettings:
     scopes_raw = os.getenv("GOOGLE_DRIVE_SCOPES", "https://www.googleapis.com/auth/drive.readonly")
     return GoogleDriveSettings(
-        credentials_path=Path(os.getenv("GOOGLE_DRIVE_CREDENTIALS_PATH", "/srv/search-ui/config/google.json")),
-        token_path=Path(os.getenv("GOOGLE_DRIVE_TOKEN_PATH", "/srv/search-ui/config/token.json")),
+        credentials_path=Path(os.getenv("GOOGLE_DRIVE_CREDENTIALS_PATH", "/srv/search-ui/config/service-key.json")),
         download_dir=Path(os.getenv("GOOGLE_DRIVE_DOWNLOAD_DIR", "/srv/search-ui/downloads")),
         scopes=tuple(s.strip() for s in scopes_raw.split(",") if s.strip()),
     )
