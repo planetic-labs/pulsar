@@ -201,13 +201,13 @@ async def transcribe_stage(
 
     if state_callback:
         state_callback({"status_text": "Сохранение в базу...", "progress": 99, "speed": ""})
-# DB Operations
-with db_connection(pg_settings) as conn:
-    duration_sec = float(norm_payload.get("duration", 0.0)) or None
-    is_short = bool(duration_sec and duration_sec <= 1800)
 
-    video_id = upsert_video(
-...
+    # DB Operations
+    with db_connection(pg_settings) as conn:
+        duration_sec = float(norm_payload.get("duration", 0.0)) or None
+        is_short = bool(duration_sec and duration_sec <= 1800)
+
+        video_id = upsert_video(
             conn,
             source_type="google_drive",
             source_file_id=file_id,

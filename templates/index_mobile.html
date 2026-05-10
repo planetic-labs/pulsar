@@ -45,80 +45,82 @@
                 </button>
             </form>
 
-            <!-- Search Modes and Filters Mobile -->
-            <div class="flex flex-col gap-2.5">
-                <!-- Row 1: Modes -->
-                <div class="flex items-center gap-2 overflow-x-auto pb-1 no-scrollbar border-b border-[#F2F0EB]">
-                    <label class="shrink-0 cursor-pointer">
-                        <input type="radio" name="mode" value="hybrid" form="search-form" onchange="this.form.submit()" {% if mode == 'hybrid' or not mode %}checked{% endif %} class="hidden peer">
-                        <span class="px-3 py-1.5 text-[8px] font-black uppercase tracking-wider rounded-xl border border-[#F2F0EB] bg-[#FAF9F6] text-warm-400 peer-checked:bg-brand-500 peer-checked:text-white peer-checked:border-brand-500 transition-all shadow-sm">Гибридный</span>
-                    </label>
-                    <label class="shrink-0 cursor-pointer">
-                        <input type="radio" name="mode" value="semantic" form="search-form" onchange="this.form.submit()" {% if mode == 'semantic' %}checked{% endif %} class="hidden peer">
-                        <span class="px-3 py-1.5 text-[8px] font-black uppercase tracking-wider rounded-xl border border-[#F2F0EB] bg-[#FAF9F6] text-warm-400 peer-checked:bg-purple-500 peer-checked:text-white peer-checked:border-purple-500 transition-all shadow-sm">Смысл</span>
-                    </label>
-                    <label class="shrink-0 cursor-pointer">
-                        <input type="radio" name="mode" value="lexical" form="search-form" onchange="this.form.submit()" {% if mode == 'lexical' %}checked{% endif %} class="hidden peer">
-                        <span class="px-3 py-1.5 text-[8px] font-black uppercase tracking-wider rounded-xl border border-[#F2F0EB] bg-[#FAF9F6] text-warm-400 peer-checked:bg-blue-500 peer-checked:text-white peer-checked:border-blue-500 transition-all shadow-sm">Слова</span>
-                    </label>
-                    <label class="shrink-0 cursor-pointer">
-                        <input type="radio" name="mode" value="quote" form="search-form" onchange="this.form.submit()" {% if mode == 'quote' %}checked{% endif %} class="hidden peer">
-                        <span class="px-3 py-1.5 text-[8px] font-black uppercase tracking-wider rounded-xl border border-[#F2F0EB] bg-[#FAF9F6] text-warm-400 peer-checked:bg-rose-500 peer-checked:text-white peer-checked:border-rose-500 transition-all shadow-sm">Цитата</span>
-                    </label>
-                </div>
-
-                <!-- Row 2: Type Filters -->
-                <div class="flex items-center gap-2 overflow-x-auto pb-1 no-scrollbar border-b border-[#F2F0EB]">
-                    <label class="shrink-0 cursor-pointer">
-                        <input type="radio" name="video_type" value="all" form="search-form" onchange="this.form.submit()" {% if video_type == 'all' or not video_type %}checked{% endif %} class="hidden peer">
-                        <span class="px-3 py-1.5 text-[8px] font-black uppercase tracking-wider rounded-xl border border-[#F2F0EB] bg-[#FAF9F6] text-warm-400 peer-checked:bg-teal-500 peer-checked:text-white peer-checked:border-teal-500 transition-all shadow-sm">Все видео</span>
-                    </label>
-                    <label class="shrink-0 cursor-pointer">
-                        <input type="radio" name="video_type" value="short" form="search-form" onchange="this.form.submit()" {% if video_type == 'short' %}checked{% endif %} class="hidden peer">
-                        <span class="px-3 py-1.5 text-[8px] font-black uppercase tracking-wider rounded-xl border border-[#F2F0EB] bg-[#FAF9F6] text-warm-400 peer-checked:bg-teal-500 peer-checked:text-white peer-checked:border-teal-500 transition-all shadow-sm">Короткие</span>
-                    </label>
-                    <label class="shrink-0 cursor-pointer">
-                        <input type="radio" name="video_type" value="long" form="search-form" onchange="this.form.submit()" {% if video_type == 'long' %}checked{% endif %} class="hidden peer">
-                        <span class="px-3 py-1.5 text-[8px] font-black uppercase tracking-wider rounded-xl border border-[#F2F0EB] bg-[#FAF9F6] text-warm-400 peer-checked:bg-teal-500 peer-checked:text-white peer-checked:border-teal-500 transition-all shadow-sm">Длинные</span>
-                    </label>
-                </div>
-                
-                <div class="flex items-center gap-2 {% if video_type == 'short' %}opacity-30 pointer-events-none select-none grayscale{% endif %}">
-                    <!-- Date From Mobile -->
-                    <div onclick="openDatePicker(this, '2020-01-01', 'display-date-from')"
-                         class="relative flex-1 flex items-center gap-2 bg-[#FAF9F6] border border-[#F2F0EB] rounded-xl px-2 py-1.5 shadow-inner h-[30px] cursor-pointer">
-                        <span class="text-[8px] font-black uppercase tracking-wider text-warm-400 shrink-0 pointer-events-none">От</span>
-                        <span id="display-date-from" class="text-[8px] font-black uppercase tracking-wider text-[#4A453E] pointer-events-none">
-                            {% if date_from %}{{ date_from.replace('-', '.') }}{% else %}.... . .. . ..{% endif %}
-                        </span>
-                        <input type="date" name="date_from" id="input-date-from" value="{{ date_from }}" 
-                               form="search-form"
-                               onchange="updateDisplayDate(this, 'display-date-from')"
-                               onkeydown="return false"
-                               min="2020-01-01"
-                               class="absolute inset-0 opacity-0 w-full h-full cursor-pointer z-20">
+            <!-- New Dropdown Filters and Timeline Mobile -->
+            <div class="flex flex-col gap-3">
+                <!-- Row 1: Dropdowns -->
+                <div class="flex items-center gap-2 overflow-x-auto pb-1 no-scrollbar">
+                    <!-- Mode Dropdown Mobile -->
+                    <div class="relative dropdown-container shrink-0">
+                        <button type="button" onclick="toggleDropdown('mode-drop-mob')" class="flex items-center gap-2 px-3 py-1.5 bg-white border border-[#F2F0EB] rounded-xl text-[9px] font-black uppercase tracking-wider text-[#4A453E] shadow-sm">
+                            <span class="text-warm-400">режим:</span>
+                            <span>{{ mode }}</span>
+                            <svg class="w-3 h-3 text-warm-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M19 9l-7 7-7-7"></path></svg>
+                        </button>
+                        <div id="mode-drop-mob" class="hidden absolute top-full left-0 mt-1 w-40 bg-white border border-[#F2F0EB] rounded-2xl shadow-xl z-[100] overflow-hidden">
+                            {% for m in ['hybrid', 'semantic', 'lexical', 'quote'] %}
+                            <button type="button" onclick="setFilter('mode', '{{m}}')" class="w-full text-left px-4 py-3 text-[10px] font-black uppercase tracking-wider hover:bg-warm-50 {% if mode == m %}text-brand-500 bg-brand-50/30{% else %}text-warm-500{% endif %}">{{m}}</button>
+                            {% endfor %}
+                        </div>
                     </div>
 
-                    <!-- Date To Mobile -->
-                    <div onclick="openDatePicker(this, '{{ today_val }}', 'display-date-to')"
-                         class="relative flex-1 flex items-center gap-2 bg-[#FAF9F6] border border-[#F2F0EB] rounded-xl px-2 py-1.5 shadow-inner h-[30px] cursor-pointer">
-                        <span class="text-[8px] font-black uppercase tracking-wider text-warm-400 shrink-0 pointer-events-none">До</span>
-                        <span id="display-date-to" class="text-[8px] font-black uppercase tracking-wider text-[#4A453E] pointer-events-none">
-                            {% if date_to %}{{ date_to.replace('-', '.') }}{% else %}.... . .. . ..{% endif %}
-                        </span>
-                        <input type="date" name="date_to" id="input-date-to" value="{{ date_to }}" 
-                               form="search-form"
-                               onchange="updateDisplayDate(this, 'display-date-to')"
-                               onkeydown="return false"
-                               min="2020-01-01"
-                               class="absolute inset-0 opacity-0 w-full h-full cursor-pointer z-20">
+                    <!-- Type Dropdown Mobile -->
+                    <div class="relative dropdown-container shrink-0">
+                        <button type="button" onclick="toggleDropdown('type-drop-mob')" class="flex items-center gap-2 px-3 py-1.5 bg-white border border-[#F2F0EB] rounded-xl text-[9px] font-black uppercase tracking-wider text-[#4A453E] shadow-sm">
+                            <span class="text-warm-400">тип:</span>
+                            <span>{% if video_type == 'all' %}все{% elif video_type == 'short' %}shorts{% else %}длинные{% endif %}</span>
+                            <svg class="w-3 h-3 text-warm-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M19 9l-7 7-7-7"></path></svg>
+                        </button>
+                        <div id="type-drop-mob" class="hidden absolute top-full left-0 mt-1 w-48 bg-white border border-[#F2F0EB] rounded-2xl shadow-xl z-[100] overflow-hidden">
+                            <button type="button" onclick="setFilter('video_type', 'all')" class="w-full text-left px-4 py-3 text-[10px] font-black uppercase tracking-wider hover:bg-warm-50 {% if video_type == 'all' %}text-teal-600 bg-teal-50/30{% else %}text-warm-500{% endif %}">все видео</button>
+                            <button type="button" onclick="setFilter('video_type', 'short')" class="w-full text-left px-4 py-3 text-[10px] font-black uppercase tracking-wider hover:bg-warm-50 {% if video_type == 'short' %}text-teal-600 bg-teal-50/30{% else %}text-warm-500{% endif %}">shorts (до 30м)</button>
+                            <button type="button" onclick="setFilter('video_type', 'long')" class="w-full text-left px-4 py-3 text-[10px] font-black uppercase tracking-wider hover:bg-warm-50 {% if video_type == 'long' %}text-teal-600 bg-teal-50/30{% else %}text-warm-500{% endif %}">длинные</button>
+                        </div>
                     </div>
 
                     {% if (date_from or date_to) and video_type != 'short' %}
-                    <button type="button" onclick="clearDates(document.getElementById('search-form'))" class="p-1.5 text-rose-500 z-30">
-                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M6 18L18 6M6 6l12 12"></path></svg>
+                    <button type="button" onclick="clearDates(document.getElementById('search-form'))" class="shrink-0 flex items-center gap-1.5 px-3 py-1.5 bg-rose-50 text-rose-500 rounded-xl text-[9px] font-black uppercase tracking-wider border border-rose-100 shadow-sm">
+                        <span>сброс дат</span>
                     </button>
                     {% endif %}
+                </div>
+
+                <!-- Row 2: Timeline Mobile -->
+                <div class="bg-white border border-[#F2F0EB] rounded-2xl p-4 shadow-sm {% if video_type == 'short' %}opacity-30 pointer-events-none select-none grayscale{% endif %}">
+                    <div class="flex items-center justify-between mb-3">
+                        <span class="text-[9px] font-black text-warm-400 uppercase tracking-widest">период</span>
+                        <div class="text-[9px] font-black uppercase tracking-wider text-brand-500 text-right">
+                            {% if date_from or date_to %}
+                                {{ date_from.replace('-', '.') if date_from else '..' }} — {{ date_to.replace('-', '.') if date_to else '..' }}
+                            {% else %}
+                                всё время
+                            {% endif %}
+                        </div>
+                    </div>
+                    <div class="relative h-4 flex items-center px-1 mb-2">
+                        <div class="absolute w-full h-[1.5px] bg-warm-100 rounded-full"></div>
+                        <div id="timeline-range-mob" class="absolute h-[2px] bg-brand-400 z-10" style="left: 0%; right: 0%;">
+                            <div class="absolute -left-[2px] -top-1.5 w-[5px] h-4 bg-brand-500 rounded-full"></div>
+                            <div class="absolute -right-[2px] -top-1.5 w-[5px] h-4 bg-brand-500 rounded-full"></div>
+                        </div>
+                    </div>
+                    
+                    <!-- Quick Date Selectors Mobile -->
+                    <div class="flex items-center gap-2">
+                        <div onclick="openDatePicker(this, '2020-01-01', 'display-date-from')" class="flex-1 flex items-center gap-2 bg-[#FAF9F6] border border-[#F2F0EB] rounded-xl px-2.5 py-1.5 shadow-inner relative h-8">
+                            <span class="text-[7px] font-black text-warm-400 uppercase">От</span>
+                            <span id="display-date-from" class="text-[9px] font-black uppercase tracking-widest text-[#4A453E]">
+                                {% if date_from %}{{ date_from.replace('-', '.') }}{% else %}.... . ..{% endif %}
+                            </span>
+                            <input type="date" name="date_from" value="{{ date_from }}" form="search-form" onchange="updateDisplayDate(this, 'display-date-from')" class="absolute inset-0 opacity-0 w-full h-full">
+                        </div>
+                        <div onclick="openDatePicker(this, '{{ today_val }}', 'display-date-to')" class="flex-1 flex items-center gap-2 bg-[#FAF9F6] border border-[#F2F0EB] rounded-xl px-2.5 py-1.5 shadow-inner relative h-8">
+                            <span class="text-[7px] font-black text-warm-400 uppercase">До</span>
+                            <span id="display-date-to" class="text-[9px] font-black uppercase tracking-widest text-[#4A453E]">
+                                {% if date_to %}{{ date_to.replace('-', '.') }}{% else %}.... . ..{% endif %}
+                            </span>
+                            <input type="date" name="date_to" value="{{ date_to }}" form="search-form" onchange="updateDisplayDate(this, 'display-date-to')" class="absolute inset-0 opacity-0 w-full h-full">
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>

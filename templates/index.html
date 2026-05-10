@@ -25,79 +25,103 @@
                 </button>
             </div>
             
-            <!-- Search Modes and Filters -->
-            <div class="mt-3 flex flex-col gap-2.5 pl-1">
-                <!-- Row 1: Search Modes -->
-                <div class="flex items-center gap-2">
-                    <label class="flex items-center gap-2 cursor-pointer group">
-                        <input type="radio" name="mode" value="hybrid" onchange="this.form.submit()" {% if mode == 'hybrid' or not mode %}checked{% endif %} class="hidden peer">
-                        <span class="px-3 py-1 text-[10px] font-black uppercase tracking-widest rounded-full border border-[#E5E1D8] bg-white text-warm-400 peer-checked:bg-brand-500 peer-checked:text-white peer-checked:border-brand-500 transition-all shadow-sm hover:border-brand-300">Гибридный</span>
-                    </label>
-                    <label class="flex items-center gap-2 cursor-pointer group">
-                        <input type="radio" name="mode" value="semantic" onchange="this.form.submit()" {% if mode == 'semantic' %}checked{% endif %} class="hidden peer">
-                        <span class="px-3 py-1 text-[10px] font-black uppercase tracking-widest rounded-full border border-[#E5E1D8] bg-white text-warm-400 peer-checked:bg-purple-500 peer-checked:text-white peer-checked:border-purple-500 transition-all shadow-sm hover:border-purple-300">По смыслу</span>
-                    </label>
-                    <label class="flex items-center gap-2 cursor-pointer group">
-                        <input type="radio" name="mode" value="lexical" onchange="this.form.submit()" {% if mode == 'lexical' %}checked{% endif %} class="hidden peer">
-                        <span class="px-3 py-1 text-[10px] font-black uppercase tracking-widest rounded-full border border-[#E5E1D8] bg-white text-warm-400 peer-checked:bg-blue-500 peer-checked:text-white peer-checked:border-blue-500 transition-all shadow-sm hover:border-blue-300">По словам</span>
-                    </label>
-                    <label class="flex items-center gap-2 cursor-pointer group">
-                        <input type="radio" name="mode" value="quote" onchange="this.form.submit()" {% if mode == 'quote' %}checked{% endif %} class="hidden peer">
-                        <span class="px-3 py-1 text-[10px] font-black uppercase tracking-widest rounded-full border border-[#E5E1D8] bg-white text-warm-400 peer-checked:bg-rose-500 peer-checked:text-white peer-checked:border-rose-500 transition-all shadow-sm hover:border-rose-300">По цитате</span>
-                    </label>
-                </div>
-
-                <!-- Row 2: Type Filters -->
-                <div class="flex items-center gap-2">
-                    <label class="flex items-center gap-2 cursor-pointer group">
-                        <input type="radio" name="video_type" value="all" onchange="this.form.submit()" {% if video_type == 'all' or not video_type %}checked{% endif %} class="hidden peer">
-                        <span class="px-3 py-1 text-[10px] font-black uppercase tracking-widest rounded-full border border-[#E5E1D8] bg-white text-warm-400 peer-checked:bg-teal-500 peer-checked:text-white peer-checked:border-teal-500 transition-all shadow-sm hover:border-teal-300">Все видео</span>
-                    </label>
-                    <label class="flex items-center gap-2 cursor-pointer group">
-                        <input type="radio" name="video_type" value="short" onchange="this.form.submit()" {% if video_type == 'short' %}checked{% endif %} class="hidden peer">
-                        <span class="px-3 py-1 text-[10px] font-black uppercase tracking-widest rounded-full border border-[#E5E1D8] bg-white text-warm-400 peer-checked:bg-teal-500 peer-checked:text-white peer-checked:border-teal-500 transition-all shadow-sm hover:border-teal-300">Короткие</span>
-                    </label>
-                    <label class="flex items-center gap-2 cursor-pointer group">
-                        <input type="radio" name="video_type" value="long" onchange="this.form.submit()" {% if video_type == 'long' %}checked{% endif %} class="hidden peer">
-                        <span class="px-3 py-1 text-[10px] font-black uppercase tracking-widest rounded-full border border-[#E5E1D8] bg-white text-warm-400 peer-checked:bg-teal-500 peer-checked:text-white peer-checked:border-teal-500 transition-all shadow-sm hover:border-teal-300">Длинные</span>
-                    </label>
-                </div>
-
-                <!-- Row 3: Date Filters -->
-                <div class="flex items-center gap-2 {% if video_type == 'short' %}opacity-30 pointer-events-none select-none grayscale{% endif %}">
-                    <!-- Date From -->
-                    <div onclick="openDatePicker(this, '2020-01-01', 'display-date-from')" 
-                         class="relative flex items-center gap-2 bg-white border border-[#E5E1D8] rounded-full px-3 py-1 shadow-sm h-[26px] group hover:border-brand-300 transition-all cursor-pointer">
-                        <span class="text-[10px] font-black uppercase tracking-widest text-warm-400 shrink-0 pointer-events-none">От</span>
-                        <span id="display-date-from" class="text-[10px] font-black uppercase tracking-widest text-[#4A453E] pointer-events-none">
-                            {% if date_from %}{{ date_from.replace('-', '.') }}{% else %}.... . .. . ..{% endif %}
-                        </span>
-                        <input type="date" name="date_from" id="input-date-from" value="{{ date_from }}" 
-                               onchange="updateDisplayDate(this, 'display-date-from')"
-                               onkeydown="return false"
-                               min="2020-01-01"
-                               class="absolute inset-0 opacity-0 w-full h-full cursor-pointer z-20">
+            <!-- New Dropdown Filters and Timeline -->
+            <div class="mt-4 flex flex-col gap-4 pl-1">
+                <!-- Row 1: Dropdown Filters -->
+                <div class="flex flex-wrap items-center gap-2">
+                    <!-- Mode Dropdown -->
+                    <div class="relative dropdown-container">
+                        <button type="button" onclick="toggleDropdown('mode-drop')" class="flex items-center gap-2 px-3 py-1.5 bg-white border border-[#E5E1D8] rounded-full text-[10px] font-black uppercase tracking-widest text-[#4A453E] hover:border-brand-300 transition-all shadow-sm">
+                            <span class="text-warm-400">режим:</span>
+                            <span>{{ mode }}</span>
+                            <svg class="w-3 h-3 text-warm-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M19 9l-7 7-7-7"></path></svg>
+                        </button>
+                        <div id="mode-drop" class="hidden absolute top-full left-0 mt-1 w-40 bg-white border border-[#E5E1D8] rounded-2xl shadow-xl z-[100] overflow-hidden">
+                            {% for m in ['hybrid', 'semantic', 'lexical', 'quote'] %}
+                            <button type="button" onclick="setFilter('mode', '{{m}}')" class="w-full text-left px-4 py-2 text-[10px] font-black uppercase tracking-widest hover:bg-warm-50 {% if mode == m %}text-brand-500 bg-brand-50/30{% else %}text-warm-500{% endif %}">{{m}}</button>
+                            {% endfor %}
+                        </div>
                     </div>
 
-                    <!-- Date To -->
-                    <div onclick="openDatePicker(this, '{{ today_val }}', 'display-date-to')"
-                         class="relative flex items-center gap-2 bg-white border border-[#E5E1D8] rounded-full px-3 py-1 shadow-sm h-[26px] group hover:border-brand-300 transition-all cursor-pointer">
-                        <span class="text-[10px] font-black uppercase tracking-widest text-warm-400 shrink-0 pointer-events-none">До</span>
-                        <span id="display-date-to" class="text-[10px] font-black uppercase tracking-widest text-[#4A453E] pointer-events-none">
-                            {% if date_to %}{{ date_to.replace('-', '.') }}{% else %}.... . .. . ..{% endif %}
-                        </span>
-                        <input type="date" name="date_to" id="input-date-to" value="{{ date_to }}" 
-                               onchange="updateDisplayDate(this, 'display-date-to')"
-                               onkeydown="return false"
-                               min="2020-01-01"
-                               class="absolute inset-0 opacity-0 w-full h-full cursor-pointer z-20">
+                    <!-- Type Dropdown -->
+                    <div class="relative dropdown-container">
+                        <button type="button" onclick="toggleDropdown('type-drop')" class="flex items-center gap-2 px-3 py-1.5 bg-white border border-[#E5E1D8] rounded-full text-[10px] font-black uppercase tracking-widest text-[#4A453E] hover:border-brand-300 transition-all shadow-sm">
+                            <span class="text-warm-400">тип:</span>
+                            <span>{% if video_type == 'all' %}все видео{% elif video_type == 'short' %}shorts{% else %}длинные{% endif %}</span>
+                            <svg class="w-3 h-3 text-warm-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M19 9l-7 7-7-7"></path></svg>
+                        </button>
+                        <div id="type-drop" class="hidden absolute top-full left-0 mt-1 w-48 bg-white border border-[#E5E1D8] rounded-2xl shadow-xl z-[100] overflow-hidden">
+                            <button type="button" onclick="setFilter('video_type', 'all')" class="w-full text-left px-4 py-2 text-[10px] font-black uppercase tracking-widest hover:bg-warm-50 {% if video_type == 'all' %}text-teal-600 bg-teal-50/30{% else %}text-warm-500{% endif %}">все видео</button>
+                            <button type="button" onclick="setFilter('video_type', 'short')" class="w-full text-left px-4 py-2 text-[10px] font-black uppercase tracking-widest hover:bg-warm-50 {% if video_type == 'short' %}text-teal-600 bg-teal-50/30{% else %}text-warm-500{% endif %}">shorts (до 30м)</button>
+                            <button type="button" onclick="setFilter('video_type', 'long')" class="w-full text-left px-4 py-2 text-[10px] font-black uppercase tracking-widest hover:bg-warm-50 {% if video_type == 'long' %}text-teal-600 bg-teal-50/30{% else %}text-warm-500{% endif %}">длинные</button>
+                        </div>
                     </div>
 
+                    <!-- Reset All Filters -->
                     {% if (date_from or date_to) and video_type != 'short' %}
-                    <button type="button" onclick="clearDates(this.form)" class="text-rose-500 hover:text-rose-600 transition-colors p-1 z-30" title="Сбросить даты">
-                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M6 18L18 6M6 6l12 12"></path></svg>
+                    <button type="button" onclick="clearDates(this.form)" class="flex items-center gap-1.5 px-3 py-1.5 bg-rose-50 text-rose-500 rounded-full text-[10px] font-black uppercase tracking-widest hover:bg-rose-100 transition-all shadow-sm border border-rose-100">
+                        <span>сбросить даты</span>
+                        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M6 18L18 6M6 6l12 12"></path></svg>
                     </button>
                     {% endif %}
+                </div>
+
+                <!-- Row 2: Advanced Timeline Filter -->
+                <div class="max-w-[500px] bg-white border border-[#E5E1D8] rounded-2xl py-3 px-5 shadow-sm {% if video_type == 'short' %}opacity-30 pointer-events-none grayscale{% endif %} transition-all">
+                    <div class="flex items-center justify-between mb-2">
+                        <div class="flex items-center gap-2 text-warm-400">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg>
+                            <span class="text-[10px] font-black uppercase tracking-widest">период</span>
+                        </div>
+                        
+                        <!-- Selected Range Info -->
+                        <div class="text-[10px] font-black uppercase tracking-widest text-brand-500">
+                            {% if date_from or date_to %}
+                                {{ date_from.replace('-', '.') if date_from else 'начало' }} — {{ date_to.replace('-', '.') if date_to else 'сегодня' }}
+                            {% else %}
+                                за всё время
+                            {% endif %}
+                        </div>
+                    </div>
+
+                    <!-- Interactive Timeline Axis -->
+                    <div class="relative pt-4 pb-1">
+                        <div class="flex justify-between text-[10px] font-black text-warm-300 mb-1 px-1 uppercase tracking-tighter">
+                            <span>2020</span>
+                            <span>2021</span>
+                            <span>2022</span>
+                            <span>2023</span>
+                            <span class="text-brand-400">2024</span>
+                            <span>2025</span>
+                        </div>
+                        
+                        <div class="relative h-4 flex items-center">
+                            <!-- Background Axis -->
+                            <div class="absolute w-full h-[1.5px] bg-warm-100 rounded-full"></div>
+                            
+                            <!-- Tick Marks -->
+                            <div class="absolute inset-0 flex justify-between items-center pointer-events-none px-[2px]">
+                                {% for i in range(31) %}
+                                <div class="w-[1px] h-1.5 bg-warm-200/50"></div>
+                                {% endfor %}
+                            </div>
+
+                            <!-- Selected Range Visual -->
+                            <div id="timeline-range" class="absolute h-[2px] bg-brand-400 z-10" style="left: 0%; right: 0%;">
+                                <!-- Left Thumb -->
+                                <div class="absolute -left-[3px] -top-1.5 w-[6px] h-4 bg-brand-500 rounded-full cursor-pointer shadow-md hover:scale-110 transition-transform"></div>
+                                <!-- Right Thumb -->
+                                <div class="absolute -right-[3px] -top-1.5 w-[6px] h-4 bg-brand-500 rounded-full cursor-pointer shadow-md hover:scale-110 transition-transform"></div>
+                            </div>
+                        </div>
+                    </div>
+                    <p class="mt-2 text-[8px] font-bold text-warm-300 uppercase tracking-wider italic text-center">* Перетаскивание появится в следующем обновлении. Используйте выбор ниже:</p>
+                </div>
+
+                <!-- Row 3: Standard Date Inputs (Hidden/Secondary for now to support logic) -->
+                <div class="hidden">
+                    <input type="date" name="date_from" value="{{ date_from }}">
+                    <input type="date" name="date_to" value="{{ date_to }}">
                 </div>
             </div>
 
@@ -322,6 +346,21 @@
         help.classList.toggle('hidden');
     }
 
+    function toggleDropdown(id) {
+        document.querySelectorAll('.dropdown-container div[id]').forEach(d => {
+            if (d.id !== id) d.classList.add('hidden');
+        });
+        document.getElementById(id).classList.toggle('hidden');
+    }
+
+    function setFilter(name, value) {
+        const input = document.querySelector(`input[name="${name}"]`);
+        if (input) {
+            input.value = value;
+            document.getElementById('search-form').submit();
+        }
+    }
+
     function updateDisplayDate(input, displayId) {
         if (input.value) {
             document.getElementById(displayId).innerText = input.value.split('-').join('.');
@@ -341,9 +380,16 @@
     function clearDates(form) {
         form.date_from.value = '';
         form.date_to.value = '';
-        document.getElementById('display-date-from').innerText = '.... . .. . ..';
-        document.getElementById('display-date-to').innerText = '.... . .. . ..';
         form.submit();
+    }
+
+    // Close dropdowns on click outside
+    window.onclick = function(event) {
+        if (!event.target.closest('.dropdown-container')) {
+            document.querySelectorAll('.dropdown-container div[id]').forEach(d => {
+                d.classList.add('hidden');
+            });
+        }
     }
 
     let activeChunkId = null;
