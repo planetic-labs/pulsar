@@ -58,6 +58,7 @@ class EmbeddingSettings:
     api_token: str
     model_id: str = "BAAI/bge-m3"
     dimension: int = 1024
+    cache_lru_size: int = 20
 
 
 @dataclass(frozen=True)
@@ -125,7 +126,11 @@ def get_sqlite_settings() -> SQLiteSettings:
 
 
 def get_embedding_settings() -> EmbeddingSettings:
-    return EmbeddingSettings(api_url=os.getenv("EMBEDDING_API_URL", ""), api_token=os.getenv("EMBEDDING_API_TOKEN", ""))
+    return EmbeddingSettings(
+        api_url=os.getenv("EMBEDDING_API_URL", ""),
+        api_token=os.getenv("EMBEDDING_API_TOKEN", ""),
+        cache_lru_size=int(os.getenv("EMBEDDING_CACHE_LRU_SIZE", "20")),
+    )
 
 
 def get_qdrant_settings() -> QdrantSettings:

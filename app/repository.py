@@ -1,7 +1,39 @@
 from __future__ import annotations
 
+import json
 import re
 import sqlite3
+...
+def get_cached_embedding(
+    connection: sqlite3.Connection, query: str
+) -> tuple[list[float], models.SparseVector | None] | None:
+    """Retrieves cached embedding from SQLite if exists."""
+    row = connection.execute(
+        "SELECT dense_vector, sparse_indices, sparse_values FROM query_cache WHERE query = ?", (query,)
+    ).fetchone()
+    if not row:
+        return None
+
+    dense = json.loads(row["dense_vector"])
+    sparse = None
+    if row["sparse_indices"] and row["sparse_values"]:
+        sparse = models.SparseVector(indices=json.loads(row["sparse_indices"]), values=json.loads(row["sparse_values"]))
+    return dense, sparse
+
+
+def save_cached_embedding(
+    connection: sqlite3.Connection, query: str, dense: list[float], sparse: models.SparseVector | None
+) -> None:
+    """Saves embedding to SQLite cache."""
+    s_indices = json.dumps(sparse.indices) if sparse else None
+    s_values = json.dumps(sparse.values) if sparse else None
+    connection.execute(
+        """
+        INSERT OR REPLACE INTO query_cache (query, dense_vector, sparse_indices, sparse_values)
+        VALUES (?, ?, ?, ?)
+        """,
+        (query, json.dumps(dense), s_indices, s_values),
+    )
 from pathlib import Path
 from typing import Any
 
