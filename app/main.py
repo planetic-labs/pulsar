@@ -633,8 +633,8 @@ def logout(request: Request, response: Response):
 # --- UI ROUTES ---
 
 
-@app.get("/experiment", response_class=HTMLResponse)
-async def experiment_page(
+@app.get("/", response_class=HTMLResponse)
+async def index_page(
     request: Request,
     q: str | None = None,
     mode: str = "hybrid",
@@ -644,6 +644,13 @@ async def experiment_page(
 ):
     app_settings = get_app_settings()
     pg_settings = get_sqlite_settings()
+
+    # URL Token Auth
+    token_param = request.query_params.get("token")
+    if token_param == app_settings.access_token:
+        response = RedirectResponse(url=f"/?q={q or ''}&mode={mode}")
+        login_user(response, request, str(token_param))
+        return response
 
     current_token = get_session_token(request)
     if current_token != app_settings.access_token:
@@ -663,13 +670,17 @@ async def experiment_page(
             )
             results = items
 
+    ua = request.headers.get("user-agent", "").lower()
+    is_mobile = any(m in ua for m in ["mobile", "android", "iphone", "ipad"])
+    template = "index_mobile.html" if is_mobile else "index.html"
+
     from datetime import date
     today = date.today().isoformat()
     default_start = "2020-01-01"
 
     return templates.TemplateResponse(
         request,
-        "experiment.html",
+        template,
         {
             "query": q or "",
             "results": results,
