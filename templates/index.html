@@ -7,6 +7,12 @@
     <!-- Top Bar -->
     <header class="min-h-[4rem] lg:min-h-[6rem] py-4 flex items-center px-4 lg:px-10 shrink-0 bg-[#FAF9F6] border-b border-[#E5E1D8]">
         <form action="/" method="get" id="search-form" class="flex-1 max-w-3xl relative group">
+            <!-- Single Source of Truth for Filters -->
+            <input type="hidden" id="f-mode" name="mode" value="{{ mode }}">
+            <input type="hidden" id="f-video-type" name="video_type" value="{{ video_type }}">
+            <input type="hidden" id="f-date-from" name="date_from" value="{{ date_from }}">
+            <input type="hidden" id="f-date-to" name="date_to" value="{{ date_to }}">
+
             <div class="relative">
                 <div class="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none text-warm-400">
                     <svg class="w-5 h-5 transition-colors group-focus-within:text-brand-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
@@ -67,7 +73,7 @@
                 </div>
 
                 <!-- Row 2: Advanced Timeline Filter -->
-                <div class="max-w-[500px] bg-white border border-[#E5E1D8] rounded-2xl py-3 px-5 shadow-sm {% if video_type == 'short' %}opacity-30 pointer-events-none grayscale{% endif %} transition-all">
+                <div class="max-w-3xl bg-white border border-[#E5E1D8] rounded-2xl py-3 px-5 shadow-sm {% if video_type == 'short' %}opacity-30 pointer-events-none select-none grayscale{% endif %} transition-all">
                     <div class="flex items-center justify-between mb-2">
                         <div class="flex items-center gap-2 text-warm-400">
                             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg>
@@ -75,7 +81,7 @@
                         </div>
                         
                         <!-- Selected Range Info -->
-                        <div class="text-[10px] font-black uppercase tracking-widest text-brand-500">
+                        <div id="timeline-range-text" class="text-[10px] font-black uppercase tracking-widest text-brand-500">
                             {% if date_from or date_to %}
                                 {{ date_from.replace('-', '.') if date_from else 'начало' }} — {{ date_to.replace('-', '.') if date_to else 'сегодня' }}
                             {% else %}
@@ -85,8 +91,8 @@
                     </div>
 
                     <!-- Interactive Timeline Axis -->
-                    <div class="relative pt-4 pb-1">
-                        <div class="flex justify-between text-[10px] font-black text-warm-300 mb-1 px-1 uppercase tracking-tighter">
+                    <div class="relative pt-4 pb-1 group">
+                        <div class="flex justify-between text-[10px] font-black text-warm-300 mb-2 px-1 uppercase tracking-tighter">
                             <span>2020</span>
                             <span>2021</span>
                             <span>2022</span>
@@ -106,22 +112,61 @@
                                 {% endfor %}
                             </div>
 
-                            <!-- Selected Range Visual -->
-                            <div id="timeline-range" class="absolute h-[2px] bg-brand-400 z-10" style="left: 0%; right: 0%;">
-                                <!-- Left Thumb -->
-                                <div class="absolute -left-[3px] -top-1.5 w-[6px] h-4 bg-brand-500 rounded-full cursor-pointer shadow-md hover:scale-110 transition-transform"></div>
-                                <!-- Right Thumb -->
-                                <div class="absolute -right-[3px] -top-1.5 w-[6px] h-4 bg-brand-500 rounded-full cursor-pointer shadow-md hover:scale-110 transition-transform"></div>
-                            </div>
+                            <!-- Selected Range Visual (Synced via JS) -->
+                            <div id="timeline-range-bar" class="absolute h-[2px] bg-brand-400 z-10"></div>
+                            
+                            <!-- Hidden Functional Sliders -->
+                            <input type="range" id="timeline-slider-from" min="0" max="1000" value="0"
+                                   class="absolute w-full h-1 appearance-none bg-transparent pointer-events-none z-20
+                                          [&::-webkit-slider-thumb]:pointer-events-auto [&::-webkit-slider-thumb]:appearance-none 
+                                          [&::-webkit-slider-thumb]:w-[6px] [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:bg-brand-500 
+                                          [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:shadow-md 
+                                          [&::-webkit-slider-thumb]:cursor-pointer [&::-webkit-slider-thumb]:transition-transform
+                                          [&::-webkit-slider-thumb]:hover:scale-125">
+                            
+                            <input type="range" id="timeline-slider-to" min="0" max="1000" value="1000"
+                                   class="absolute w-full h-1 appearance-none bg-transparent pointer-events-none z-20
+                                          [&::-webkit-slider-thumb]:pointer-events-auto [&::-webkit-slider-thumb]:appearance-none 
+                                          [&::-webkit-slider-thumb]:w-[6px] [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:bg-brand-500 
+                                          [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:shadow-md 
+                                          [&::-webkit-slider-thumb]:cursor-pointer [&::-webkit-slider-thumb]:transition-transform
+                                          [&::-webkit-slider-thumb]:hover:scale-125">
                         </div>
-                    </div>
-                    <p class="mt-2 text-[8px] font-bold text-warm-300 uppercase tracking-wider italic text-center">* Перетаскивание появится в следующем обновлении. Используйте выбор ниже:</p>
-                </div>
+                        </div>
+                        </div>
+                        </div>
 
-                <!-- Row 3: Standard Date Inputs (Hidden/Secondary for now to support logic) -->
-                <div class="hidden">
-                    <input type="date" name="date_from" value="{{ date_from }}">
-                    <input type="date" name="date_to" value="{{ date_to }}">
+                <!-- Row 3: Quick Selectors Row -->
+                <div class="flex items-center gap-2 {% if video_type == 'short' %}opacity-30 pointer-events-none select-none grayscale{% endif %}">
+                    <!-- Date From -->
+                    <div onclick="openDatePicker(this, '2020-01-01', 'display-date-from')" 
+                         class="relative flex items-center gap-2 bg-white border border-[#E5E1D8] rounded-full px-3 py-1 shadow-sm h-[26px] group hover:border-brand-300 transition-all cursor-pointer">
+                        <span class="text-[10px] font-black uppercase tracking-widest text-warm-400 shrink-0 pointer-events-none">От</span>
+                        <span id="display-date-from" class="text-[10px] font-black uppercase tracking-widest text-[#4A453E] pointer-events-none">
+                            {% if date_from %}{{ date_from.replace('-', '.') }}{% else %}.... . .. . ..{% endif %}
+                        </span>
+                        <!-- NO NAME ATTRIBUTE HERE TO AVOID CONFLICT -->
+                        <input type="date" id="picker-date-from" value="{{ date_from }}" 
+                               onchange="syncAndSubmit(this, 'f-date-from', 'display-date-from')"
+                               onkeydown="return false"
+                               min="2020-01-01"
+                               class="absolute inset-0 opacity-0 w-full h-full cursor-pointer z-20">
+                    </div>
+
+                    <!-- Date To -->
+                    <div onclick="openDatePicker(this, '{{ today_val }}', 'display-date-to')"
+                         class="relative flex items-center gap-2 bg-white border border-[#E5E1D8] rounded-full px-3 py-1 shadow-sm h-[26px] group hover:border-brand-300 transition-all cursor-pointer">
+                        <span class="text-[10px] font-black uppercase tracking-widest text-warm-400 shrink-0 pointer-events-none">До</span>
+                        <span id="display-date-to" class="text-[10px] font-black uppercase tracking-widest text-[#4A453E] pointer-events-none">
+                            {% if date_to %}{{ date_to.replace('-', '.') }}{% else %}.... . .. . ..{% endif %}
+                        </span>
+                        <!-- NO NAME ATTRIBUTE HERE TO AVOID CONFLICT -->
+                        <input type="date" id="picker-date-to" value="{{ date_to }}" 
+                               onchange="syncAndSubmit(this, 'f-date-to', 'display-date-to')"
+                               onkeydown="return false"
+                               min="2020-01-01"
+                               class="absolute inset-0 opacity-0 w-full h-full cursor-pointer z-20">
+                    </div>
                 </div>
             </div>
 
@@ -354,32 +399,32 @@
     }
 
     function setFilter(name, value) {
-        const input = document.querySelector(`input[name="${name}"]`);
+        const input = document.getElementById(`f-${name.replace('_', '-')}`);
         if (input) {
             input.value = value;
             document.getElementById('search-form').submit();
         }
     }
 
-    function updateDisplayDate(input, displayId) {
+    function syncAndSubmit(input, hiddenId, displayId) {
         if (input.value) {
+            document.getElementById(hiddenId).value = input.value;
             document.getElementById(displayId).innerText = input.value.split('-').join('.');
-            input.form.submit();
+            document.getElementById('search-form').submit();
         }
     }
 
     function openDatePicker(container, defaultDate, displayId) {
-        const input = container.querySelector('input');
+        const input = container.querySelector('input[type="date"]');
         if (!input.value) {
             input.value = defaultDate;
-            document.getElementById(displayId).innerText = defaultDate.split('-').join('.');
         }
         input.showPicker();
     }
 
     function clearDates(form) {
-        form.date_from.value = '';
-        form.date_to.value = '';
+        document.getElementById('f-date-from').value = '';
+        document.getElementById('f-date-to').value = '';
         form.submit();
     }
 
@@ -391,6 +436,65 @@
             });
         }
     }
+
+    // Timeline Logic
+    (function() {
+        const sliderFrom = document.getElementById('timeline-slider-from');
+        const sliderTo = document.getElementById('timeline-slider-to');
+        const rangeBar = document.getElementById('timeline-range-bar');
+        const dateFromInput = document.getElementById('f-date-from');
+        const dateToInput = document.getElementById('f-date-to');
+        const rangeText = document.getElementById('timeline-range-text');
+        
+        const startTimestamp = new Date('2020-01-01T00:00:00').getTime();
+        const now = new Date();
+        now.setHours(23, 59, 59, 999);
+        const endTimestamp = now.getTime();
+        const totalDuration = endTimestamp - startTimestamp;
+
+        function updateTimelineVisuals() {
+            let valFrom = parseInt(sliderFrom.value);
+            let valTo = parseInt(sliderTo.value);
+            if (valFrom > valTo) { [valFrom, valTo] = [valTo, valFrom]; }
+
+            rangeBar.style.left = (valFrom / 10) + '%';
+            rangeBar.style.right = (100 - (valTo / 10)) + '%';
+            
+            const d1 = new Date(startTimestamp + (valFrom / 1000) * totalDuration);
+            const d2 = new Date(startTimestamp + (valTo / 1000) * totalDuration);
+            const d1s = d1.toISOString().split('T')[0];
+            const d2s = d2.toISOString().split('T')[0];
+            rangeText.innerText = d1s.split('-').join('.') + ' — ' + d2s.split('-').join('.');
+            return {d1s, d2s};
+        }
+
+        function setSlidersFromInputs() {
+            const v1 = dateFromInput.value || '2020-01-01';
+            const v2 = dateToInput.value || new Date().toISOString().split('T')[0];
+            sliderFrom.value = (new Date(v1).getTime() - startTimestamp) / totalDuration * 1000;
+            sliderTo.value = (new Date(v2).getTime() - startTimestamp) / totalDuration * 1000;
+            updateTimelineVisuals();
+        }
+
+        sliderFrom.oninput = updateTimelineVisuals;
+        sliderTo.oninput = updateTimelineVisuals;
+        
+        sliderFrom.onchange = () => {
+            const {d1s, d2s} = updateTimelineVisuals();
+            dateFromInput.value = d1s;
+            dateToInput.value = d2s;
+            document.getElementById('search-form').submit();
+        };
+        
+        sliderTo.onchange = () => {
+            const {d1s, d2s} = updateTimelineVisuals();
+            dateFromInput.value = d1s;
+            dateToInput.value = d2s;
+            document.getElementById('search-form').submit();
+        };
+
+        setSlidersFromInputs();
+    })();
 
     let activeChunkId = null;
 

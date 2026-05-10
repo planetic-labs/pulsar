@@ -657,11 +657,12 @@ async def index_page(
         return RedirectResponse(url="/login")
 
     results = []
-    if q:
+    # Fetch results if there is a query OR if filters are applied
+    if q or date_from or date_to or video_type != "all":
         with db_connection(pg_settings) as connection:
             items = await hybrid_search(
                 connection,
-                q,
+                q or "", # Pass empty string if None
                 limit=app_settings.results_limit,
                 search_mode=mode,
                 date_from=date_from,
