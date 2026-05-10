@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import json
 import sys
 from pathlib import Path
 
@@ -16,17 +17,6 @@ from app.google_drive import GoogleDriveClient
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Google Drive helper CLI")
     subparsers = parser.add_subparsers(dest="command", required=True)
-
-    subparsers.add_parser("auth-init", help="Generate Google OAuth URL")
-
-    auth_exchange_parser = subparsers.add_parser(
-        "auth-exchange",
-        help="Exchange the Google OAuth callback URL for a stored token",
-    )
-    auth_exchange_parser.add_argument(
-        "callback_url",
-        help="Full callback URL from the browser address bar after Google login",
-    )
 
     list_parser = subparsers.add_parser("list", help="List files from Google Drive")
     list_parser.add_argument("--page-size", type=int, default=10)
@@ -51,23 +41,18 @@ async def main() -> None:
     settings = get_google_drive_settings()
     client = GoogleDriveClient(settings)
 
-    if args.command == "auth-init":
-        auth_url, session_path = client.auth_init()
-        print("Open this URL in your browser:")
-        print(auth_url)
-        print(f"Temporary auth session saved to: {session_path}")
-        return
-
-    if args.command == "auth-exchange":
-        token_payload = await client.auth_exchange(args.callback_url)
-        print(f"Saved token to: {settings.token_path}")
-        print(f"Refresh token present: {'yes' if token_payload.get('refresh_token') else 'no'}")
-        return
+    # Print service account email for convenience
+    try:
+        creds_info = json.loads(settings.credentials_path.read_text())
+        print(f"Using Service Account: {creds_info.get('client_email')}")
+    except Exception:
+        pass
 
     if args.command == "list":
         files = await client.list_files(page_size=args.page_size)
         for item in files:
-            print(f"id={item.file_id} name={item.name!r} mime_type={item.mime_type!r} size={item.size!r}")
+            parents_str = ",".join(item.parents) if item.parents else "None"
+            print(f"id={item.file_id} name={item.name!r} mime_type={item.mime_type!r} parents=[{parents_str}] size={item.size!r}")
         return
 
     output_path = Path(args.output) if args.output else settings.download_dir / args.file_id

@@ -359,35 +359,15 @@
             <tr><td colspan="4" class="py-20">
                 <div class="flex flex-col items-center justify-center space-y-6">
                     <div class="w-16 h-16 bg-rose-50 text-rose-500 rounded-2xl flex items-center justify-center">
-                        <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M12 15v2m0 0v2m0-2h2m-2 0H10m11-3V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2h14a2 2 0 002-2v-3z"></path></svg>
+                        <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg>
                     </div>
                     <div class="text-center">
-                        <h3 class="text-sm font-bold text-[#3A3630] uppercase tracking-tight">Сессия Google истекла</h3>
+                        <h3 class="text-sm font-bold text-[#3A3630] uppercase tracking-tight">Ошибка доступа Google Drive</h3>
+                        <p class="text-xs text-warm-500 mt-2">Убедитесь, что папки "расшарены" для сервисного аккаунта.</p>
                     </div>
-                    <button onclick="startDriveAuth()" class="px-8 py-3 bg-brand-500 text-white rounded-2xl font-black text-[10px] uppercase tracking-widest hover:bg-brand-600 transition-all shadow-xl shadow-brand-500/20 active:scale-95">
-                        Авторизоваться
-                    </button>
                 </div>
             </td></tr>
         `;
-    }
-
-    async function startDriveAuth() {
-        try {
-            const res = await fetch('/api/drive/auth/init');
-            const data = await res.json();
-            const width = 600, height = 700;
-            const left = (window.innerWidth - width) / 2;
-            const top = (window.innerHeight - height) / 2;
-            const authWindow = window.open(data.auth_url, 'google-auth', `width=${width},height=${height},left=${left},top=${top}`);
-            
-            const checkInterval = setInterval(() => {
-                if (authWindow && authWindow.closed) {
-                    clearInterval(checkInterval);
-                    loadDriveFolder('root', 'Мой диск');
-                }
-            }, 1000);
-        } catch (e) { alert('Ошибка вызова окна авторизации'); }
     }
 
     function submitIngestManual() {
