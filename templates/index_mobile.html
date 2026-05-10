@@ -6,35 +6,41 @@
 <div class="flex-1 flex flex-col h-full bg-[#FAF9F6] overflow-hidden">
     
     <!-- Unified Top Card (Player + Search) -->
-    <div class="shrink-0 px-4 pt-4 pb-2 z-40">
-        <div class="bg-white border border-[#E5E1D8] rounded-2xl shadow-xl overflow-hidden p-3 flex flex-col gap-3">
-            
-            <!-- 1. Video Player Part -->
-            <div id="mobile-player-section" class="{% if not results %} hidden {% endif %}">
-                <div id="player-placeholder" class="aspect-video flex flex-col items-center justify-center text-center opacity-30 py-6 bg-[#FAF9F6] rounded-xl border border-[#F2F0EB]">
-                    <svg class="w-10 h-10 text-warm-300 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"></path></svg>
-                    <p class="text-[10px] font-black uppercase tracking-widest text-warm-500">Выберите фрагмент</p>
-                </div>
+    <div class="bg-white border-b border-[#E5E1D8] shadow-sm shrink-0">
+        <!-- 1. Player Part -->
+        <div id="player-placeholder" class="py-12 flex flex-col items-center justify-center text-center opacity-30">
+            <div class="w-12 h-12 rounded-2xl bg-[#FAF9F6] border border-[#E5E1D8] flex items-center justify-center mb-3">
+                <svg class="w-6 h-6 text-warm-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"></path></svg>
+            </div>
+            <p class="text-[10px] font-bold text-warm-500 uppercase tracking-widest italic">Видео не выбрано</p>
+        </div>
 
-                <div id="player-content" class="hidden flex flex-col animate-in zoom-in-95 duration-500">
-                    <div class="aspect-video bg-black relative rounded-xl overflow-hidden">
-                        <video id="main-video" controls class="w-full h-full object-contain" playsinline></video>
-                        <button onclick="closePlayer()" class="absolute top-2 right-2 w-8 h-8 rounded-full bg-black/40 backdrop-blur-md border border-white/20 flex items-center justify-center text-white active:scale-90 transition-all z-10">
-                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M6 18L18 6M6 6l12 12"></path></svg>
-                        </button>
-                    </div>
-                    <div class="px-2 pt-3 flex items-center justify-between gap-4">
-                        <div class="flex-1 min-w-0">
-                            <h3 id="mobile-player-title" class="text-[10px] font-bold text-[#3A3630] truncate uppercase tracking-tight"></h3>
-                        </div>
-                        <div id="mobile-player-meta" class="px-2 py-0.5 bg-brand-50 border border-brand-100 text-brand-600 font-bold text-[8px] rounded uppercase tracking-tighter shrink-0">
-                        </div>
-                    </div>
+        <div id="player-content" class="hidden p-3 animate-in fade-in duration-300">
+            <div class="aspect-video bg-black rounded-xl overflow-hidden shadow-lg ring-1 ring-black/5 relative group mb-3">
+                <video id="main-video" controls class="w-full h-full object-contain"></video>
+                <div id="video-overlay" class="absolute inset-0 pointer-events-none bg-brand-500/10 opacity-0 transition-opacity"></div>
+                <button onclick="closePlayer()" class="absolute top-2 right-2 w-8 h-8 rounded-full bg-black/40 backdrop-blur-md border border-white/20 flex items-center justify-center text-white active:scale-90 transition-all z-10">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M6 18L18 6M6 6l12 12"></path></svg>
+                </button>
+            </div>
+            <div class="px-2 pt-3 flex items-center justify-between gap-4">
+                <div class="flex-1 min-w-0">
+                    <h3 id="mobile-player-title" class="text-[10px] font-bold text-[#3A3630] truncate uppercase tracking-tight"></h3>
+                </div>
+                <div id="mobile-player-meta" class="px-2 py-0.5 bg-brand-50 border border-brand-100 text-brand-600 font-bold text-[8px] rounded uppercase tracking-tighter shrink-0">
                 </div>
             </div>
+        </div>
 
-            <!-- 2. Search Part -->
+        <!-- 2. Search Part -->
+        <div class="p-4 border-t border-[#F2F0EB]">
             <form action="/" method="get" id="search-form" class="relative group">
+                <!-- Consolidated Search State -->
+                <input type="hidden" id="f-mode-mob" name="mode" value="{{ mode }}">
+                <input type="hidden" id="f-video-type-mob" name="video_type" value="{{ video_type }}">
+                <input type="hidden" id="f-date-from-mob" name="date_from" value="{{ date_from }}">
+                <input type="hidden" id="f-date-to-mob" name="date_to" value="{{ date_to }}">
+
                 <button type="button" onclick="toggleMobileMenu()" class="absolute inset-y-0 left-0 pl-3 flex items-center text-warm-400">
                     <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"></path></svg>
                 </button>
@@ -43,99 +49,110 @@
                 <button type="button" id="clear-search" class="{% if not query %}hidden{% endif %} absolute inset-y-0 right-0 pr-4 flex items-center text-warm-300">
                     <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M6 18L18 6M6 6l12 12"></path></svg>
                 </button>
+            
+                <!-- New Dropdown Filters and Timeline Mobile -->
+                <div class="mt-3 flex flex-col gap-3">
+                    <!-- Row 1: Dropdowns -->
+                    <div class="flex items-center gap-2 overflow-x-auto pb-1 no-scrollbar">
+                        <!-- Mode Dropdown Mobile -->
+                        <div class="relative dropdown-container shrink-0">
+                            <button type="button" onclick="toggleDropdown('mode-drop-mob')" class="flex items-center gap-2 px-3 py-1.5 bg-white border border-[#F2F0EB] rounded-xl text-[9px] font-black uppercase tracking-wider text-[#4A453E] shadow-sm">
+                                <span class="text-warm-400">режим:</span>
+                                <span>{{ mode }}</span>
+                                <svg class="w-3 h-3 text-warm-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M19 9l-7 7-7-7"></path></svg>
+                            </button>
+                            <div id="mode-drop-mob" class="hidden absolute top-full left-0 mt-1 w-40 bg-white border border-[#F2F0EB] rounded-2xl shadow-xl z-[100] overflow-hidden">
+                                {% for m in ['hybrid', 'semantic', 'lexical', 'quote'] %}
+                                <button type="button" onclick="setFilter('mode', '{{m}}')" class="w-full text-left px-4 py-3 text-[10px] font-black uppercase tracking-wider hover:bg-warm-50 {% if mode == m %}text-brand-500 bg-brand-50/30{% else %}text-warm-500{% endif %}">{{m}}</button>
+                                {% endfor %}
+                            </div>
+                        </div>
+
+                        <!-- Type Dropdown Mobile -->
+                        <div class="relative dropdown-container shrink-0">
+                            <button type="button" onclick="toggleDropdown('type-drop-mob')" class="flex items-center gap-2 px-3 py-1.5 bg-white border border-[#F2F0EB] rounded-xl text-[9px] font-black uppercase tracking-wider text-[#4A453E] shadow-sm">
+                                <span class="text-warm-400">тип:</span>
+                                <span>{% if video_type == 'all' %}все{% elif video_type == 'short' %}shorts{% else %}длинные{% endif %}</span>
+                                <svg class="w-3 h-3 text-warm-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M19 9l-7 7-7-7"></path></svg>
+                            </button>
+                            <div id="type-drop-mob" class="hidden absolute top-full left-0 mt-1 w-48 bg-white border border-[#F2F0EB] rounded-2xl shadow-xl z-[100] overflow-hidden">
+                                <button type="button" onclick="setFilter('video_type', 'all')" class="w-full text-left px-4 py-3 text-[10px] font-black uppercase tracking-wider hover:bg-warm-50 {% if video_type == 'all' %}text-teal-600 bg-teal-50/30{% else %}text-warm-500{% endif %}">все видео</button>
+                                <button type="button" onclick="setFilter('video_type', 'short')" class="w-full text-left px-4 py-3 text-[10px] font-black uppercase tracking-wider hover:bg-warm-50 {% if video_type == 'short' %}text-teal-600 bg-teal-50/30{% else %}text-warm-500{% endif %}">shorts (до 30м)</button>
+                                <button type="button" onclick="setFilter('video_type', 'long')" class="w-full text-left px-4 py-3 text-[10px] font-black uppercase tracking-wider hover:bg-warm-50 {% if video_type == 'long' %}text-teal-600 bg-teal-50/30{% else %}text-warm-500{% endif %}">длинные</button>
+                            </div>
+                        </div>
+
+                        {% if (date_from or date_to) and video_type != 'short' %}
+                        <button type="button" onclick="clearDates(document.getElementById('search-form'))" class="shrink-0 flex items-center gap-1.5 px-3 py-1.5 bg-rose-50 text-rose-500 rounded-xl text-[9px] font-black uppercase tracking-wider border border-rose-100 shadow-sm">
+                            <span>сброс дат</span>
+                        </button>
+                        {% endif %}
+                    </div>
+
+                    <!-- Row 2: Timeline Mobile -->
+                    <div class="bg-white border border-[#F2F0EB] rounded-2xl p-4 shadow-sm {% if video_type == 'short' %}opacity-30 pointer-events-none select-none grayscale{% endif %}">
+                        <div class="flex items-center justify-between mb-3">
+                            <span class="text-[9px] font-black text-warm-400 uppercase tracking-widest">период</span>
+                            <div id="timeline-range-text-mob" class="text-[9px] font-black uppercase tracking-wider text-brand-500 text-right">
+                                {% if date_from or date_to %}
+                                    {{ date_from.replace('-', '.') if date_from else '..' }} — {{ date_to.replace('-', '.') if date_to else '..' }}
+                                {% else %}
+                                    всё время
+                                {% endif %}
+                            </div>
+                        </div>
+                        <div class="relative h-4 flex items-center px-1 mb-2">
+                            <div class="absolute w-full h-[1.5px] bg-warm-100 rounded-full"></div>
+                            <!-- Range Bar -->
+                            <div id="timeline-range-bar-mob" class="absolute h-[2px] bg-brand-400 z-10"></div>
+                            
+                            <!-- Invisible but functional mobile sliders -->
+                            <input type="range" id="timeline-slider-from-mob" min="0" max="1000" value="0"
+                                   class="absolute w-full h-1 appearance-none bg-transparent pointer-events-none z-20
+                                          [&::-webkit-slider-thumb]:pointer-events-auto [&::-webkit-slider-thumb]:appearance-none 
+                                          [&::-webkit-slider-thumb]:w-[5px] [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:bg-brand-500 
+                                          [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:shadow-md">
+                            
+                            <input type="range" id="timeline-slider-to-mob" min="0" max="1000" value="1000"
+                                   class="absolute w-full h-1 appearance-none bg-transparent pointer-events-none z-20
+                                          [&::-webkit-slider-thumb]:pointer-events-auto [&::-webkit-slider-thumb]:appearance-none 
+                                          [&::-webkit-slider-thumb]:w-[5px] [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:bg-brand-500 
+                                          [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:shadow-md">
+                        </div>
+                        
+                        <!-- Quick Date Selectors Mobile -->
+                        <div class="flex items-center gap-2">
+                            <div onclick="openDatePicker(this, '2020-01-01', 'display-date-from-mob')" class="flex-1 flex items-center gap-2 bg-[#FAF9F6] border border-[#F2F0EB] rounded-xl px-2.5 py-1.5 shadow-inner relative h-8">
+                                <span class="text-[7px] font-black text-warm-400 uppercase">От</span>
+                                <span id="display-date-from-mob" class="text-[9px] font-black uppercase tracking-widest text-[#4A453E]">
+                                    {% if date_from %}{{ date_from.replace('-', '.') }}{% else %}.... . ..{% endif %}
+                                </span>
+                                <!-- NO NAME HERE -->
+                                <input type="date" value="{{ date_from }}" onchange="syncAndSubmit(this, 'f-date-from-mob', 'display-date-from-mob')" class="absolute inset-0 opacity-0 w-full h-full">
+                            </div>
+                            <div onclick="openDatePicker(this, '{{ today_val }}', 'display-date-to-mob')" class="flex-1 flex items-center gap-2 bg-[#FAF9F6] border border-[#F2F0EB] rounded-xl px-2.5 py-1.5 shadow-inner relative h-8">
+                                <span class="text-[7px] font-black text-warm-400 uppercase">До</span>
+                                <span id="display-date-to-mob" class="text-[9px] font-black uppercase tracking-widest text-[#4A453E]">
+                                    {% if date_to %}{{ date_to.replace('-', '.') }}{% else %}.... . ..{% endif %}
+                                </span>
+                                <!-- NO NAME HERE -->
+                                <input type="date" value="{{ date_to }}" onchange="syncAndSubmit(this, 'f-date-to-mob', 'display-date-to-mob')" class="absolute inset-0 opacity-0 w-full h-full">
+                            </div>
+                        </div>
+                    </div>
+                </div>
             </form>
-
-            <!-- New Dropdown Filters and Timeline Mobile -->
-            <div class="flex flex-col gap-3">
-                <!-- Row 1: Dropdowns -->
-                <div class="flex items-center gap-2 overflow-x-auto pb-1 no-scrollbar">
-                    <!-- Mode Dropdown Mobile -->
-                    <div class="relative dropdown-container shrink-0">
-                        <button type="button" onclick="toggleDropdown('mode-drop-mob')" class="flex items-center gap-2 px-3 py-1.5 bg-white border border-[#F2F0EB] rounded-xl text-[9px] font-black uppercase tracking-wider text-[#4A453E] shadow-sm">
-                            <span class="text-warm-400">режим:</span>
-                            <span>{{ mode }}</span>
-                            <svg class="w-3 h-3 text-warm-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M19 9l-7 7-7-7"></path></svg>
-                        </button>
-                        <div id="mode-drop-mob" class="hidden absolute top-full left-0 mt-1 w-40 bg-white border border-[#F2F0EB] rounded-2xl shadow-xl z-[100] overflow-hidden">
-                            {% for m in ['hybrid', 'semantic', 'lexical', 'quote'] %}
-                            <button type="button" onclick="setFilter('mode', '{{m}}')" class="w-full text-left px-4 py-3 text-[10px] font-black uppercase tracking-wider hover:bg-warm-50 {% if mode == m %}text-brand-500 bg-brand-50/30{% else %}text-warm-500{% endif %}">{{m}}</button>
-                            {% endfor %}
-                        </div>
-                    </div>
-
-                    <!-- Type Dropdown Mobile -->
-                    <div class="relative dropdown-container shrink-0">
-                        <button type="button" onclick="toggleDropdown('type-drop-mob')" class="flex items-center gap-2 px-3 py-1.5 bg-white border border-[#F2F0EB] rounded-xl text-[9px] font-black uppercase tracking-wider text-[#4A453E] shadow-sm">
-                            <span class="text-warm-400">тип:</span>
-                            <span>{% if video_type == 'all' %}все{% elif video_type == 'short' %}shorts{% else %}длинные{% endif %}</span>
-                            <svg class="w-3 h-3 text-warm-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M19 9l-7 7-7-7"></path></svg>
-                        </button>
-                        <div id="type-drop-mob" class="hidden absolute top-full left-0 mt-1 w-48 bg-white border border-[#F2F0EB] rounded-2xl shadow-xl z-[100] overflow-hidden">
-                            <button type="button" onclick="setFilter('video_type', 'all')" class="w-full text-left px-4 py-3 text-[10px] font-black uppercase tracking-wider hover:bg-warm-50 {% if video_type == 'all' %}text-teal-600 bg-teal-50/30{% else %}text-warm-500{% endif %}">все видео</button>
-                            <button type="button" onclick="setFilter('video_type', 'short')" class="w-full text-left px-4 py-3 text-[10px] font-black uppercase tracking-wider hover:bg-warm-50 {% if video_type == 'short' %}text-teal-600 bg-teal-50/30{% else %}text-warm-500{% endif %}">shorts (до 30м)</button>
-                            <button type="button" onclick="setFilter('video_type', 'long')" class="w-full text-left px-4 py-3 text-[10px] font-black uppercase tracking-wider hover:bg-warm-50 {% if video_type == 'long' %}text-teal-600 bg-teal-50/30{% else %}text-warm-500{% endif %}">длинные</button>
-                        </div>
-                    </div>
-
-                    {% if (date_from or date_to) and video_type != 'short' %}
-                    <button type="button" onclick="clearDates(document.getElementById('search-form'))" class="shrink-0 flex items-center gap-1.5 px-3 py-1.5 bg-rose-50 text-rose-500 rounded-xl text-[9px] font-black uppercase tracking-wider border border-rose-100 shadow-sm">
-                        <span>сброс дат</span>
-                    </button>
-                    {% endif %}
-                </div>
-
-                <!-- Row 2: Timeline Mobile -->
-                <div class="bg-white border border-[#F2F0EB] rounded-2xl p-4 shadow-sm {% if video_type == 'short' %}opacity-30 pointer-events-none select-none grayscale{% endif %}">
-                    <div class="flex items-center justify-between mb-3">
-                        <span class="text-[9px] font-black text-warm-400 uppercase tracking-widest">период</span>
-                        <div class="text-[9px] font-black uppercase tracking-wider text-brand-500 text-right">
-                            {% if date_from or date_to %}
-                                {{ date_from.replace('-', '.') if date_from else '..' }} — {{ date_to.replace('-', '.') if date_to else '..' }}
-                            {% else %}
-                                всё время
-                            {% endif %}
-                        </div>
-                    </div>
-                    <div class="relative h-4 flex items-center px-1 mb-2">
-                        <div class="absolute w-full h-[1.5px] bg-warm-100 rounded-full"></div>
-                        <div id="timeline-range-mob" class="absolute h-[2px] bg-brand-400 z-10" style="left: 0%; right: 0%;">
-                            <div class="absolute -left-[2px] -top-1.5 w-[5px] h-4 bg-brand-500 rounded-full"></div>
-                            <div class="absolute -right-[2px] -top-1.5 w-[5px] h-4 bg-brand-500 rounded-full"></div>
-                        </div>
-                    </div>
-                    
-                    <!-- Quick Date Selectors Mobile -->
-                    <div class="flex items-center gap-2">
-                        <div onclick="openDatePicker(this, '2020-01-01', 'display-date-from')" class="flex-1 flex items-center gap-2 bg-[#FAF9F6] border border-[#F2F0EB] rounded-xl px-2.5 py-1.5 shadow-inner relative h-8">
-                            <span class="text-[7px] font-black text-warm-400 uppercase">От</span>
-                            <span id="display-date-from" class="text-[9px] font-black uppercase tracking-widest text-[#4A453E]">
-                                {% if date_from %}{{ date_from.replace('-', '.') }}{% else %}.... . ..{% endif %}
-                            </span>
-                            <input type="date" name="date_from" value="{{ date_from }}" form="search-form" onchange="updateDisplayDate(this, 'display-date-from')" class="absolute inset-0 opacity-0 w-full h-full">
-                        </div>
-                        <div onclick="openDatePicker(this, '{{ today_val }}', 'display-date-to')" class="flex-1 flex items-center gap-2 bg-[#FAF9F6] border border-[#F2F0EB] rounded-xl px-2.5 py-1.5 shadow-inner relative h-8">
-                            <span class="text-[7px] font-black text-warm-400 uppercase">До</span>
-                            <span id="display-date-to" class="text-[9px] font-black uppercase tracking-widest text-[#4A453E]">
-                                {% if date_to %}{{ date_to.replace('-', '.') }}{% else %}.... . ..{% endif %}
-                            </span>
-                            <input type="date" name="date_to" value="{{ date_to }}" form="search-form" onchange="updateDisplayDate(this, 'display-date-to')" class="absolute inset-0 opacity-0 w-full h-full">
-                        </div>
-                    </div>
-                </div>
-            </div>
         </div>
     </div>
 
     {% if stats.worker_busy %}
     <div id="worker-busy-banner-mobile" class="px-4 mb-2">
-        <div class="bg-amber-50 border border-amber-200 rounded-xl p-3 flex items-center gap-2 relative">
-            <div class="shrink-0 w-1.5 h-1.5 rounded-full bg-amber-400"></div>
-            <p class="text-[8px] font-black text-amber-700 uppercase tracking-wider leading-tight pr-4">
-                Фоновая обработка: поиск может быть неточным и медленным
-            </p>
-            <button onclick="hideWorkerBusyMobile()" class="absolute top-1/2 -translate-y-1/2 right-3 text-amber-400">
-                <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M6 18L18 6M6 6l12 12"></path></svg>
-            </button>
+        <div class="bg-amber-50/80 border border-amber-100 rounded-xl p-3 flex items-center justify-between gap-3 animate-pulse">
+            <div class="flex items-center gap-2">
+                <div class="w-2 h-2 rounded-full bg-amber-400"></div>
+                <p class="text-[9px] font-bold text-amber-800 uppercase tracking-widest leading-tight">Фоновая индексация...</p>
+            </div>
+            <button onclick="hideWorkerBusyMobile()" class="text-amber-400"><svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M6 18L18 6M6 6l12 12"></path></svg></button>
         </div>
     </div>
     <script>
@@ -150,86 +167,42 @@
     {% endif %}
 
     <!-- 3. Results Section (Scrollable) -->
-    <div class="flex-1 overflow-y-auto px-4 pt-4 pb-12 custom-scrollbar">
+    <div class="flex-1 overflow-y-auto custom-scrollbar pb-10">
         {% if not query %}
-            <div class="h-full flex flex-col items-center justify-center text-warm-300 opacity-60 py-12">
-                <div class="w-16 h-16 rounded-[2rem] bg-white border border-[#E5E1D8] flex items-center justify-center mb-6 shadow-sm">
-                    <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
+            <div class="h-full flex flex-col items-center justify-center text-warm-300 opacity-60">
+                <div class="w-16 h-16 rounded-[1.5rem] bg-white border border-[#E5E1D8] flex items-center justify-center mb-6">
+                    <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
                 </div>
-                <h2 class="text-base font-bold text-warm-500 mb-1 tracking-tight">Enterprise Search</h2>
-                <p class="text-[10px] uppercase tracking-widest font-black opacity-50">VideoDB AI Private Node</p>
+                <h2 class="text-sm font-bold text-warm-500 uppercase">Начните работу</h2>
             </div>
         {% elif not results %}
-            <div class="h-full flex flex-col items-center justify-center text-warm-400 opacity-60 py-12">
-                <h2 class="text-base font-bold mb-1">Ничего не найдено</h2>
-                <p class="text-[10px] italic">Попробуйте более общие слова</p>
+            <div class="h-full flex flex-col items-center justify-center text-warm-400 p-8 text-center">
+                <div class="w-12 h-12 bg-warm-100 rounded-full flex items-center justify-center mb-4">
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.172 9.172a4 4 0 015.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                </div>
+                <h2 class="text-sm font-bold mb-1">Ничего не найдено</h2>
+                <p class="text-xs italic opacity-60">Попробуйте изменить запрос</p>
             </div>
         {% else %}
-            <div class="space-y-4">
-                <div class="flex items-center justify-between px-1">
-                    <span class="text-[8px] font-black text-warm-400 uppercase tracking-[0.2em]">Результатов: {{ results|length }}</span>
-                </div>
-                
+            <div class="p-4 space-y-4">
                 {% for item in results %}
                 <div onclick="playFragment('{{ item.video_id }}', {{ item.start_sec }}, '{{ item.title }}', '{{ item.start_ts }}', '{{ item.chunk_id }}')" 
                      id="chunk-{{ item.chunk_id }}"
-                     class="group p-4 bg-white border border-[#E5E1D8] rounded-2xl active:scale-[0.98] transition-all relative shadow-sm">
-                    
-                    <div class="flex justify-between items-start gap-3 mb-2.5">
-                        <h3 class="font-bold text-xs text-[#3A3630] leading-tight line-clamp-2 uppercase tracking-tight">{{ item.title }}</h3>
-                        <span class="shrink-0 px-2 py-0.5 bg-warm-100 text-warm-600 text-[8px] font-bold rounded-lg uppercase tracking-tighter">
-                            {{ item.start_ts }}—{{ item.end_ts }}
-                        </span>
+                     class="group p-4 bg-white border border-[#E5E1D8] rounded-2xl active:scale-[0.98] transition-all">
+                    <h3 class="font-bold text-xs text-[#3A3630] mb-2 leading-tight uppercase tracking-tight">{{ item.title }}</h3>
+                    <div class="flex gap-2 mb-3">
+                        <span class="px-2 py-0.5 bg-warm-100 text-warm-600 text-[8px] font-bold rounded-md">{{ item.start_ts }}</span>
+                        {% if item.match_type == 'quote' %}
+                        <span class="px-2 py-0.5 bg-rose-50 text-rose-500 text-[8px] font-black rounded uppercase tracking-widest border border-rose-100">Quote</span>
+                        {% endif %}
                     </div>
-
-                    <p class="text-xs text-[#5C574F] leading-relaxed italic mb-4">
+                    <p class="text-xs text-[#5C574F] leading-relaxed italic">
                         «{{ item.text | safe }}»
                     </p>
-                    
-                    <div class="flex items-center justify-between border-t border-[#F2F0EB] pt-3.5">
-                        <div class="flex items-center gap-2">
-                            {% if item.speaker %}
-                            <div class="flex items-center gap-1.5 px-2 py-1 bg-brand-50 rounded-lg text-brand-600 text-[8px] font-black uppercase tracking-widest">
-                                <svg class="w-2.5 h-2.5" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z" clip-rule="evenodd"></path></svg>
-                                <span>{{ item.speaker }}</span>
-                            </div>
-                            {% endif %}
-                        </div>
-                        <div class="flex gap-2">
-                            <button onclick="event.stopPropagation(); manageSpeakers('{{ item.video_id }}', '{{ item.title }}')" 
-                                    class="p-2 bg-[#FAF9F6] border border-[#E5E1D8] rounded-xl text-warm-400 active:bg-brand-50 transition-colors">
-                                <svg class="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20"><path d="M13 6a3 3 0 11-6 0 3 3 0 016 0zM18 8a2 2 0 11-4 0 2 2 0 014 0zM14 15a4 4 0 00-8 0v3h8v-3zM6 8a2 2 0 11-4 0 2 2 0 014 0zM16 18v-3a5.972 5.972 0 00-.75-2.906A3.005 3.005 0 0119 15v3h-3zM4.75 12.094A5.973 5.973 0 004 15v3H1v-3a3 3 0 013.75-2.906z"></path></svg>
-                            </button>
-                            {% if item.source_url %}
-                            <a href="{{ item.source_url }}{% if '?' in item.source_url %}&{% else %}?{% endif %}t={{ item.start_sec|int }}s" 
-                               target="_blank" onclick="event.stopPropagation()"
-                               class="px-4 py-2 bg-brand-50 border border-brand-100 rounded-xl text-[9px] font-black text-brand-600 uppercase tracking-widest active:bg-brand-100 transition-colors">
-                                Drive ↗
-                            </a>
-                            {% endif %}
-                        </div>
-                    </div>
                 </div>
                 {% endfor %}
             </div>
         {% endif %}
-    </div>
-</div>
-
-<!-- Speaker Modal -->
-<div id="speaker-modal" class="fixed inset-0 z-[110] flex items-end justify-center hidden">
-    <div class="absolute inset-0 bg-[#3A3630]/60 backdrop-blur-sm" onclick="closeSpeakers()"></div>
-    <div class="relative w-full bg-white rounded-t-2xl shadow-2xl overflow-hidden flex flex-col max-h-[80vh] animate-in slide-in-from-bottom-10 duration-300">
-        <div class="p-6 border-b border-[#E5E1D8] bg-[#FAF9F6] flex justify-between items-center">
-            <div class="min-w-0 pr-4">
-                <h2 class="text-[9px] font-black text-brand-500 uppercase tracking-[0.2em] mb-0.5">Speaker Reference</h2>
-                <h3 id="speaker-video-title" class="text-sm font-bold text-[#3A3630] truncate uppercase tracking-tight"></h3>
-            </div>
-            <button onclick="closeSpeakers()" class="p-2 text-warm-400">
-                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M6 18L18 6M6 6l12 12"></path></svg>
-            </button>
-        </div>
-        <div id="speaker-list" class="p-6 overflow-y-auto space-y-4 custom-scrollbar"></div>
     </div>
 </div>
 
@@ -241,49 +214,104 @@
         clearSearchBtn.classList.toggle('hidden', !searchInput.value);
     });
 
-    // Set date limits
-    (function() {
-        const today = new Date().toISOString().split('T')[0];
-        document.querySelectorAll('input[type="date"]').forEach(input => {
-            input.max = today;
-        });
-    })();
-
     clearSearchBtn.addEventListener('click', () => {
         searchInput.value = '';
         clearSearchBtn.classList.add('hidden');
         searchInput.focus();
     });
 
-    function updateDisplayDate(input, displayId) {
+    function toggleDropdown(id) {
+        document.querySelectorAll('.dropdown-container div[id]').forEach(d => {
+            if (d.id !== id) d.classList.add('hidden');
+        });
+        document.getElementById(id).classList.toggle('hidden');
+    }
+
+    function setFilter(name, value) {
+        const input = document.getElementById(`f-${name.replace('_', '-')}-mob`);
+        if (input) {
+            input.value = value;
+            document.getElementById('search-form').submit();
+        }
+    }
+
+    function syncAndSubmit(input, hiddenId, displayId) {
         if (input.value) {
+            document.getElementById(hiddenId).value = input.value;
             document.getElementById(displayId).innerText = input.value.split('-').join('.');
-            input.form.submit();
+            document.getElementById('search-form').submit();
         }
     }
 
     function openDatePicker(container, defaultDate, displayId) {
-        const input = container.querySelector('input');
+        const input = container.querySelector('input[type="date"]');
         if (!input.value) {
             input.value = defaultDate;
-            document.getElementById(displayId).innerText = defaultDate.split('-').join('.');
         }
         input.showPicker();
     }
 
     function clearDates(form) {
-        const today = new Date().toISOString().split('T')[0];
-        form.date_from.value = '2020-01-01';
-        form.date_to.value = today;
-        document.getElementById('display-date-from').innerText = '2020.01.01';
-        document.getElementById('display-date-to').innerText = today.split('-').join('.');
+        document.getElementById('f-date-from-mob').value = '';
+        document.getElementById('f-date-to-mob').value = '';
         form.submit();
     }
+
+    // Timeline Logic Mobile
+    (function() {
+        const sliderFrom = document.getElementById('timeline-slider-from-mob');
+        const sliderTo = document.getElementById('timeline-slider-to-mob');
+        const rangeBar = document.getElementById('timeline-range-bar-mob');
+        const rangeText = document.getElementById('timeline-range-text-mob');
+        const dateFromInput = document.getElementById('f-date-from-mob');
+        const dateToInput = document.getElementById('f-date-to-mob');
+        
+        const startTimestamp = new Date('2020-01-01T00:00:00').getTime();
+        const today = new Date();
+        today.setHours(23, 59, 59, 999);
+        const endTimestamp = today.getTime();
+        const totalDuration = endTimestamp - startTimestamp;
+
+        function updateTimelineVisuals() {
+            let valFrom = parseInt(sliderFrom.value);
+            let valTo = parseInt(sliderTo.value);
+            if (valFrom > valTo) { [valFrom, valTo] = [valTo, valFrom]; }
+            rangeBar.style.left = (valFrom / 10) + '%';
+            rangeBar.style.right = (100 - (valTo / 10)) + '%';
+            
+            const d1s = new Date(startTimestamp + (valFrom / 1000) * totalDuration).toISOString().split('T')[0];
+            const d2s = new Date(startTimestamp + (valTo / 1000) * totalDuration).toISOString().split('T')[0];
+            rangeText.innerText = d1s.split('-').join('.') + ' — ' + d2s.split('-').join('.');
+            return {d1s, d2s};
+        }
+
+        function setSlidersFromInputs() {
+            const v1 = dateFromInput.value || '2020-01-01';
+            const v2 = dateToInput.value || new Date().toISOString().split('T')[0];
+            sliderFrom.value = (new Date(v1).getTime() - startTimestamp) / totalDuration * 1000;
+            sliderTo.value = (new Date(v2).getTime() - startTimestamp) / totalDuration * 1000;
+            updateTimelineVisuals();
+        }
+
+        sliderFrom.oninput = updateTimelineVisuals;
+        sliderTo.oninput = updateTimelineVisuals;
+        sliderFrom.onchange = () => {
+            const {d1s} = updateTimelineVisuals();
+            dateFromInput.value = d1s;
+            document.getElementById('search-form').submit();
+        };
+        sliderTo.onchange = () => {
+            const {d2s} = updateTimelineVisuals();
+            dateToInput.value = d2s;
+            document.getElementById('search-form').submit();
+        };
+
+        setSlidersFromInputs();
+    })();
 
     let activeChunkId = null;
 
     function playFragment(videoId, startSec, title, ts, chunkId) {
-        // Highlight active card
         if (activeChunkId) {
             const oldCard = document.getElementById(`chunk-${activeChunkId}`);
             if (oldCard) oldCard.classList.remove('ring-2', 'ring-brand-400');
@@ -292,15 +320,12 @@
         const newCard = document.getElementById(`chunk-${chunkId}`);
         if (newCard) newCard.classList.add('ring-2', 'ring-brand-400');
 
-        // Show player
-        const playerSection = document.getElementById('mobile-player-section');
+        const video = document.getElementById('main-video');
         const playerPlaceholder = document.getElementById('player-placeholder');
         const playerContent = document.getElementById('player-content');
-        const video = document.getElementById('main-video');
         const playerTitle = document.getElementById('mobile-player-title');
         const playerMeta = document.getElementById('mobile-player-meta');
 
-        playerSection.classList.remove('hidden');
         playerPlaceholder.classList.add('hidden');
         playerContent.classList.remove('hidden');
 
@@ -310,7 +335,10 @@
         video.src = `/videos/${videoId}/file?token={{ token }}#t=${startSec}`;
         video.play();
         
-        // Scroll to top to see the player
+        const overlay = document.getElementById('video-overlay');
+        overlay.classList.add('opacity-100');
+        setTimeout(() => overlay.classList.remove('opacity-100'), 500);
+
         window.scrollTo({ top: 0, behavior: 'smooth' });
     }
 
@@ -320,74 +348,11 @@
             if (card) card.classList.remove('ring-2', 'ring-brand-400');
             activeChunkId = null;
         }
-
-        const playerPlaceholder = document.getElementById('player-placeholder');
-        const playerContent = document.getElementById('player-content');
         const video = document.getElementById('main-video');
-
         video.pause();
         video.src = "";
-        
-        playerContent.classList.add('hidden');
-        playerPlaceholder.classList.remove('hidden');
-    }
-
-    async function manageSpeakers(videoId, title) {
-        const modal = document.getElementById('speaker-modal');
-        const list = document.getElementById('speaker-list');
-        const titleEl = document.getElementById('speaker-video-title');
-
-        modal.classList.remove('hidden');
-        titleEl.textContent = title;
-        list.innerHTML = '<div class="text-center py-6 text-[10px] font-bold text-warm-400 uppercase tracking-widest">Загрузка...</div>';
-        
-        try {
-            const response = await fetch(`/api/videos/${videoId}/speakers`);
-            const speakers = await response.json();
-            
-            let html = '';
-            if (speakers.length === 0) {
-                html = '<div class="text-center py-6 text-warm-400 italic text-sm">Голоса не найдены</div>';
-            } else {
-                speakers.forEach(s => {
-                    html += `
-                        <div class="bg-[#FAF9F6] p-5 rounded-[1.5rem] border border-[#E5E1D8]">
-                            <div class="flex items-center gap-2 mb-3">
-                                <span class="w-6 h-6 bg-warm-200 text-warm-600 rounded-full flex items-center justify-center text-[10px] font-black">${s.tag}</span>
-                                <label class="text-[9px] font-black text-warm-400 uppercase tracking-widest">ID Группы</label>
-                            </div>
-                            <input type="text" value="${s.name}" 
-                                   onchange="saveSpeaker('${videoId}', '${s.tag}', this.value, this)"
-                                   class="w-full bg-white border border-[#E5E1D8] rounded-xl py-3 px-4 text-sm font-bold text-[#3A3630] focus:outline-none focus:border-brand-500 transition-all shadow-sm"
-                                   placeholder="Имя...">
-                        </div>
-                    `;
-                });
-            }
-            list.innerHTML = html;
-        } catch (e) {
-            list.innerHTML = '<div class="text-rose-400 py-6 text-center font-bold">Ошибка</div>';
-        }
-    }
-
-    async function saveSpeaker(videoId, tag, name, inputEl) {
-        try {
-            const res = await fetch(`/api/videos/${videoId}/speakers`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ tag, name })
-            });
-            if (res.ok) {
-                inputEl.classList.add('border-green-400', 'bg-green-50');
-                setTimeout(() => inputEl.classList.remove('border-green-400', 'bg-green-50'), 1000);
-            }
-        } catch (e) {
-            alert('Ошибка');
-        }
-    }
-
-    function closeSpeakers() {
-        document.getElementById('speaker-modal').classList.add('hidden');
+        document.getElementById('player-content').classList.add('hidden');
+        document.getElementById('player-placeholder').classList.remove('hidden');
     }
 </script>
 {% endblock %}
