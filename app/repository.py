@@ -74,6 +74,7 @@ def upsert_video(
     mime_type: str | None,
     size_bytes: int | None,
     duration_sec: float | None,
+    is_short: bool | None = None,
     local_video_path: str | None,
     local_audio_path: str | None,
     processing_status: str,
@@ -83,17 +84,21 @@ def upsert_video(
     if recorded_date is None:
         recorded_date = extract_date_from_title(title)
 
+    if is_short is None:
+        is_short = bool(duration_sec and duration_sec <= 600)
+
     cursor = connection.execute(
         """
         INSERT INTO videos (
             source_type, source_file_id, parent_folder_id, title, recorded_date,
-            source_url, mime_type, size_bytes, duration_sec,
+            is_short, source_url, mime_type, size_bytes, duration_sec,
             local_video_path, local_audio_path, processing_status
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT (source_type, source_file_id) DO UPDATE SET
             parent_folder_id = EXCLUDED.parent_folder_id,
             title = EXCLUDED.title,
             recorded_date = EXCLUDED.recorded_date,
+            is_short = EXCLUDED.is_short,
             source_url = EXCLUDED.source_url,
             mime_type = EXCLUDED.mime_type,
             size_bytes = EXCLUDED.size_bytes,
@@ -110,6 +115,7 @@ def upsert_video(
             parent_folder_id,
             title,
             recorded_date,
+            is_short,
             source_url,
             mime_type,
             size_bytes,

@@ -5,13 +5,27 @@ logger = logging.getLogger(__name__)
 
 
 def chunk_from_utterances(
-    utterances: list[dict[str, Any]], max_chars: int = 500, overlap_chars: int = 50
+    utterances: list[dict[str, Any]], max_chars: int = 500, overlap_chars: int = 50, single_chunk: bool = False
 ) -> list[dict[str, Any]]:
     """
     Groups small utterances into semantic chunks of roughly max_chars.
+    If single_chunk is True, merges ALL utterances into one.
     """
     if not utterances:
         return []
+
+    if single_chunk:
+        chunk_text = " ".join(u.get("text", "") or u.get("transcript", "") for u in utterances)
+        speakers = {str(u["speaker"]) for u in utterances if u.get("speaker") is not None}
+        return [
+            {
+                "chunk_index": 0,
+                "start_sec": float(utterances[0]["start"]),
+                "end_sec": float(utterances[-1]["end"]),
+                "text": chunk_text,
+                "speaker": ", ".join(sorted(speakers)) if speakers else None,
+            }
+        ]
 
     chunks = []
     current_batch = []
