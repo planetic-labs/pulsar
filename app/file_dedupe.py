@@ -11,13 +11,13 @@ WHITESPACE_PATTERN = re.compile(r"\s+")
 def canonicalize_title(title: str) -> str:
     # Lowercase first
     t = title.lower()
-    
+
     # Replace all separators (including dots) with spaces
     t = re.sub(r"[._\-]+", " ", t)
-    
+
     # Remove gallery markers (word boundaries will work fine now)
     t = GALLERY_PATTERN.sub(" ", t)
-    
+
     # Collapse whitespace and strip
     return WHITESPACE_PATTERN.sub(" ", t).strip()
 

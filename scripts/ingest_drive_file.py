@@ -122,6 +122,7 @@ async def download_and_extract_stage(
         "audio_path": str(audio_path),
         "title": file_meta.name,
         "mime_type": file_meta.mime_type,
+        "md5_checksum": file_meta.md5_checksum,
         "parent_folder_id": file_meta.parents[0] if file_meta.parents else None,
     }
 
@@ -212,6 +213,7 @@ async def transcribe_stage(
             source_type="google_drive",
             source_file_id=file_id,
             parent_folder_id=video_metadata.get("parent_folder_id"),
+            md5_checksum=video_metadata.get("md5_checksum"),
             title=video_metadata["title"],
             source_url=f"https://drive.google.com/file/d/{file_id}/view",
             mime_type=video_metadata["mime_type"],

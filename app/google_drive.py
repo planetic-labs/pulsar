@@ -11,8 +11,8 @@ from typing import Any
 from urllib.parse import urlencode
 
 import httpx
-from google.oauth2 import service_account
 from google.auth.transport.requests import Request
+from google.oauth2 import service_account
 
 from app.config import GoogleDriveSettings
 
@@ -25,6 +25,7 @@ class DriveFile:
     name: str
     mime_type: str
     size: str | None
+    md5_checksum: str | None = None
     created_time: str | None = None
     modified_time: str | None = None
     parents: tuple[str, ...] = ()
@@ -48,7 +49,7 @@ class GoogleDriveClient:
     async def _get_access_token(self) -> str:
         creds = self._get_creds()
         if not creds.valid:
-            # Refreshing credentials requires a transport. 
+            # Refreshing credentials requires a transport.
             # We use a synchronous request here because it's only once an hour.
             creds.refresh(Request())
         return str(creds.token)
@@ -61,7 +62,9 @@ class GoogleDriveClient:
             try:
                 return dict(response.json())
             except json.JSONDecodeError as e:
-                logger.error(f"JSON decode error from {url}. Status: {response.status_code}, Body snippet: {response.text[:200]}")
+                logger.error(
+                    f"JSON decode error from {url}. Status: {response.status_code}, Body snippet: {response.text[:200]}"
+                )
                 raise e
 
     async def _list_files_page(
@@ -74,7 +77,9 @@ class GoogleDriveClient:
     ) -> dict[str, Any]:
         params = {
             "pageSize": page_size,
-            "fields": ("nextPageToken,files(id,name,mimeType,size,webViewLink,createdTime,modifiedTime,parents)"),
+            "fields": (
+                "nextPageToken,files(id,name,mimeType,size,md5Checksum,webViewLink,createdTime,modifiedTime,parents,owners,sharingUser)"
+            ),
             "supportsAllDrives": "true",
             "includeItemsFromAllDrives": "true",
         }
@@ -99,6 +104,7 @@ class GoogleDriveClient:
                 name=item["name"],
                 mime_type=item["mimeType"],
                 size=item.get("size"),
+                md5_checksum=item.get("md5Checksum"),
                 created_time=item.get("createdTime"),
                 modified_time=item.get("modifiedTime"),
                 parents=tuple(item.get("parents", [])),
@@ -113,7 +119,7 @@ class GoogleDriveClient:
     async def get_file(self, file_id: str) -> DriveFile:
         query = urlencode(
             {
-                "fields": "id,name,mimeType,size,createdTime,modifiedTime,parents",
+                "fields": "id,name,mimeType,size,md5Checksum,createdTime,modifiedTime,parents,owners,sharingUser",
                 "supportsAllDrives": "true",
             }
         )
@@ -177,9 +183,10 @@ class GoogleDriveClient:
                         res_items.append(
                             {
                                 "id": d["id"],
-                                "name": f"D: {d['name']}",
+                                "name": d["name"],
                                 "mime_type": "application/vnd.google-apps.folder",
                                 "is_folder": True,
+                                "owner": "Shared Drive",
                             }
                         )
                     page_token = drives_res.get("nextPageToken")
@@ -189,7 +196,7 @@ class GoogleDriveClient:
                 logger.error(f"Error fetching shared drives: {e}")
             return res_items
 
-        async def fetch_files(query: str, prefix: str = ""):
+        async def fetch_files(query: str):
             res_items = []
             page_token = None
             while True:
@@ -197,13 +204,21 @@ class GoogleDriveClient:
                     page_size=1000, query_filter=query, order_by="name", page_token=page_token
                 )
                 for f in response.get("files", []):
+                    owner_name = None
+                    if f.get("sharingUser"):
+                        owner_name = f["sharingUser"].get("displayName")
+                    elif f.get("owners"):
+                        owner_name = f["owners"][0].get("displayName")
+
                     res_items.append(
                         {
                             "id": f["id"],
-                            "name": f"{prefix}{f['name']}",
+                            "name": f["name"],
                             "mime_type": f["mimeType"],
+                            "md5_checksum": f.get("md5Checksum"),
                             "web_view_link": f.get("webViewLink"),
                             "is_folder": f["mimeType"] == "application/vnd.google-apps.folder",
+                            "owner": owner_name,
                         }
                     )
                 page_token = response.get("nextPageToken")
@@ -212,19 +227,12 @@ class GoogleDriveClient:
             return res_items
 
         if folder_id == "root":
-            # Parallel fetch for root: Shared Drives + My Drive + Shared With Me
-            my_drive_query = (
-                "trashed = false and (mimeType = 'application/vnd.google-apps.folder' or mimeType contains 'video/')"
-            )
-            shared_query = (
-                "sharedWithMe = true and trashed = false and "
-                "(mimeType = 'application/vnd.google-apps.folder' or mimeType contains 'video/')"
-            )
+            # Parallel fetch for root: Shared Drives + Shared With Me (Folders only)
+            shared_query = "sharedWithMe = true and trashed = false and mimeType = 'application/vnd.google-apps.folder'"
 
             results = await asyncio.gather(
                 fetch_shared_drives(),
-                fetch_files(my_drive_query),
-                fetch_files(shared_query, prefix="S: "),
+                fetch_files(shared_query),
                 return_exceptions=True,
             )
 

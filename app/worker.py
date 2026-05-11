@@ -135,7 +135,10 @@ class Worker:
                     file_id, status_callback=logger.info, in_queue=in_queue, state_callback=update_state
                 )
 
-                new_payload = {**payload, **result}
+                # Use the MD5 from the initial ingest request if available,
+                # otherwise use what was fetched during download
+                md5 = payload.get("md5") or result.get("md5_checksum")
+                new_payload = {**payload, **result, "md5_checksum": md5}
                 sql = """
                     UPDATE tasks
                     SET task_type = 'stage_2_transcribe', payload = ?, status = 'pending',

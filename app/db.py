@@ -60,13 +60,14 @@ def init_db(connection: sqlite3.Connection) -> None:
         )
     """)
 
-    # 1. Videos table (UPDATED: added recorded_date)
+    # 1. Videos table (UPDATED: added md5_checksum)
     connection.execute("""
         CREATE TABLE IF NOT EXISTS videos (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             source_type TEXT NOT NULL,
             source_file_id TEXT NOT NULL,
             parent_folder_id TEXT,
+            md5_checksum TEXT,
             title TEXT NOT NULL,
             recorded_date DATE,
             is_short BOOLEAN DEFAULT FALSE,
@@ -89,7 +90,7 @@ def init_db(connection: sqlite3.Connection) -> None:
     if "parent_folder_id" not in columns:
         logger.info("Migrating database: Adding parent_folder_id column to videos table.")
         connection.execute("ALTER TABLE videos ADD COLUMN parent_folder_id TEXT")
-    
+
     if "recorded_date" not in columns:
         logger.info("Migrating database: Adding recorded_date column to videos table.")
         connection.execute("ALTER TABLE videos ADD COLUMN recorded_date DATE")
@@ -97,6 +98,10 @@ def init_db(connection: sqlite3.Connection) -> None:
     if "is_short" not in columns:
         logger.info("Migrating database: Adding is_short column to videos table.")
         connection.execute("ALTER TABLE videos ADD COLUMN is_short BOOLEAN DEFAULT FALSE")
+
+    if "md5_checksum" not in columns:
+        logger.info("Migrating database: Adding md5_checksum column to videos table.")
+        connection.execute("ALTER TABLE videos ADD COLUMN md5_checksum TEXT")
 
     # 2. Transcripts table (SIMPLIFIED: engine removed)
     connection.execute("""
@@ -166,6 +171,7 @@ def init_db(connection: sqlite3.Connection) -> None:
     connection.execute("CREATE INDEX IF NOT EXISTS idx_chunks_video_id ON chunks(video_id)")
     connection.execute("CREATE INDEX IF NOT EXISTS idx_speakers_video_id ON speakers(video_id)")
     connection.execute("CREATE INDEX IF NOT EXISTS idx_videos_parent_folder ON videos(parent_folder_id)")
+    connection.execute("CREATE INDEX IF NOT EXISTS idx_videos_md5 ON videos(md5_checksum)")
     connection.execute("CREATE INDEX IF NOT EXISTS idx_query_cache_query ON query_cache(query)")
 
     connection.commit()
