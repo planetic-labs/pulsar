@@ -3,7 +3,12 @@ from __future__ import annotations
 import json
 import re
 import sqlite3
-...
+from pathlib import Path
+from typing import Any
+
+from qdrant_client import models
+
+
 def get_cached_embedding(
     connection: sqlite3.Connection, query: str
 ) -> tuple[list[float], models.SparseVector | None] | None:
@@ -34,8 +39,6 @@ def save_cached_embedding(
         """,
         (query, json.dumps(dense), s_indices, s_values),
     )
-from pathlib import Path
-from typing import Any
 
 
 def extract_date_from_title(title: str) -> str | None:
@@ -48,7 +51,7 @@ def extract_date_from_title(title: str) -> str | None:
     Returns date in ISO format YYYY-MM-DD or None.
     """
     t = title.strip()
-    
+
     # 1. Try YYYY.MM.DD
     m1 = re.match(r"^(\d{4})\.(\d{2})\.(\d{2})\b", t)
     if m1:
@@ -100,6 +103,7 @@ def upsert_video(
     source_type: str,
     source_file_id: str | None,
     parent_folder_id: str | None = None,
+    md5_checksum: str | None = None,
     title: str,
     recorded_date: str | None = None,
     source_url: str | None,
@@ -122,12 +126,13 @@ def upsert_video(
     cursor = connection.execute(
         """
         INSERT INTO videos (
-            source_type, source_file_id, parent_folder_id, title, recorded_date,
+            source_type, source_file_id, parent_folder_id, md5_checksum, title, recorded_date,
             is_short, source_url, mime_type, size_bytes, duration_sec,
             local_video_path, local_audio_path, processing_status
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT (source_type, source_file_id) DO UPDATE SET
             parent_folder_id = EXCLUDED.parent_folder_id,
+            md5_checksum = EXCLUDED.md5_checksum,
             title = EXCLUDED.title,
             recorded_date = EXCLUDED.recorded_date,
             is_short = EXCLUDED.is_short,
@@ -145,6 +150,7 @@ def upsert_video(
             source_type,
             source_id,
             parent_folder_id,
+            md5_checksum,
             title,
             recorded_date,
             is_short,

@@ -355,11 +355,25 @@ async def api_add_ingest_task(
     diarize: bool = Form(True),
     _: str = Depends(require_access_token),
 ):
+    drive_client = GoogleDriveClient(get_google_drive_settings())
+    try:
+        file_meta = await drive_client.get_file(file_id)
+        md5 = file_meta.md5_checksum
+    except Exception as e:
+        logger.error(f"Failed to get file metadata for {file_id}: {e}")
+        md5 = None
+
     settings = get_sqlite_settings()
     with db_connection(settings) as conn:
+        if md5:
+            # Check for content duplicates
+            existing = conn.execute("SELECT id FROM videos WHERE md5_checksum = ?", (md5,)).fetchone()
+            if existing:
+                return {"status": "already_indexed", "video_id": existing["id"]}
+
         conn.execute(
             "INSERT INTO tasks (task_type, payload) VALUES (?, ?)",
-            ("stage_1_download", json.dumps({"file_id": file_id, "title": title, "diarize": diarize})),
+            ("stage_1_download", json.dumps({"file_id": file_id, "title": title, "diarize": diarize, "md5": md5})),
         )
 
     # Auto-start worker
@@ -383,35 +397,38 @@ def indexed_page(request: Request):
 async def api_toggle_short(video_id: int, _: str = Depends(require_access_token)):
     """Toggles is_short status and re-queues for indexing."""
     pg_settings = get_sqlite_settings()
-    app_settings = get_app_settings()
     q_settings = get_qdrant_settings()
 
-    from app.repository import replace_chunks
     from app.chunking import chunk_from_utterances
     from app.qdrant import get_qdrant_client
+    from app.repository import replace_chunks
 
     with db_connection(pg_settings) as conn:
         # 1. Toggle status
         row = conn.execute("SELECT is_short, title FROM videos WHERE id = ?", (video_id,)).fetchone()
         if not row:
             raise HTTPException(status_code=404, detail="Video not found")
-        
+
         new_is_short = not bool(row["is_short"])
         conn.execute("UPDATE videos SET is_short = ? WHERE id = ?", (new_is_short, video_id))
 
         # 2. Get transcript to re-chunk
-        t_row = conn.execute("SELECT id, normalized_json_path FROM transcripts WHERE video_id = ?", (video_id,)).fetchone()
+        t_row = conn.execute(
+            "SELECT id, normalized_json_path FROM transcripts WHERE video_id = ?", (video_id,)
+        ).fetchone()
         if t_row and t_row["normalized_json_path"]:
             norm_path = Path(t_row["normalized_json_path"])
             if norm_path.exists():
                 norm_payload = json.loads(norm_path.read_text(encoding="utf-8"))
                 raw_chunks = norm_payload.get("utterances") or norm_payload.get("chunks") or []
-                
+
                 # 3. Re-chunk
                 new_chunks = chunk_from_utterances(raw_chunks, single_chunk=new_is_short)
-                
+
                 # 4. Clear Qdrant old points
-                old_chunk_ids = [r["id"] for r in conn.execute("SELECT id FROM chunks WHERE video_id = ?", (video_id,)).fetchall()]
+                old_chunk_ids = [
+                    r["id"] for r in conn.execute("SELECT id FROM chunks WHERE video_id = ?", (video_id,)).fetchall()
+                ]
                 if old_chunk_ids:
                     qdrant = get_qdrant_client()
                     qdrant.delete(
@@ -427,7 +444,7 @@ async def api_toggle_short(video_id: int, _: str = Depends(require_access_token)
                     "INSERT INTO tasks (task_type, payload) VALUES (?, ?)",
                     ("stage_3_index", json.dumps({"video_id": video_id})),
                 )
-                
+
                 # Auto-start worker if needed
                 worker = get_worker()
                 if not worker.is_running:
@@ -662,7 +679,7 @@ async def index_page(
         with db_connection(pg_settings) as connection:
             items = await hybrid_search(
                 connection,
-                q or "", # Pass empty string if None
+                q or "",  # Pass empty string if None
                 limit=app_settings.results_limit,
                 search_mode=mode,
                 date_from=date_from,
@@ -676,6 +693,7 @@ async def index_page(
     template = "index_mobile.html" if is_mobile else "index.html"
 
     from datetime import date
+
     today = date.today().isoformat()
     default_start = "2020-01-01"
 
@@ -1081,9 +1099,10 @@ async def api_drive_ls(folder_id: str | None = None, refresh: bool = False, _: s
         with db_connection(sqlite_settings) as connection:
             # Get all source_file_ids for google_drive source
             indexed_rows = connection.execute(
-                "SELECT source_file_id FROM videos WHERE source_type = 'google_drive'"
+                "SELECT source_file_id, md5_checksum FROM videos WHERE source_type = 'google_drive'"
             ).fetchall()
             indexed_ids = {row["source_file_id"] for row in indexed_rows}
+            indexed_md5s = {row["md5_checksum"] for row in indexed_rows if row["md5_checksum"]}
 
             # Also check if folders are indexed
             folder_rows = connection.execute("SELECT id FROM folders").fetchall()
@@ -1114,7 +1133,12 @@ async def api_drive_ls(folder_id: str | None = None, refresh: bool = False, _: s
                         queued_ids.add(s["source_file_id"])
 
         for item in items:
-            item["is_indexed"] = item["id"] in (indexed_folder_ids if item.get("is_folder") else indexed_ids)
+            if item.get("is_folder"):
+                item["is_indexed"] = item["id"] in indexed_folder_ids
+            else:
+                # Check by ID or by MD5 (deduplication)
+                item["is_indexed"] = (item["id"] in indexed_ids) or (item.get("md5_checksum") in indexed_md5s)
+
             item["is_queued"] = item["id"] in queued_ids
 
         return items

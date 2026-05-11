@@ -144,7 +144,7 @@ def upload_to_s3(file_path: Path):
         nonlocal uploaded
         uploaded += bytes_amount
         percent = (uploaded / file_size) * 100
-        sys.stdout.write(f"\r☁️ Uploading to S3: {percent:.1f}% ({uploaded/1024/1024:.1f} MB)")
+        sys.stdout.write(f"\r☁️ Uploading to S3: {percent:.1f}% ({uploaded / 1024 / 1024:.1f} MB)")
         sys.stdout.flush()
 
     logger.info(f"☁️ Uploading {file_path.name} to bucket '{S3_BUCKET}'...")
@@ -213,24 +213,24 @@ def copy_files(dest_dir: Path):
             src = STORAGE_DIR / sub_dir
             if src.exists():
                 shutil.copytree(src, dest_dir / "storage" / sub_dir, dirs_exist_ok=True)
-        
+
         # 2. Copy the entire config/ directory
         config_src = PROJECT_ROOT / "config"
         if config_src.exists():
             shutil.copytree(config_src, dest_dir / "config", dirs_exist_ok=True)
-            
+
             # Specific check for Service Account key
             key_path = config_src / "service-key.json"
             if not key_path.exists():
                 logger.warning("⚠️  Google Drive 'service-key.json' not found in config/. Backup might be incomplete!")
             else:
                 logger.info("✅ Google Drive service-key.json included in backup.")
-            
+
         # 3. Copy .env from project root
         env_src = PROJECT_ROOT / ".env"
         if env_src.exists():
             shutil.copy2(env_src, dest_dir / ".env")
-            
+
         logger.info("✅ Configuration and data copy complete.")
     except Exception as e:
         logger.error(f"❌ Files copy failed: {e}")

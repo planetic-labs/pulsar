@@ -17,3 +17,4 @@ storage/
 .xxxx/
 backups/tmp/
 backups/local/
+*.log

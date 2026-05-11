@@ -38,27 +38,34 @@
                     <!-- Mode Dropdown -->
                     <div class="relative dropdown-container">
                         <button type="button" onclick="toggleDropdown('mode-drop')" class="flex items-center gap-2 px-3 py-1.5 bg-white border border-[#E5E1D8] rounded-full text-[10px] font-black uppercase tracking-widest text-[#4A453E] hover:border-brand-300 transition-all shadow-sm">
-                            <span class="text-warm-400">режим:</span>
-                            <span>{{ mode }}</span>
+                            <svg class="w-4 h-4 text-warm-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4"></path></svg>
+                            <span>
+                                {% if mode == 'hybrid' %}гибридный
+                                {% elif mode == 'semantic' %}смысловой
+                                {% elif mode == 'lexical' %}по словам
+                                {% elif mode == 'quote' %}цитаты
+                                {% else %}{{ mode }}{% endif %}
+                            </span>
                             <svg class="w-3 h-3 text-warm-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M19 9l-7 7-7-7"></path></svg>
                         </button>
                         <div id="mode-drop" class="hidden absolute top-full left-0 mt-1 w-40 bg-white border border-[#E5E1D8] rounded-2xl shadow-xl z-[100] overflow-hidden">
-                            {% for m in ['hybrid', 'semantic', 'lexical', 'quote'] %}
-                            <button type="button" onclick="setFilter('mode', '{{m}}')" class="w-full text-left px-4 py-2 text-[10px] font-black uppercase tracking-widest hover:bg-warm-50 {% if mode == m %}text-brand-500 bg-brand-50/30{% else %}text-warm-500{% endif %}">{{m}}</button>
-                            {% endfor %}
+                            <button type="button" onclick="setFilter('mode', 'hybrid')" class="w-full text-left px-4 py-2 text-[10px] font-black uppercase tracking-widest hover:bg-warm-50 {% if mode == 'hybrid' %}text-brand-500 bg-brand-50/30{% else %}text-warm-500{% endif %}">гибридный</button>
+                            <button type="button" onclick="setFilter('mode', 'semantic')" class="w-full text-left px-4 py-2 text-[10px] font-black uppercase tracking-widest hover:bg-warm-50 {% if mode == 'semantic' %}text-brand-500 bg-brand-50/30{% else %}text-warm-500{% endif %}">смысловой</button>
+                            <button type="button" onclick="setFilter('mode', 'lexical')" class="w-full text-left px-4 py-2 text-[10px] font-black uppercase tracking-widest hover:bg-warm-50 {% if mode == 'lexical' %}text-brand-500 bg-brand-50/30{% else %}text-warm-500{% endif %}">по словам</button>
+                            <button type="button" onclick="setFilter('mode', 'quote')" class="w-full text-left px-4 py-2 text-[10px] font-black uppercase tracking-widest hover:bg-warm-50 {% if mode == 'quote' %}text-brand-500 bg-brand-50/30{% else %}text-warm-500{% endif %}">цитаты</button>
                         </div>
                     </div>
 
                     <!-- Type Dropdown -->
                     <div class="relative dropdown-container">
                         <button type="button" onclick="toggleDropdown('type-drop')" class="flex items-center gap-2 px-3 py-1.5 bg-white border border-[#E5E1D8] rounded-full text-[10px] font-black uppercase tracking-widest text-[#4A453E] hover:border-brand-300 transition-all shadow-sm">
-                            <span class="text-warm-400">тип:</span>
-                            <span>{% if video_type == 'all' %}все видео{% elif video_type == 'short' %}shorts{% else %}длинные{% endif %}</span>
+                            <svg class="w-4 h-4 text-warm-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 10h16M4 14h16M4 18h16"></path></svg>
+                            <span>{% if video_type == 'all' %}все видео{% elif video_type == 'short' %}короткие{% else %}длинные{% endif %}</span>
                             <svg class="w-3 h-3 text-warm-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M19 9l-7 7-7-7"></path></svg>
                         </button>
                         <div id="type-drop" class="hidden absolute top-full left-0 mt-1 w-48 bg-white border border-[#E5E1D8] rounded-2xl shadow-xl z-[100] overflow-hidden">
                             <button type="button" onclick="setFilter('video_type', 'all')" class="w-full text-left px-4 py-2 text-[10px] font-black uppercase tracking-widest hover:bg-warm-50 {% if video_type == 'all' %}text-teal-600 bg-teal-50/30{% else %}text-warm-500{% endif %}">все видео</button>
-                            <button type="button" onclick="setFilter('video_type', 'short')" class="w-full text-left px-4 py-2 text-[10px] font-black uppercase tracking-widest hover:bg-warm-50 {% if video_type == 'short' %}text-teal-600 bg-teal-50/30{% else %}text-warm-500{% endif %}">shorts (до 30м)</button>
+                            <button type="button" onclick="setFilter('video_type', 'short')" class="w-full text-left px-4 py-2 text-[10px] font-black uppercase tracking-widest hover:bg-warm-50 {% if video_type == 'short' %}text-teal-600 bg-teal-50/30{% else %}text-warm-500{% endif %}">короткие (до 30м)</button>
                             <button type="button" onclick="setFilter('video_type', 'long')" class="w-full text-left px-4 py-2 text-[10px] font-black uppercase tracking-widest hover:bg-warm-50 {% if video_type == 'long' %}text-teal-600 bg-teal-50/30{% else %}text-warm-500{% endif %}">длинные</button>
                         </div>
                     </div>
@@ -105,8 +112,9 @@
                             <span>2021</span>
                             <span>2022</span>
                             <span>2023</span>
-                            <span class="text-brand-400">2024</span>
-                            <span>2025</span>
+                            <span>2024</span>
+                            <span class="text-brand-400">2025</span>
+                            <span>2026</span>
                         </div>
                         
                         <div class="relative h-4 flex items-center">
@@ -115,7 +123,7 @@
                             
                             <!-- Tick Marks -->
                             <div class="absolute inset-0 flex justify-between items-center pointer-events-none px-[2px]">
-                                {% for i in range(31) %}
+                                {% for i in range(43) %}
                                 <div class="w-[1px] h-1.5 bg-warm-200/50"></div>
                                 {% endfor %}
                             </div>
@@ -367,7 +375,14 @@
 
     function toggleTimeline() {
         const timeline = document.getElementById('timeline-container');
-        timeline.classList.toggle('hidden');
+        const dateFrom = document.getElementById('f-date-from').value;
+        const dateTo = document.getElementById('f-date-to').value;
+
+        if (dateFrom || dateTo) {
+            timeline.classList.remove('hidden');
+        } else {
+            timeline.classList.toggle('hidden');
+        }
     }
 
     function toggleDropdown(id) {

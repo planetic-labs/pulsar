@@ -52,7 +52,10 @@ async def main() -> None:
         files = await client.list_files(page_size=args.page_size)
         for item in files:
             parents_str = ",".join(item.parents) if item.parents else "None"
-            print(f"id={item.file_id} name={item.name!r} mime_type={item.mime_type!r} parents=[{parents_str}] size={item.size!r}")
+            print(
+                f"id={item.file_id} name={item.name!r} mime_type={item.mime_type!r} "
+                f"parents=[{parents_str}] size={item.size!r}"
+            )
         return
 
     output_path = Path(args.output) if args.output else settings.download_dir / args.file_id

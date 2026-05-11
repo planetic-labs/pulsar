@@ -209,15 +209,20 @@ async def hybrid_search(
     if date_from or date_to:
         # User requirement: ignore date filters for short videos
         if video_type != "short":
-            gte_val = f"{date_from}T00:00:00Z" if date_from and len(date_from) > 1 else None
-            lte_val = f"{date_to}T23:59:59Z" if date_to and len(date_to) > 1 else None
-            
-            if gte_val or lte_val:
+            # DatetimeRange expects date/datetime objects or strings depending on version,
+            # but ty expects date | None.
+            from datetime import datetime
+
+            # Qdrant supports ISO strings, but to satisfy the type checker we can use datetime objects
+            gte_dt = datetime.fromisoformat(f"{date_from}T00:00:00") if date_from and len(date_from) > 1 else None
+            lte_dt = datetime.fromisoformat(f"{date_to}T23:59:59") if date_to and len(date_to) > 1 else None
+
+            if gte_dt or lte_dt:
                 date_filter = models.FieldCondition(
                     key="recorded_date",
                     range=models.DatetimeRange(
-                        gte=gte_val,
-                        lte=lte_val,
+                        gte=gte_dt,
+                        lte=lte_dt,
                     ),
                 )
 
