@@ -9,7 +9,7 @@ from typing import Any
 import pymorphy3
 from qdrant_client import models
 
-from app.config import get_app_settings, get_embedding_settings, get_qdrant_settings
+from app.config import get_embedding_settings, get_qdrant_settings
 from app.gemini import UnifiedEmbeddingClient
 from app.qdrant import get_qdrant_client
 
@@ -402,7 +402,7 @@ async def hybrid_search(
             res_scroll = qdrant.scroll(
                 collection_name=settings.collection_name,
                 scroll_filter=models.Filter(must=exact_conditions),
-                limit=limit,
+                limit=limit * 3,  # Fetch more because many will be timing-duplicates
                 with_payload=True,
             )
             points = res_scroll[0]
@@ -429,6 +429,7 @@ async def hybrid_search(
             with_payload=True,
         )
         points = res_scroll[0]
+        scores_map = {p.id: {"combined": 1.0, "match_type": "filter"} for p in points}
     else:
         # --- VECTOR SEARCH (SEMANTIC, LEXICAL, HYBRID) ---
         client = UnifiedEmbeddingClient(get_embedding_settings())
@@ -486,7 +487,7 @@ async def hybrid_search(
             points_map[p.id] = p
             id_to_lexical_score[p.id] = p.score
 
-        # 3. Final sorting and diversification
+        # 3. Final sorting
         candidates_list = []
         for pid, score in combined_scores.items():
             if pid in points_map:
@@ -509,18 +510,8 @@ async def hybrid_search(
 
         candidates_list.sort(key=lambda x: x["combined"], reverse=True)
 
-        # Diversification: Limit per video
-        video_counts = {}
-        final_list = []
-        for item in candidates_list:
-            vid = item["point"].payload.get("video_id")
-            count = video_counts.get(vid, 0)
-            if count < 3:
-                final_list.append(item)
-                video_counts[vid] = count + 1
-
-        points = [x["point"] for x in final_list[:limit]]
-        scores_map = {x["point"].id: x for x in final_list[:limit]}
+        points = [x["point"] for x in candidates_list]
+        scores_map = {x["point"].id: x for x in candidates_list}
 
     # 1. Collect all video IDs to fetch missing metadata
     video_ids = list({p.payload.get("video_id") for p in points if p.payload})
@@ -544,7 +535,7 @@ async def hybrid_search(
         for r in rows_v:
             video_metadata[r["id"]] = {"source_file_id": r["source_file_id"], "title": r["title"]}
 
-        results = []
+    results = []
 
     # Cache for utterances (transcript_id -> utterances)
     utterance_cache = {}
@@ -576,24 +567,14 @@ async def hybrid_search(
                 uts = utterance_cache[transcript_id]
                 if uts:
                     # Distribute utterances to chunks in q_data
-                    # This is slightly complex because chunks are combined t1 + " " + t2 + " " + t3
-                    # We need to know which utterances belong to which chunk index.
-
-                    # Fetch chunk indexes for c1, c2, c3
-                    c1_idx = int(payload.get("chunk_index") or 0)
-
-                    # Group utterances by chunk index (this is simplified as we assume they were grouped by chunk_from_utterances)
-                    # For Shorts, there's only 1 chunk with index 0.
-                    # For others, we'll try to find utterances for c1_idx, c1_idx+1, c1_idx+2
-                    for i, chunk in enumerate(q_data["chunks_data"]):
-                        # Skip if chunk doesn't exist (e.g. LEFT JOIN returned NULL for s1/s2/s3)
+                    for _, chunk in enumerate(q_data["chunks_data"]):
                         if chunk["start_sec"] is None:
                             chunk["utterances"] = []
                             continue
 
-                        # Heuristic: find utterances that fall within this chunk's time range
                         chunk["utterances"] = [
-                            u for u in uts
+                            u
+                            for u in uts
                             if float(u.get("start", 0.0)) >= chunk["start_sec"] - 0.01
                             and float(u.get("end", 0.0)) <= chunk["end_sec"] + 0.01
                         ]
@@ -613,7 +594,6 @@ async def hybrid_search(
         v_id = payload.get("video_id")
         v_meta = video_metadata.get(v_id, {})
 
-        # --- FIX: Ensure we have current title, source_file_id and source_url from DB ---
         title = v_meta.get("title") or str(payload.get("title") or "Unknown Video")
         source_file_id = v_meta.get("source_file_id") or payload.get("source_file_id")
         source_url = payload.get("source_url")
@@ -689,6 +669,32 @@ async def hybrid_search(
                 alternative_texts={},
             )
         )
+
+    # 2. Final pipeline: Deduplication -> Diversification -> Limit
+    # A. Deduplication by timing (critical for Quote Search sliding window)
+    seen_timing = set()
+    unique_results = []
+    for res in results:
+        # Use 0.5s window to group very close matches (same phrase in different chunks)
+        key = (res.video_id, round(res.start_sec * 2) / 2)
+        if key not in seen_timing:
+            seen_timing.add(key)
+            unique_results.append(res)
+    results = unique_results
+
+    # B. Diversification (Limit results per video)
+    # Default: max 3 results per video to keep variety
+    video_counts = {}
+    diversified = []
+    for res in results:
+        count = video_counts.get(res.video_id, 0)
+        if count < 3 or (video_filter is not None):  # Don't limit if searching within specific video
+            diversified.append(res)
+            video_counts[res.video_id] = count + 1
+    results = diversified
+
+    # C. Apply final limit
+    results = results[:limit]
 
     if video_filter and not clean_query:
         results.sort(key=lambda x: x.chunk_index)
