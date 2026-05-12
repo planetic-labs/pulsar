@@ -18,7 +18,11 @@ from app.qdrant import get_qdrant_client
 from app.repository import update_video_status
 from app.transcription.deepgram import DeepgramEngine
 from app.audio import SilentVideoError
-from scripts.ingest_drive_file import download_and_extract_stage, transcribe_stage
+from scripts.ingest_drive_file import (
+    download_and_extract_stage,
+    transcribe_stage,
+    InsufficientSpaceError,
+)
 
 
 # --- LOG BROADCASTING SYSTEM ---
@@ -149,6 +153,25 @@ class Worker:
                 with db_connection(get_sqlite_settings()) as conn:
                     conn.execute(sql, (json.dumps(new_payload), task_id))
                 logger.info(f"{result.get('title')} подготовлен.")
+            except InsufficientSpaceError as e:
+                logger.warning(f"Недостаточно места для {title}: {e}")
+                
+                # Check if there are tasks in transcription queue
+                sql_check = "SELECT COUNT(*) as c FROM tasks WHERE task_type = 'stage_2_transcribe' AND status IN ('pending', 'running')"
+                with db_connection(get_sqlite_settings()) as conn:
+                    t_count = conn.execute(sql_check).fetchone()["c"]
+                
+                # Update task back to pending so it can be retried
+                sql_requeue = "UPDATE tasks SET status = 'pending', updated_at = CURRENT_TIMESTAMP WHERE id = ?"
+                with db_connection(get_sqlite_settings()) as conn:
+                    conn.execute(sql_requeue, (task_id,))
+
+                if t_count > 0:
+                    logger.info("Есть задачи на транскрибацию. Ждем 60 секунд...")
+                    await asyncio.sleep(60)
+                else:
+                    logger.error("Недостаточно места и нет задач на транскрибацию. Остановка воркера.")
+                    self.stop()
             except SilentVideoError as e:
                 logger.warning(f"Пропуск видео без звука: {title}")
                 sql = "UPDATE tasks SET status = 'skipped_silent', updated_at = CURRENT_TIMESTAMP WHERE id = ?"

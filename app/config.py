@@ -90,6 +90,7 @@ class AppSettings:
     process_concurrency: int
     storage_dir: Path
     data_dir: Path
+    disk_space_buffer_gb: int
 
     @property
     def raw_transcripts_dir(self) -> Path:
@@ -182,6 +183,7 @@ def get_app_settings() -> AppSettings:
         process_concurrency=int(os.getenv("INGEST_PROCESS_CONCURRENCY", "1")),
         storage_dir=Path(os.getenv("APP_STORAGE_DIR", "/srv/search-ui/storage")),
         data_dir=Path(os.getenv("APP_DATA_DIR", "/srv/search-ui/data")),
+        disk_space_buffer_gb=int(os.getenv("DISK_SPACE_BUFFER_GB", "3")),
     )
 
 
