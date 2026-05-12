@@ -20,11 +20,6 @@ services:
       - homelab-net
     environment:
       - HF_HOME=/srv/search-ui/models_cache
-      - HF_TOKEN=${HF_TOKEN:-}
-      - QDRANT_URL=http://qdrant:6333
-      - SQLITE_DB_PATH=/srv/search-ui/data/search_ui.db
-      - GOOGLE_DRIVE_CREDENTIALS_PATH=/srv/search-ui/config/google.json
-      - GOOGLE_DRIVE_TOKEN_PATH=/srv/search-ui/config/token.json
     env_file: .env
     depends_on:
       qdrant:
