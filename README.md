@@ -59,6 +59,7 @@ docker compose up -d --build
 ## 🔧 Обслуживание и CLI
 
 Система включает набор утилит для администратора:
+- **Умная очистка очереди**: `docker compose exec app uv run python scripts/clear_queue.py` — удаляет новые задачи, сохраняя те, что уже скачаны или находятся в работе.
 - **Проверка целостности**: `docker compose exec app uv run scripts/check_integrity.py`
 - **Заполнение MD5**: `docker compose exec app uv run scripts/backfill_md5.py`
 - **Реиндексация**: `docker compose exec app uv run scripts/reindex_search.py`
