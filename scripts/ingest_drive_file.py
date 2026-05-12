@@ -4,6 +4,7 @@ import json
 import logging
 import sys
 import time
+import shutil
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -35,6 +36,11 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
+class InsufficientSpaceError(Exception):
+    """Raised when there is not enough free space on disk."""
+    pass
+
+
 async def download_and_extract_stage(
     file_id: str,
     status_callback: Callable[[str], None] | None = None,
@@ -47,7 +53,18 @@ async def download_and_extract_stage(
     drive = GoogleDriveClient(drive_settings)
 
     file_meta = await drive.get_file(file_id)
+
+    # Check free space (require buffer + file_size free space)
+    required_space = (app_settings.disk_space_buffer_gb * 1024**3) + (file_meta.size or 0)
+    total, used, free = shutil.disk_usage(str(app_settings.downloads_dir))
+    if free < required_space:
+        raise InsufficientSpaceError(
+            f"Not enough free space. Required: {required_space / 1024**3:.2f} GB, "
+            f"Free: {free / 1024**3:.2f} GB (Buffer: {app_settings.disk_space_buffer_gb} GB)"
+        )
+
     video_path = app_settings.downloads_dir / f"{file_id}.mp4"
+
     audio_path = app_settings.audio_dir / f"{file_id}.wav"
     video_path.parent.mkdir(parents=True, exist_ok=True)
     audio_path.parent.mkdir(parents=True, exist_ok=True)
