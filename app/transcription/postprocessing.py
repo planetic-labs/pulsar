@@ -59,7 +59,11 @@ def apply_postprocessing_to_raw(raw_payload: dict[str, Any]) -> dict[str, Any]:
 
             # Paragraphs (if paragraphs=true was used)
             if "paragraphs" in alt:
-                paragraphs_data = alt["paragraphs"].get("paragraphs", [])
+                p_obj = alt["paragraphs"]
+                if "transcript" in p_obj:
+                    p_obj["transcript"] = apply_text_replacements(p_obj["transcript"])
+
+                paragraphs_data = p_obj.get("paragraphs", [])
                 for p in paragraphs_data:
                     for sentence in p.get("sentences", []):
                         if "text" in sentence:
