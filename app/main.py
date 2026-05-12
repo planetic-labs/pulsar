@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import base64
 import httpx
 import json
 import logging
@@ -11,7 +10,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
 
-from fastapi import Depends, FastAPI, Form, HTTPException, Request, WebSocket, WebSocketDisconnect, UploadFile, File
+from fastapi import Depends, FastAPI, Form, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -801,13 +800,10 @@ def feedback_page(request: Request):
     return templates.TemplateResponse(request, "feedback.html", {"stats": get_global_stats()})
 
 
+from app.schemas import VideoStatusItem, FeedbackRequest
+...
 @app.post("/api/v1/feedback")
-async def api_submit_feedback(
-    title: str = Form(...),
-    description: str = Form(...),
-    images: list[UploadFile] = File(None),
-    _: str = Depends(require_access_token)
-):
+async def api_submit_feedback(req: FeedbackRequest, _: str = Depends(require_access_token)):
     app_settings = get_app_settings()
     if not app_settings.github_pat:
         raise HTTPException(status_code=500, detail="GitHub PAT не настроен в .env")
@@ -819,31 +815,10 @@ async def api_submit_feedback(
         "User-Agent": "VideoDB-AI"
     }
 
-    body_md = f"**Описание:**\n{description}\n"
-    
-    if images:
-        body_md += "\n---\n**Прикрепленные изображения:**\n"
-        for idx, img in enumerate(images):
-            if img.size and img.size > 0:
-                try:
-                    image_bytes = await img.read()
-                    # Check if total body length might exceed GitHub's ~65KB limit
-                    # Base64 is ~1.33x the original size.
-                    if len(body_md) + (len(image_bytes) * 1.4) > 60000:
-                        body_md += f"\n*(Изображение {idx+1} пропущено: превышен лимит размера сообщения GitHub API)*"
-                        continue
-                        
-                    mime = img.content_type or "image/png"
-                    base64_img = base64.b64encode(image_bytes).decode('utf-8')
-                    body_md += f"\n<img src=\"data:{mime};base64,{base64_img}\" max-width=\"100%\" alt=\"Image {idx+1}\">\n"
-                except Exception as e:
-                    logger.error(f"Failed to process image {idx+1}: {e}")
-                    body_md += f"\n*(Ошибка прикрепления изображения {idx+1}: {e})*"
-
-    body_md += f"\n\n---\n*Отправлено через VideoDB AI Feedback Form*"
+    body_md = f"**Описание:**\n{req.description}\n\n---\n*Отправлено через VideoDB AI Feedback Form*"
     
     payload = {
-        "title": title,
+        "title": req.title,
         "body": body_md,
         "labels": ["feedback"]
     }
@@ -858,8 +833,6 @@ async def api_submit_feedback(
                 try:
                     err_data = response.json()
                     detail = err_data.get("message", response.text)
-                    if response.status_code == 422:
-                        detail = "Слишком большой объем данных (изображений). GitHub ограничивает размер сообщения 65КБ."
                 except:
                     detail = response.text
                 raise HTTPException(status_code=response.status_code, detail=f"Ошибка GitHub API: {detail}")

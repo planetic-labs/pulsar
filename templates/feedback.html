@@ -28,24 +28,6 @@
                         class="w-full bg-[#FAF9F6] border border-[#E5E1D8] rounded-2xl px-5 py-4 text-sm font-bold text-[#3A3630] focus:outline-none focus:border-brand-400 focus:ring-4 focus:ring-brand-50/50 transition-all placeholder:text-warm-300 resize-none"></textarea>
                 </div>
 
-                <!-- Image Upload -->
-                <div>
-                    <label class="block text-[10px] font-black text-warm-400 uppercase tracking-widest mb-2 ml-1">Прикрепить скриншоты (опционально)</label>
-                    <div class="space-y-4">
-                        <label class="w-full flex flex-col items-center justify-center border-2 border-dashed border-[#E5E1D8] rounded-2xl p-6 bg-warm-50/30 hover:bg-warm-50 hover:border-brand-300 cursor-pointer transition-all group">
-                            <div class="flex flex-col items-center gap-2">
-                                <svg class="w-8 h-8 text-warm-300 group-hover:text-brand-400 transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg>
-                                <span id="file-name" class="text-[10px] font-bold text-warm-500 group-hover:text-brand-600">Выберите одно или несколько изображений</span>
-                            </div>
-                            <input type="file" id="images" name="images" accept="image/*" multiple class="hidden">
-                        </label>
-                        
-                        <div id="previews-container" class="hidden grid grid-cols-2 sm:grid-cols-4 md:grid-cols-5 gap-3">
-                            <!-- Previews will be injected here -->
-                        </div>
-                    </div>
-                </div>
-
                 <!-- Submit Button -->
                 <div class="pt-2">
                     <button type="submit" id="submit-btn" class="w-full bg-[#3A3630] hover:bg-[#1A1814] text-[#FAF9F6] font-black uppercase tracking-widest py-5 rounded-2xl shadow-lg hover:shadow-xl transition-all flex items-center justify-center gap-3 group">
@@ -55,48 +37,21 @@
                 </div>
             </form>
         </div>
-        
-        <div class="mt-6 text-center">
-            <p class="text-[9px] text-warm-400 font-bold uppercase tracking-widest opacity-50">Примечание: Общий размер изображений ограничен лимитами GitHub API.</p>
-        </div>
     </div>
 </div>
 
 <script>
     const form = document.getElementById('feedback-form');
     const submitBtn = document.getElementById('submit-btn');
-    const imagesInput = document.getElementById('images');
-    const fileNameText = document.getElementById('file-name');
-    const previewsContainer = document.getElementById('previews-container');
-
-    imagesInput.addEventListener('change', (e) => {
-        const files = Array.from(e.target.files);
-        previewsContainer.innerHTML = '';
-        
-        if (files.length > 0) {
-            fileNameText.textContent = `Выбрано файлов: ${files.length}`;
-            previewsContainer.classList.remove('hidden');
-            
-            files.forEach(file => {
-                const reader = new FileReader();
-                reader.onload = (e) => {
-                    const div = document.createElement('div');
-                    div.className = "aspect-square rounded-xl border border-[#E5E1D8] overflow-hidden bg-white shadow-sm animate-in zoom-in-50 duration-200";
-                    div.innerHTML = `<img src="${e.target.result}" class="w-full h-full object-cover">`;
-                    previewsContainer.appendChild(div);
-                };
-                reader.readAsDataURL(file);
-            });
-        } else {
-            fileNameText.textContent = 'Выберите одно или несколько изображений';
-            previewsContainer.classList.add('hidden');
-        }
-    });
 
     form.addEventListener('submit', async (e) => {
         e.preventDefault();
         
         const formData = new FormData(form);
+        const data = {
+            title: formData.get('title'),
+            description: formData.get('description')
+        };
 
         // Disable button
         submitBtn.disabled = true;
@@ -112,7 +67,8 @@
         try {
             const response = await fetch('/api/v1/feedback', {
                 method: 'POST',
-                body: formData
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(data)
             });
 
             const result = await response.json();
@@ -120,8 +76,6 @@
             if (response.ok) {
                 showToast('Сообщение успешно отправлено!', 'success');
                 form.reset();
-                previewsContainer.classList.add('hidden');
-                fileNameText.textContent = 'Выберите одно или несколько изображений';
             } else {
                 showToast(`Ошибка: ${result.detail || 'Неизвестная ошибка'}`, 'error');
             }
