@@ -1,14 +1,19 @@
+import json
+import logging
 import re
 import sqlite3
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
 
 import pymorphy3
 from qdrant_client import models
 
-from app.config import get_embedding_settings, get_qdrant_settings
+from app.config import get_app_settings, get_embedding_settings, get_qdrant_settings
 from app.gemini import UnifiedEmbeddingClient
 from app.qdrant import get_qdrant_client
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -39,6 +44,27 @@ class SearchResult:
 
 
 _morph = pymorphy3.MorphAnalyzer()
+
+
+def _get_utterances_for_transcript(transcript_id: int) -> list[dict]:
+    """Fetch normalized utterances from disk for a given transcript."""
+    # Find normalized_json_path from DB
+    try:
+        from app.config import get_sqlite_settings
+        from app.db import db_connection
+
+        with db_connection(get_sqlite_settings()) as conn:
+            row = conn.execute("SELECT normalized_json_path FROM transcripts WHERE id = ?", (transcript_id,)).fetchone()
+            if not row:
+                return []
+            path = Path(row["normalized_json_path"])
+            if not path.exists():
+                return []
+            data = json.loads(path.read_text(encoding="utf-8"))
+            return data.get("utterances", []) or data.get("chunks", [])
+    except Exception as e:
+        logger.error(f"Error loading utterances: {e}")
+        return []
 
 
 def _simple_highlight(text: str, query: str) -> str:
@@ -150,6 +176,53 @@ def _find_best_match(text: str, pattern: str, query_words_count: int) -> tuple[i
         return best_m.start(), best_m.end(), precision
     except Exception:
         return 0, len(text), 0.0
+
+
+def _map_char_offset_to_time(offset: int, chunks_data: list[dict]) -> float:
+    """Map character offset in combined text to video time using the best available utterance."""
+    current_pos = 0
+    for chunk in chunks_data:
+        text = chunk.get("text", "")
+        # Skip if chunk doesn't exist (LEFT JOIN NULL)
+        if chunk.get("start_sec") is None:
+            current_pos += len(text) + 1
+            continue
+
+        utterances = chunk.get("utterances", [])
+
+        # If we have detailed utterances, search within them
+        if utterances:
+            # Combined text for this chunk in the SQL query was chunk.text + " "
+            # So we check if the offset falls into this chunk
+            if offset < current_pos + len(text) + 1:
+                chunk_offset = offset - current_pos
+
+                # Find the utterance that contains this offset
+                u_pos = 0
+                for u in utterances:
+                    u_text = u.get("text", "")
+                    if chunk_offset <= u_pos + len(u_text):
+                        # Found it! Utterances have exact timings from Deepgram
+                        return float(u.get("start", 0.0))
+                    u_pos += len(u_text) + 1 # +1 for space
+
+                # If not found in utterances but in chunk, return chunk start
+                return float(chunk.get("start_sec") or 0.0)
+        else:
+            # Fallback to linear interpolation if no utterances available
+            s = float(chunk.get("start_sec") or 0.0)
+            e = float(chunk.get("end_sec") or 0.0)
+            chunk_len = len(text)
+            if offset <= current_pos + chunk_len:
+                local_offset = max(0, offset - current_pos)
+                if chunk_len > 0:
+                    ratio = local_offset / chunk_len
+                    return s + ratio * (e - s)
+                return s
+
+        current_pos += len(text) + 1
+
+    return float(chunks_data[-1].get("end_sec") or 0.0) if chunks_data else 0.0
 
 
 def _crop_around_match(text: str, pattern: str, query_words_count: int, window: int = 250) -> str:
@@ -280,6 +353,10 @@ async def hybrid_search(
         sql = """
             SELECT
                 c1.id,
+                c1.text as t1, IFNULL(c2.text, '') as t2, IFNULL(c3.text, '') as t3,
+                c1.start_sec as s1, c1.end_sec as e1,
+                c2.start_sec as s2, c2.end_sec as e2,
+                c3.start_sec as s3, c3.end_sec as e3,
                 (c1.text || ' ' || IFNULL(c2.text, '') || ' ' || IFNULL(c3.text, '')) as combined_text
             FROM chunks c1
             LEFT JOIN chunks c2 ON c1.video_id = c2.video_id AND c2.chunk_index = c1.chunk_index + 1
@@ -302,9 +379,19 @@ async def hybrid_search(
 
         rows = connection.execute(sql, params).fetchall()
 
-        # Map ID -> Combined Text for results
-        id_to_full_text = {r["id"]: r["combined_text"] for r in rows}
-        candidate_ids = list(id_to_full_text.keys())
+        # Map ID -> Full Quote Data for results
+        id_to_quote_data = {
+            r["id"]: {
+                "combined_text": r["combined_text"],
+                "chunks_data": [
+                    {"text": r["t1"], "start_sec": r["s1"], "end_sec": r["e1"]},
+                    {"text": r["t2"], "start_sec": r["s2"], "end_sec": r["e2"]},
+                    {"text": r["t3"], "start_sec": r["s3"], "end_sec": r["e3"]},
+                ],
+            }
+            for r in rows
+        }
+        candidate_ids = list(id_to_quote_data.keys())
 
         if candidate_ids:
             # Fetch payload for metadata (start_sec, video_id, etc.)
@@ -323,11 +410,13 @@ async def hybrid_search(
             # Use combined text from SQL and assign high scores
             scores_map = {}
             for p in points:
+                q_data = id_to_quote_data.get(p.id)
                 scores_map[p.id] = {
                     "combined": 100.0,
                     "match_type": "quote",
                     "quote_phrases": [clean_query],
-                    "override_text": id_to_full_text.get(p.id),
+                    "override_text": q_data["combined_text"] if q_data else None,
+                    "quote_data": q_data,
                 }
         else:
             points = []
@@ -455,7 +544,11 @@ async def hybrid_search(
         for r in rows_v:
             video_metadata[r["id"]] = {"source_file_id": r["source_file_id"], "title": r["title"]}
 
-    results = []
+        results = []
+
+    # Cache for utterances (transcript_id -> utterances)
+    utterance_cache = {}
+
     for point in points:
         payload = point.payload
         if not payload:
@@ -471,7 +564,39 @@ async def hybrid_search(
         # Text extraction (with override and cropping for quote mode)
         full_text = point_data.get("override_text") or str(payload.get("text") or "")
 
+        transcript_id = int(payload.get("transcript_id") or 0)
+
         if m_type == "quote":
+            q_data = point_data.get("quote_data")
+            if q_data and transcript_id:
+                # Load utterances if not cached
+                if transcript_id not in utterance_cache:
+                    utterance_cache[transcript_id] = _get_utterances_for_transcript(transcript_id)
+
+                uts = utterance_cache[transcript_id]
+                if uts:
+                    # Distribute utterances to chunks in q_data
+                    # This is slightly complex because chunks are combined t1 + " " + t2 + " " + t3
+                    # We need to know which utterances belong to which chunk index.
+
+                    # Fetch chunk indexes for c1, c2, c3
+                    c1_idx = int(payload.get("chunk_index") or 0)
+
+                    # Group utterances by chunk index (this is simplified as we assume they were grouped by chunk_from_utterances)
+                    # For Shorts, there's only 1 chunk with index 0.
+                    # For others, we'll try to find utterances for c1_idx, c1_idx+1, c1_idx+2
+                    for i, chunk in enumerate(q_data["chunks_data"]):
+                        # Skip if chunk doesn't exist (e.g. LEFT JOIN returned NULL for s1/s2/s3)
+                        if chunk["start_sec"] is None:
+                            chunk["utterances"] = []
+                            continue
+
+                        # Heuristic: find utterances that fall within this chunk's time range
+                        chunk["utterances"] = [
+                            u for u in uts
+                            if float(u.get("start", 0.0)) >= chunk["start_sec"] - 0.01
+                            and float(u.get("end", 0.0)) <= chunk["end_sec"] + 0.01
+                        ]
             # For quote mode, crop around the best match
             pattern = _build_quote_regex(clean_query)
             if pattern:
@@ -479,8 +604,11 @@ async def hybrid_search(
                 q_word_count = len(query_words) if query_words else 1
                 full_text = _crop_around_match(full_text, pattern, q_word_count)
 
-        # Use standard individual-word highlighting for everyone
-        highlighted_text = _simple_highlight(full_text, clean_query)
+        # Use standard individual-word highlighting for everyone, but quote-aware for quote mode
+        if m_type == "quote":
+            highlighted_text = _quote_highlight(full_text, [clean_query])
+        else:
+            highlighted_text = _simple_highlight(full_text, clean_query)
 
         v_id = payload.get("video_id")
         v_meta = video_metadata.get(v_id, {})
@@ -521,6 +649,19 @@ async def hybrid_search(
         chunk_id = get_int(payload, "chunk_id") or get_int(payload, "id")
         start_sec = get_float(payload, "start_sec")
         end_sec = get_float(payload, "end_sec")
+
+        if m_type == "quote":
+            q_data = point_data.get("quote_data")
+            if q_data and clean_query:
+                pattern = _build_quote_regex(clean_query)
+                if pattern:
+                    query_words = re.findall(r"[а-яА-ЯёЁa-zA-Z0-9]{3,}", clean_query.lower())
+                    q_word_count = len(query_words) if query_words else 1
+                    # Precise timing: map character offset of the match to seconds
+                    q_start, q_end, q_prec = _find_best_match(q_data["combined_text"], pattern, q_word_count)
+                    if q_prec > 0:
+                        start_sec = _map_char_offset_to_time(q_start, q_data["chunks_data"])
+                        end_sec = _map_char_offset_to_time(q_end, q_data["chunks_data"])
 
         results.append(
             SearchResult(
