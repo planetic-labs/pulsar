@@ -38,7 +38,10 @@ logger = logging.getLogger(__name__)
 
 class InsufficientSpaceError(Exception):
     """Raised when there is not enough free space on disk."""
-    pass
+
+    def __init__(self, message: str, file_size: int = 0):
+        super().__init__(message)
+        self.file_size = file_size
 
 
 async def download_and_extract_stage(
@@ -55,12 +58,14 @@ async def download_and_extract_stage(
     file_meta = await drive.get_file(file_id)
 
     # Check free space (require buffer + file_size free space)
-    required_space = (app_settings.disk_space_buffer_gb * 1024**3) + int(file_meta.size or 0)
+    file_size = int(file_meta.size or 0)
+    required_space = (app_settings.disk_space_buffer_gb * 1024**3) + file_size
     total, used, free = shutil.disk_usage(str(app_settings.downloads_dir))
     if free < required_space:
         raise InsufficientSpaceError(
             f"Not enough free space. Required: {required_space / 1024**3:.2f} GB, "
-            f"Free: {free / 1024**3:.2f} GB (Buffer: {app_settings.disk_space_buffer_gb} GB)"
+            f"Free: {free / 1024**3:.2f} GB (Buffer: {app_settings.disk_space_buffer_gb} GB)",
+            file_size=file_size,
         )
 
     video_path = app_settings.downloads_dir / f"{file_id}.mp4"

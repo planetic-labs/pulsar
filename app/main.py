@@ -300,6 +300,7 @@ async def api_worker_progress(_: str = Depends(require_access_token)):
         sql_s = "SELECT status, COUNT(*) as c FROM tasks GROUP BY status"
         s_rows = conn.execute(sql_s).fetchall()
         stats["skipped_silent_list"] = []
+        stats["skipped_no_space_list"] = []
         for r in s_rows:
             if r["status"] == "pending":
                 stats["pending"] = r["c"]
@@ -307,20 +308,30 @@ async def api_worker_progress(_: str = Depends(require_access_token)):
                 stats["failed"] = r["c"]
             if r["status"] == "skipped_silent":
                 stats["skipped_silent"] = r["c"]
+            if r["status"] == "skipped_no_space":
+                stats["skipped_no_space"] = r["c"]
 
         if stats.get("skipped_silent", 0) > 0:
-            sql_ss = """
-                SELECT payload FROM tasks 
-                WHERE status = 'skipped_silent' 
-                ORDER BY updated_at DESC LIMIT 20
-            """
+            sql_ss = "SELECT payload FROM tasks WHERE status = 'skipped_silent' ORDER BY updated_at DESC LIMIT 20"
             ss_rows = conn.execute(sql_ss).fetchall()
             for ssr in ss_rows:
                 try:
                     p = json.loads(ssr["payload"])
                     stats["skipped_silent_list"].append(p.get("title") or "Unknown")
-                except:
-                    pass
+                except: pass
+
+        if stats.get("skipped_no_space", 0) > 0:
+            sql_ns = "SELECT payload FROM tasks WHERE status = 'skipped_no_space' ORDER BY updated_at DESC LIMIT 20"
+            ns_rows = conn.execute(sql_ns).fetchall()
+            for nsr in ns_rows:
+                try:
+                    p = json.loads(nsr["payload"])
+                    size_gb = p.get("file_size", 0) / (1024**3)
+                    stats["skipped_no_space_list"].append({
+                        "title": p.get("title") or "Unknown",
+                        "size": f"{size_gb:.2f} ГБ"
+                    })
+                except: pass
 
         if stats["failed"] > 0:
             sql_e = """
