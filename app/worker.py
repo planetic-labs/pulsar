@@ -161,17 +161,20 @@ class Worker:
                 with db_connection(get_sqlite_settings()) as conn:
                     t_count = conn.execute(sql_check).fetchone()["c"]
                 
-                # Update task back to pending so it can be retried
-                sql_requeue = "UPDATE tasks SET status = 'pending', updated_at = CURRENT_TIMESTAMP WHERE id = ?"
-                with db_connection(get_sqlite_settings()) as conn:
-                    conn.execute(sql_requeue, (task_id,))
-
                 if t_count > 0:
+                    # Re-queue and wait
+                    sql_requeue = "UPDATE tasks SET status = 'pending', updated_at = CURRENT_TIMESTAMP WHERE id = ?"
+                    with db_connection(get_sqlite_settings()) as conn:
+                        conn.execute(sql_requeue, (task_id,))
                     logger.info("Есть задачи на транскрибацию. Ждем 60 секунд...")
                     await asyncio.sleep(60)
                 else:
-                    logger.error("Недостаточно места и нет задач на транскрибацию. Остановка воркера.")
-                    self.stop()
+                    # Skip the file
+                    new_payload = {**payload, "file_size": e.file_size}
+                    sql_skip = "UPDATE tasks SET status = 'skipped_no_space', payload = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?"
+                    with db_connection(get_sqlite_settings()) as conn:
+                        conn.execute(sql_skip, (json.dumps(new_payload), task_id))
+                    logger.error(f"Недостаточно места. Файл {title} пропущен.")
             except SilentVideoError as e:
                 logger.warning(f"Пропуск видео без звука: {title}")
                 sql = "UPDATE tasks SET status = 'skipped_silent', updated_at = CURRENT_TIMESTAMP WHERE id = ?"

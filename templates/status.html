@@ -150,6 +150,24 @@
                     </div>
                 </div>
             </div>
+
+            <!-- Skipped No Space -->
+            <div id="skipped-no-space-container" class="hidden animate-in fade-in slide-in-from-top-4 duration-500">
+                <div class="bg-rose-50 border border-rose-200 rounded-2xl p-4 flex flex-col gap-3">
+                    <div class="flex items-center gap-2">
+                        <div class="w-8 h-8 rounded-xl bg-rose-100 flex items-center justify-center text-rose-600">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg>
+                        </div>
+                        <div>
+                            <h4 class="text-[10px] font-black text-rose-800 uppercase tracking-widest">Пропущено (нет места)</h4>
+                            <p class="text-[8px] text-rose-600 font-bold uppercase tracking-tight">Файлы проигнорированы из-за нехватки места на диске</p>
+                        </div>
+                    </div>
+                    <div id="skipped-no-space-list" class="flex flex-col gap-1.5">
+                        <!-- List items will be injected here -->
+                    </div>
+                </div>
+            </div>
         </div>
 
         <!-- Logs Column -->
@@ -369,6 +387,24 @@
                     `).join('');
                 } else {
                     skippedContainer.classList.add('hidden');
+                }
+            }
+
+            // 5. Update Skipped No Space Block
+            const noSpaceContainer = document.getElementById('skipped-no-space-container');
+            const noSpaceList = document.getElementById('skipped-no-space-list');
+            if (noSpaceContainer && noSpaceList && data.stats) {
+                if (data.stats.skipped_no_space_list && data.stats.skipped_no_space_list.length > 0) {
+                    noSpaceContainer.classList.remove('hidden');
+                    noSpaceList.innerHTML = data.stats.skipped_no_space_list.map(item => `
+                        <div class="flex items-center justify-between group">
+                            <span class="text-[9px] font-bold text-rose-900 truncate pr-4">${item.title}</span>
+                            <div class="h-px flex-1 bg-rose-200/50 mr-4"></div>
+                            <span class="text-[7px] font-black text-rose-600 uppercase tracking-tighter shrink-0">${item.size}</span>
+                        </div>
+                    `).join('');
+                } else {
+                    noSpaceContainer.classList.add('hidden');
                 }
             }
         } catch (e) {
