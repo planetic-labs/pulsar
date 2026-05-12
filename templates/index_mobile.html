@@ -172,7 +172,10 @@
         <div class="bg-amber-50/80 border border-amber-100 rounded-xl p-3 flex items-center justify-between gap-3 animate-pulse">
             <div class="flex items-center gap-2">
                 <div class="w-2 h-2 rounded-full bg-amber-400"></div>
-                <p class="text-[9px] font-bold text-amber-800 uppercase tracking-widest leading-tight">Фоновая индексация...</p>
+                <p class="text-[9px] font-bold text-amber-800 uppercase tracking-widest leading-tight">Идет обработка видео...</p>
+                <button type="button" onclick="showWorkerHelp()" class="p-1 text-amber-400">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                </button>
             </div>
             <button onclick="hideWorkerBusyMobile()" class="text-amber-400"><svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M6 18L18 6M6 6l12 12"></path></svg></button>
         </div>
@@ -184,6 +187,11 @@
         function hideWorkerBusyMobile() {
             document.getElementById('worker-busy-banner-mobile').style.display = 'none';
             sessionStorage.setItem('hideWorkerBusy', 'true');
+        }
+        function showWorkerHelp() {
+            document.getElementById('mode-help-title').textContent = "Фоновая обработка";
+            document.getElementById('mode-help-text').innerHTML = "В данный момент система добавляет новые видео в базу. Поиск полноценно работает по всем уже проиндексированным данным. Снижение скорости может происходить из-за нагрузки на сервер в момент обработки видео.";
+            document.getElementById('search-mode-modal').classList.remove('hidden');
         }
     </script>
     {% endif %}
