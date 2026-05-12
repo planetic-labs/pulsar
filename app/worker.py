@@ -17,6 +17,7 @@ from app.gemini import UnifiedEmbeddingClient
 from app.qdrant import get_qdrant_client
 from app.repository import update_video_status
 from app.transcription.deepgram import DeepgramEngine
+from app.audio import SilentVideoError
 from scripts.ingest_drive_file import download_and_extract_stage, transcribe_stage
 
 
@@ -148,7 +149,17 @@ class Worker:
                 with db_connection(get_sqlite_settings()) as conn:
                     conn.execute(sql, (json.dumps(new_payload), task_id))
                 logger.info(f"{result.get('title')} подготовлен.")
-            finally:
+            except SilentVideoError as e:
+                logger.warning(f"Пропуск видео без звука: {title}")
+                sql = "UPDATE tasks SET status = 'skipped_silent', updated_at = CURRENT_TIMESTAMP WHERE id = ?"
+                with db_connection(get_sqlite_settings()) as conn:
+                    conn.execute(sql, (task_id,))
+            except Exception as e:
+                logger.error(f"Ошибка в задаче {task_id} (stage_1_download): {traceback.format_exc()}")
+                sql = "UPDATE tasks SET status = 'failed', error_message = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?"
+                with db_connection(get_sqlite_settings()) as conn:
+                    conn.execute(sql, (str(e), task_id))
+
                 self._state["stage_1_download"].update(
                     {"active": False, "title": "", "progress": 0, "speed": "", "status_text": "Ожидание"}
                 )

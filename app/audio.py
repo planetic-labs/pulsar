@@ -4,6 +4,46 @@ import subprocess
 from pathlib import Path
 
 
+def _has_audio_stream(input_path: Path) -> bool:
+    command = [
+        "ffprobe",
+        "-v",
+        "error",
+        "-select_streams",
+        "a",
+        "-show_entries",
+        "stream=codec_type",
+        "-of",
+        "default=noprint_wrappers=1:nokey=1",
+        str(input_path),
+    ]
+    completed = subprocess.run(command, capture_output=True, text=True)
+    return "audio" in completed.stdout
+
+
+def _get_duration(input_path: Path) -> float:
+    command = [
+        "ffprobe",
+        "-v",
+        "error",
+        "-show_entries",
+        "format=duration",
+        "-of",
+        "default=noprint_wrappers=1:nokey=1",
+        str(input_path),
+    ]
+    completed = subprocess.run(command, capture_output=True, text=True)
+    try:
+        return float(completed.stdout.strip())
+    except (ValueError, TypeError):
+        return 0.0
+
+
+class SilentVideoError(Exception):
+    """Raised when a video has no audio stream."""
+    pass
+
+
 def extract_audio(
     input_path: Path,
     output_path: Path,
@@ -18,7 +58,11 @@ def extract_audio(
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
-    # Use system ffmpeg directly
+    # Check if audio stream exists
+    if not _has_audio_stream(input_path):
+        raise SilentVideoError(f"Video file {input_path.name} has no audio stream.")
+
+    # Use system ffmpeg directly to extract audio
     command = [
         "ffmpeg",
         "-y",
