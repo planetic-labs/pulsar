@@ -41,14 +41,20 @@
                 <input type="hidden" id="f-date-from-mob" name="date_from" value="{{ date_from }}">
                 <input type="hidden" id="f-date-to-mob" name="date_to" value="{{ date_to }}">
 
-                <button type="button" onclick="toggleMobileMenu()" class="absolute inset-y-0 left-0 pl-3 flex items-center text-warm-400">
-                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"></path></svg>
-                </button>
+                <div class="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-warm-400">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
+                </div>
                 <input type="text" name="q" id="search-input" value="{{ query }}" placeholder="Поиск по архиву..." 
-                       class="w-full bg-[#FAF9F6] border border-[#F2F0EB] rounded-xl py-3 pl-12 pr-12 text-sm text-[#4A453E] focus:outline-none focus:border-brand-300 transition-all shadow-inner">
-                <button type="button" id="clear-search" class="{% if not query %}hidden{% endif %} absolute inset-y-0 right-0 pr-4 flex items-center text-warm-300">
-                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M6 18L18 6M6 6l12 12"></path></svg>
-                </button>
+                       class="w-full bg-[#FAF9F6] border border-[#F2F0EB] rounded-xl py-3 pl-10 pr-24 text-sm text-[#4A453E] focus:outline-none focus:border-brand-300 transition-all shadow-inner">
+                
+                <div class="absolute inset-y-0 right-0 flex items-center pr-2 gap-1">
+                    <button type="button" id="clear-search" class="{% if not query %}hidden{% endif %} p-1.5 text-warm-300 hover:text-rose-500">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M6 18L18 6M6 6l12 12"></path></svg>
+                    </button>
+                    <button type="submit" class="p-2 bg-brand-500 text-white rounded-lg shadow-sm active:scale-90 transition-all">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
+                    </button>
+                </div>
             
                 <!-- New Dropdown Filters and Timeline Mobile -->
                 <div class="mt-3 flex flex-col gap-3">
