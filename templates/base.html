@@ -64,12 +64,9 @@
             </button>
         </header>
 
-        <!-- Sidebar (Desktop and Mobile Overlay) -->
-        <aside id="sidebar" class="fixed inset-0 lg:static lg:w-72 bg-[#F2F0EB] border-r border-[#E5E1D8] flex flex-col shrink-0 z-50 transition-transform duration-300 -translate-x-full lg:translate-x-0">
-            <!-- Mobile Close Overlay -->
-            <div class="absolute inset-0 bg-black/20 lg:hidden -z-10" onclick="toggleMobileMenu()"></div>
-            
-            <div class="bg-[#F2F0EB] h-full flex flex-col w-72 lg:w-full">
+        <!-- Sidebar (Desktop Only) -->
+        <aside id="sidebar" class="hidden lg:flex lg:w-72 bg-[#F2F0EB] border-r border-[#E5E1D8] flex-col shrink-0 transition-transform duration-300">
+            <div class="bg-[#F2F0EB] h-full flex flex-col w-full">
                 <div class="p-8">
                     <div class="hidden lg:flex items-center gap-3 mb-10">
                         <div class="w-10 h-10 bg-brand-500 rounded-2xl flex items-center justify-center shadow-md opacity-80">
