@@ -298,11 +298,28 @@ async def api_worker_progress(_: str = Depends(require_access_token)):
 
         sql_s = "SELECT status, COUNT(*) as c FROM tasks GROUP BY status"
         s_rows = conn.execute(sql_s).fetchall()
+        stats["skipped_silent_list"] = []
         for r in s_rows:
             if r["status"] == "pending":
                 stats["pending"] = r["c"]
             if r["status"] == "failed":
                 stats["failed"] = r["c"]
+            if r["status"] == "skipped_silent":
+                stats["skipped_silent"] = r["c"]
+
+        if stats.get("skipped_silent", 0) > 0:
+            sql_ss = """
+                SELECT payload FROM tasks 
+                WHERE status = 'skipped_silent' 
+                ORDER BY updated_at DESC LIMIT 20
+            """
+            ss_rows = conn.execute(sql_ss).fetchall()
+            for ssr in ss_rows:
+                try:
+                    p = json.loads(ssr["payload"])
+                    stats["skipped_silent_list"].append(p.get("title") or "Unknown")
+                except:
+                    pass
 
         if stats["failed"] > 0:
             sql_e = """
