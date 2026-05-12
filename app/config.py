@@ -91,6 +91,8 @@ class AppSettings:
     storage_dir: Path
     data_dir: Path
     disk_space_buffer_gb: int
+    github_pat: str
+    github_repo: str
 
     @property
     def raw_transcripts_dir(self) -> Path:
@@ -184,6 +186,8 @@ def get_app_settings() -> AppSettings:
         storage_dir=Path(os.getenv("APP_STORAGE_DIR", "/srv/search-ui/storage")),
         data_dir=Path(os.getenv("APP_DATA_DIR", "/srv/search-ui/data")),
         disk_space_buffer_gb=int(os.getenv("DISK_SPACE_BUFFER_GB", "3")),
+        github_pat=os.getenv("GITHUB_PAT", ""),
+        github_repo=os.getenv("GITHUB_REPO", "arassypnov/search-ui"),
     )
 
 

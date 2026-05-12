@@ -55,7 +55,7 @@ async def download_and_extract_stage(
     file_meta = await drive.get_file(file_id)
 
     # Check free space (require buffer + file_size free space)
-    required_space = (app_settings.disk_space_buffer_gb * 1024**3) + (file_meta.size or 0)
+    required_space = (app_settings.disk_space_buffer_gb * 1024**3) + int(file_meta.size or 0)
     total, used, free = shutil.disk_usage(str(app_settings.downloads_dir))
     if free < required_space:
         raise InsufficientSpaceError(

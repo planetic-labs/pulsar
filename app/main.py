@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import asyncio
+import base64
+import httpx
 import json
 import logging
 import time
@@ -9,7 +11,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
 
-from fastapi import Depends, FastAPI, Form, HTTPException, Request, WebSocket, WebSocketDisconnect
+from fastapi import Depends, FastAPI, Form, HTTPException, Request, WebSocket, WebSocketDisconnect, UploadFile, File
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -29,7 +31,7 @@ from app.db import db_connection, init_db
 from app.gemini import UnifiedEmbeddingClient
 from app.google_drive import GoogleDriveClient
 from app.qdrant import get_qdrant_client, init_qdrant
-from app.schemas import VideoStatusItem
+from app.schemas import VideoStatusItem, FeedbackRequest
 from app.search import hybrid_search
 from app.worker import broadcaster, get_worker, set_main_loop
 
@@ -788,6 +790,74 @@ def status_page(request: Request):
     return templates.TemplateResponse(
         request, "status.html", {"statuses": statuses, "tasks": tasks, "active_tasks": active_tasks}
     )
+
+
+@app.get("/feedback", response_class=HTMLResponse)
+def feedback_page(request: Request):
+    app_settings = get_app_settings()
+    current_token = get_session_token(request)
+    if current_token != app_settings.access_token:
+        return RedirectResponse(url="/login")
+    return templates.TemplateResponse(request, "feedback.html", {"stats": get_global_stats()})
+
+
+@app.post("/api/v1/feedback")
+async def api_submit_feedback(
+    title: str = Form(...),
+    description: str = Form(...),
+    image: UploadFile = File(None),
+    _: str = Depends(require_access_token)
+):
+    app_settings = get_app_settings()
+    if not app_settings.github_pat:
+        raise HTTPException(status_code=500, detail="GitHub PAT не настроен в .env")
+
+    url = f"https://api.github.com/repos/{app_settings.github_repo}/issues"
+    headers = {
+        "Authorization": f"Bearer {app_settings.github_pat}",
+        "Accept": "application/vnd.github.v3+json",
+        "User-Agent": "VideoDB-AI"
+    }
+
+    body_md = f"**Описание:**\n{description}\n"
+    
+    if image and image.size > 0:
+        try:
+            image_bytes = await image.read()
+            mime = image.content_type or "image/png"
+            base64_img = base64.b64encode(image_bytes).decode('utf-8')
+            # GitHub supports base64 images in <img> tags in issues
+            body_md += f"\n---\n**Прикрепленное изображение:**\n<img src=\"data:{mime};base64,{base64_img}\" max-width=\"100%\">"
+        except Exception as e:
+            logger.error(f"Failed to process image: {e}")
+            body_md += f"\n---\n*(Ошибка прикрепления изображения: {e})*"
+
+    body_md += f"\n\n---\n*Отправлено через VideoDB AI Feedback Form*"
+    
+    payload = {
+        "title": title,
+        "body": body_md,
+        "labels": ["feedback"]
+    }
+
+    async with httpx.AsyncClient() as client:
+        try:
+            response = await client.post(url, headers=headers, json=payload, timeout=20.0)
+            if response.status_code == 201:
+                return {"status": "success", "issue_url": response.json().get("html_url")}
+            else:
+                logger.error(f"GitHub API Error ({response.status_code}): {response.text}")
+                try:
+                    err_data = response.json()
+                    detail = err_data.get("message", response.text)
+                except:
+                    detail = response.text
+                raise HTTPException(status_code=response.status_code, detail=f"Ошибка GitHub API: {detail}")
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.error(f"Failed to submit feedback to GitHub: {e}")
+            raise HTTPException(status_code=500, detail=f"Ошибка сети или API: {str(e)}")
 
 
 @app.get("/api/v1/tasks/active")
