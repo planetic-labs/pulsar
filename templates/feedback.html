@@ -30,17 +30,18 @@
 
                 <!-- Image Upload -->
                 <div>
-                    <label class="block text-[10px] font-black text-warm-400 uppercase tracking-widest mb-2 ml-1">Прикрепить скриншот (опционально)</label>
-                    <div class="flex items-center gap-4">
-                        <label class="flex-1 flex flex-col items-center justify-center border-2 border-dashed border-[#E5E1D8] rounded-2xl p-6 bg-warm-50/30 hover:bg-warm-50 hover:border-brand-300 cursor-pointer transition-all group">
+                    <label class="block text-[10px] font-black text-warm-400 uppercase tracking-widest mb-2 ml-1">Прикрепить скриншоты (опционально)</label>
+                    <div class="space-y-4">
+                        <label class="w-full flex flex-col items-center justify-center border-2 border-dashed border-[#E5E1D8] rounded-2xl p-6 bg-warm-50/30 hover:bg-warm-50 hover:border-brand-300 cursor-pointer transition-all group">
                             <div class="flex flex-col items-center gap-2">
-                                <svg id="upload-icon" class="w-8 h-8 text-warm-300 group-hover:text-brand-400 transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg>
-                                <span id="file-name" class="text-[10px] font-bold text-warm-500 group-hover:text-brand-600">Нажмите, чтобы выбрать файл</span>
+                                <svg class="w-8 h-8 text-warm-300 group-hover:text-brand-400 transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg>
+                                <span id="file-name" class="text-[10px] font-bold text-warm-500 group-hover:text-brand-600">Выберите одно или несколько изображений</span>
                             </div>
-                            <input type="file" id="image" name="image" accept="image/*" class="hidden">
+                            <input type="file" id="images" name="images" accept="image/*" multiple class="hidden">
                         </label>
-                        <div id="image-preview-container" class="hidden w-24 h-24 rounded-2xl border border-[#E5E1D8] overflow-hidden bg-white shrink-0">
-                            <img id="image-preview" src="#" class="w-full h-full object-cover">
+                        
+                        <div id="previews-container" class="hidden grid grid-cols-2 sm:grid-cols-4 md:grid-cols-5 gap-3">
+                            <!-- Previews will be injected here -->
                         </div>
                     </div>
                 </div>
@@ -54,30 +55,41 @@
                 </div>
             </form>
         </div>
+        
+        <div class="mt-6 text-center">
+            <p class="text-[9px] text-warm-400 font-bold uppercase tracking-widest opacity-50">Примечание: Общий размер изображений ограничен лимитами GitHub API.</p>
+        </div>
     </div>
 </div>
 
 <script>
     const form = document.getElementById('feedback-form');
     const submitBtn = document.getElementById('submit-btn');
-    const imageInput = document.getElementById('image');
-    const fileName = document.getElementById('file-name');
-    const previewContainer = document.getElementById('image-preview-container');
-    const previewImg = document.getElementById('image-preview');
+    const imagesInput = document.getElementById('images');
+    const fileNameText = document.getElementById('file-name');
+    const previewsContainer = document.getElementById('previews-container');
 
-    imageInput.addEventListener('change', (e) => {
-        const file = e.target.files[0];
-        if (file) {
-            fileName.textContent = file.name;
-            const reader = new FileReader();
-            reader.onload = (e) => {
-                previewImg.src = e.target.result;
-                previewContainer.classList.remove('hidden');
-            };
-            reader.readAsDataURL(file);
+    imagesInput.addEventListener('change', (e) => {
+        const files = Array.from(e.target.files);
+        previewsContainer.innerHTML = '';
+        
+        if (files.length > 0) {
+            fileNameText.textContent = `Выбрано файлов: ${files.length}`;
+            previewsContainer.classList.remove('hidden');
+            
+            files.forEach(file => {
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    const div = document.createElement('div');
+                    div.className = "aspect-square rounded-xl border border-[#E5E1D8] overflow-hidden bg-white shadow-sm animate-in zoom-in-50 duration-200";
+                    div.innerHTML = `<img src="${e.target.result}" class="w-full h-full object-cover">`;
+                    previewsContainer.appendChild(div);
+                };
+                reader.readAsDataURL(file);
+            });
         } else {
-            fileName.textContent = 'Нажмите, чтобы выбрать файл';
-            previewContainer.classList.add('hidden');
+            fileNameText.textContent = 'Выберите одно или несколько изображений';
+            previewsContainer.classList.add('hidden');
         }
     });
 
@@ -108,8 +120,8 @@
             if (response.ok) {
                 showToast('Сообщение успешно отправлено!', 'success');
                 form.reset();
-                previewContainer.classList.add('hidden');
-                fileName.textContent = 'Нажмите, чтобы выбрать файл';
+                previewsContainer.classList.add('hidden');
+                fileNameText.textContent = 'Выберите одно или несколько изображений';
             } else {
                 showToast(`Ошибка: ${result.detail || 'Неизвестная ошибка'}`, 'error');
             }

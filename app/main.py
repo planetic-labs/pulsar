@@ -805,7 +805,7 @@ def feedback_page(request: Request):
 async def api_submit_feedback(
     title: str = Form(...),
     description: str = Form(...),
-    image: UploadFile = File(None),
+    images: list[UploadFile] = File(None),
     _: str = Depends(require_access_token)
 ):
     app_settings = get_app_settings()
@@ -821,16 +821,24 @@ async def api_submit_feedback(
 
     body_md = f"**Описание:**\n{description}\n"
     
-    if image and image.size > 0:
-        try:
-            image_bytes = await image.read()
-            mime = image.content_type or "image/png"
-            base64_img = base64.b64encode(image_bytes).decode('utf-8')
-            # GitHub supports base64 images in <img> tags in issues
-            body_md += f"\n---\n**Прикрепленное изображение:**\n<img src=\"data:{mime};base64,{base64_img}\" max-width=\"100%\">"
-        except Exception as e:
-            logger.error(f"Failed to process image: {e}")
-            body_md += f"\n---\n*(Ошибка прикрепления изображения: {e})*"
+    if images:
+        body_md += "\n---\n**Прикрепленные изображения:**\n"
+        for idx, img in enumerate(images):
+            if img.size and img.size > 0:
+                try:
+                    image_bytes = await img.read()
+                    # Check if total body length might exceed GitHub's ~65KB limit
+                    # Base64 is ~1.33x the original size.
+                    if len(body_md) + (len(image_bytes) * 1.4) > 60000:
+                        body_md += f"\n*(Изображение {idx+1} пропущено: превышен лимит размера сообщения GitHub API)*"
+                        continue
+                        
+                    mime = img.content_type or "image/png"
+                    base64_img = base64.b64encode(image_bytes).decode('utf-8')
+                    body_md += f"\n<img src=\"data:{mime};base64,{base64_img}\" max-width=\"100%\" alt=\"Image {idx+1}\">\n"
+                except Exception as e:
+                    logger.error(f"Failed to process image {idx+1}: {e}")
+                    body_md += f"\n*(Ошибка прикрепления изображения {idx+1}: {e})*"
 
     body_md += f"\n\n---\n*Отправлено через VideoDB AI Feedback Form*"
     
@@ -850,6 +858,8 @@ async def api_submit_feedback(
                 try:
                     err_data = response.json()
                     detail = err_data.get("message", response.text)
+                    if response.status_code == 422:
+                        detail = "Слишком большой объем данных (изображений). GitHub ограничивает размер сообщения 65КБ."
                 except:
                     detail = response.text
                 raise HTTPException(status_code=response.status_code, detail=f"Ошибка GitHub API: {detail}")
