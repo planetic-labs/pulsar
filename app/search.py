@@ -204,7 +204,7 @@ def _map_char_offset_to_time(offset: int, chunks_data: list[dict]) -> float:
                     if chunk_offset <= u_pos + len(u_text):
                         # Found it! Utterances have exact timings from Deepgram
                         return float(u.get("start", 0.0))
-                    u_pos += len(u_text) + 1 # +1 for space
+                    u_pos += len(u_text) + 1  # +1 for space
 
                 # If not found in utterances but in chunk, return chunk start
                 return float(chunk.get("start_sec") or 0.0)
