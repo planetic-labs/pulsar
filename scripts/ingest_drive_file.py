@@ -2,9 +2,9 @@ import argparse
 import asyncio
 import json
 import logging
+import shutil
 import sys
 import time
-import shutil
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -121,24 +121,33 @@ async def download_and_extract_stage(
             last_ui_update_time = current_time
             last_downloaded = downloaded
 
-    await drive.download_file(file_id, video_path, progress_callback=progress_callback)
+    try:
+        await drive.download_file(file_id, video_path, progress_callback=progress_callback)
 
-    if status_callback:
-        status_callback(f"Загрузка: (завершена) {clean_title}")
+        if status_callback:
+            status_callback(f"Загрузка: (завершена) {clean_title}")
 
-    if state_callback:
-        state_callback({"status_text": "Извлечение аудио...", "progress": 99, "speed": ""})
+        if state_callback:
+            state_callback({"status_text": "Извлечение аудио...", "progress": 99, "speed": ""})
 
-    if status_callback:
-        status_callback(f"Извлечение аудио: {clean_title}")
+        if status_callback:
+            v_size_mb = video_path.stat().st_size / (1024 * 1024)
+            status_callback(f"Извлечение аудио: {clean_title} ({v_size_mb:.1f} MB)")
 
-    # Run CPU-bound extraction in a separate thread to not block the event loop
-    loop = asyncio.get_running_loop()
-    await loop.run_in_executor(None, lambda: extract_audio(video_path, audio_path))
-
-    # Delete video immediately
-    if video_path.exists():
-        video_path.unlink()
+        # Run CPU-bound extraction in a separate thread to not block the event loop
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, lambda: extract_audio(video_path, audio_path))
+    except Exception:
+        # Cleanup partial/failed files
+        if video_path.exists():
+            video_path.unlink()
+        if audio_path.exists():
+            audio_path.unlink()
+        raise
+    finally:
+        # Video is always deleted after extraction (success or failure handled above)
+        if video_path.exists():
+            video_path.unlink()
 
     return {
         "audio_path": str(audio_path),
@@ -204,65 +213,66 @@ async def transcribe_stage(
             last_ui_update_time = current_time
             last_uploaded = uploaded
 
-    raw_payload = await engine.transcribe_file_async(audio_p, diarize=True, progress_callback=progress_callback)
+    try:
+        raw_payload = await engine.transcribe_file_async(audio_p, diarize=True, progress_callback=progress_callback)
 
-    # Apply post-processing (e.g. master -> Master)
-    raw_payload = apply_postprocessing_to_raw(raw_payload)
+        # Apply post-processing (e.g. master -> Master)
+        raw_payload = apply_postprocessing_to_raw(raw_payload)
 
-    norm_payload = engine.normalize_response(raw_payload)
+        norm_payload = engine.normalize_response(raw_payload)
 
-    # Save files
-    raw_filename = f"dg_nova3_{file_id}.json"
-    raw_path = app_settings.raw_transcripts_dir / file_id / raw_filename
-    norm_filename = f"{file_id}_deepgram.json"
-    norm_path = app_settings.normalized_transcripts_dir / norm_filename
-    raw_path.parent.mkdir(parents=True, exist_ok=True)
-    norm_path.parent.mkdir(parents=True, exist_ok=True)
+        # Save files
+        raw_filename = f"dg_nova3_{file_id}.json"
+        raw_path = app_settings.raw_transcripts_dir / file_id / raw_filename
+        norm_filename = f"{file_id}_deepgram.json"
+        norm_path = app_settings.normalized_transcripts_dir / norm_filename
+        raw_path.parent.mkdir(parents=True, exist_ok=True)
+        norm_path.parent.mkdir(parents=True, exist_ok=True)
 
-    raw_path.write_text(json.dumps(raw_payload, ensure_ascii=False, indent=2), encoding="utf-8")
-    norm_path.write_text(json.dumps(norm_payload, ensure_ascii=False, indent=2), encoding="utf-8")
+        raw_path.write_text(json.dumps(raw_payload, ensure_ascii=False, indent=2), encoding="utf-8")
+        norm_path.write_text(json.dumps(norm_payload, ensure_ascii=False, indent=2), encoding="utf-8")
 
-    if state_callback:
-        state_callback({"status_text": "Сохранение в базу...", "progress": 99, "speed": ""})
+        if state_callback:
+            state_callback({"status_text": "Сохранение в базу...", "progress": 99, "speed": ""})
 
-    # DB Operations
-    with db_connection(pg_settings) as conn:
-        duration_sec = float(norm_payload.get("duration", 0.0)) or None
-        is_short = bool(duration_sec and duration_sec <= 1800)
+        # DB Operations
+        with db_connection(pg_settings) as conn:
+            duration_sec = float(norm_payload.get("duration", 0.0)) or None
+            is_short = bool(duration_sec and duration_sec <= 1800)
 
-        video_id = upsert_video(
-            conn,
-            source_type="google_drive",
-            source_file_id=file_id,
-            parent_folder_id=video_metadata.get("parent_folder_id"),
-            md5_checksum=video_metadata.get("md5_checksum"),
-            title=video_metadata["title"],
-            source_url=f"https://drive.google.com/file/d/{file_id}/view",
-            mime_type=video_metadata["mime_type"],
-            size_bytes=None,
-            duration_sec=duration_sec,
-            is_short=is_short,
-            local_video_path=None,
-            local_audio_path=str(audio_p),
-            processing_status="transcribed",
-        )
+            video_id = upsert_video(
+                conn,
+                source_type="google_drive",
+                source_file_id=file_id,
+                parent_folder_id=video_metadata.get("parent_folder_id"),
+                md5_checksum=video_metadata.get("md5_checksum"),
+                title=video_metadata["title"],
+                source_url=f"https://drive.google.com/file/d/{file_id}/view",
+                mime_type=video_metadata["mime_type"],
+                size_bytes=None,
+                duration_sec=duration_sec,
+                is_short=is_short,
+                local_video_path=None,
+                local_audio_path=str(audio_p),
+                processing_status="transcribed",
+            )
 
-        transcript_id = replace_transcript(
-            conn,
-            video_id=video_id,
-            language="ru",
-            confidence=norm_payload.get("confidence"),
-            raw_json_path=raw_path,
-            normalized_json_path=norm_path,
-        )
+            transcript_id = replace_transcript(
+                conn,
+                video_id=video_id,
+                language="ru",
+                confidence=norm_payload.get("confidence"),
+                raw_json_path=raw_path,
+                normalized_json_path=norm_path,
+            )
 
-        raw_chunks = norm_payload.get("utterances") or norm_payload.get("chunks") or []
-        chunks_data = chunk_from_utterances(raw_chunks, single_chunk=is_short)
-        replace_chunks(conn, video_id=video_id, transcript_id=transcript_id, chunks=chunks_data)
-
-    # Delete audio immediately
-    if audio_p.exists():
-        audio_p.unlink()
+            raw_chunks = norm_payload.get("utterances") or norm_payload.get("chunks") or []
+            chunks_data = chunk_from_utterances(raw_chunks, single_chunk=is_short)
+            replace_chunks(conn, video_id=video_id, transcript_id=transcript_id, chunks=chunks_data)
+    finally:
+        # Delete audio immediately (on success or failure)
+        if audio_p.exists():
+            audio_p.unlink()
 
     return {"video_id": video_id}
 

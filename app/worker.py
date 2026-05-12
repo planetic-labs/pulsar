@@ -2,10 +2,12 @@ import asyncio
 import json
 import logging
 import traceback
+from pathlib import Path
 from typing import Any
 
 from qdrant_client import models
 
+from app.audio import SilentVideoError
 from app.config import (
     get_deepgram_settings,
     get_embedding_settings,
@@ -17,11 +19,10 @@ from app.gemini import UnifiedEmbeddingClient
 from app.qdrant import get_qdrant_client
 from app.repository import update_video_status
 from app.transcription.deepgram import DeepgramEngine
-from app.audio import SilentVideoError
 from scripts.ingest_drive_file import (
+    InsufficientSpaceError,
     download_and_extract_stage,
     transcribe_stage,
-    InsufficientSpaceError,
 )
 
 
@@ -73,7 +74,14 @@ ws_handler.setFormatter(logging.Formatter("[%(asctime)s] %(levelname)s: %(messag
 logger.addHandler(ws_handler)
 logger.setLevel(logging.INFO)
 
-log_names = ["scripts.ingest_drive_file", "app.worker", "app.voice", "app.gemini", "app.transcription.deepgram"]
+log_names = [
+    "scripts.ingest_drive_file",
+    "app.worker",
+    "app.voice",
+    "app.gemini",
+    "app.transcription.deepgram",
+    "app.audio",
+]
 for name in log_names:
     l_obj = logging.getLogger(name)
     l_obj.addHandler(ws_handler)
@@ -155,12 +163,15 @@ class Worker:
                 logger.info(f"{result.get('title')} подготовлен.")
             except InsufficientSpaceError as e:
                 logger.warning(f"Недостаточно места для {title}: {e}")
-                
+
                 # Check if there are tasks in transcription queue
-                sql_check = "SELECT COUNT(*) as c FROM tasks WHERE task_type = 'stage_2_transcribe' AND status IN ('pending', 'running')"
+                sql_check = (
+                    "SELECT COUNT(*) as c FROM tasks "
+                    "WHERE task_type = 'stage_2_transcribe' AND status IN ('pending', 'running')"
+                )
                 with db_connection(get_sqlite_settings()) as conn:
                     t_count = conn.execute(sql_check).fetchone()["c"]
-                
+
                 if t_count > 0:
                     # Re-queue and wait
                     sql_requeue = "UPDATE tasks SET status = 'pending', updated_at = CURRENT_TIMESTAMP WHERE id = ?"
@@ -171,21 +182,26 @@ class Worker:
                 else:
                     # Skip the file
                     new_payload = {**payload, "file_size": e.file_size}
-                    sql_skip = "UPDATE tasks SET status = 'skipped_no_space', payload = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?"
+                    sql_skip = (
+                        "UPDATE tasks SET status = 'skipped_no_space', payload = ?, "
+                        "updated_at = CURRENT_TIMESTAMP WHERE id = ?"
+                    )
                     with db_connection(get_sqlite_settings()) as conn:
                         conn.execute(sql_skip, (json.dumps(new_payload), task_id))
                     logger.error(f"Недостаточно места. Файл {title} пропущен.")
-            except SilentVideoError as e:
+            except SilentVideoError:
                 logger.warning(f"Пропуск видео без звука: {title}")
                 sql = "UPDATE tasks SET status = 'skipped_silent', updated_at = CURRENT_TIMESTAMP WHERE id = ?"
                 with db_connection(get_sqlite_settings()) as conn:
                     conn.execute(sql, (task_id,))
             except Exception as e:
                 logger.error(f"Ошибка в задаче {task_id} (stage_1_download): {traceback.format_exc()}")
-                sql = "UPDATE tasks SET status = 'failed', error_message = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?"
+                sql = (
+                    "UPDATE tasks SET status = 'failed', error_message = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?"
+                )
                 with db_connection(get_sqlite_settings()) as conn:
                     conn.execute(sql, (str(e), task_id))
-
+            finally:
                 self._state["stage_1_download"].update(
                     {"active": False, "title": "", "progress": 0, "speed": "", "status_text": "Ожидание"}
                 )
@@ -373,8 +389,47 @@ class Worker:
                 await asyncio.sleep(5)
 
     def cleanup(self):
-        with db_connection(get_sqlite_settings()) as conn:
+        """Сброс зависших задач и очистка осиротевших временных файлов."""
+        settings = get_sqlite_settings()
+        from app.config import get_app_settings
+
+        app_settings = get_app_settings()
+
+        active_audio_paths = set()
+        with db_connection(settings) as conn:
+            # 1. Сброс задач, которые зависли в состоянии 'running'
             conn.execute("UPDATE tasks SET status = 'pending' WHERE status = 'running'")
+
+            # 2. Сбор путей аудиофайлов, которые все еще нужны для активных задач
+            sql = "SELECT payload FROM tasks WHERE task_type = 'stage_2_transcribe' AND status = 'pending'"
+            rows = conn.execute(sql).fetchall()
+            for r in rows:
+                try:
+                    p = json.loads(r["payload"]).get("audio_path")
+                    if p:
+                        active_audio_paths.add(Path(p).resolve())
+                except Exception:
+                    continue
+
+        # 3. Физическая очистка папки downloads (видео не должны там лежать вне работы воркера)
+        if app_settings.downloads_dir.exists():
+            for p in app_settings.downloads_dir.glob("*"):
+                if p.is_file():
+                    try:
+                        p.unlink()
+                    except Exception:
+                        pass
+
+        # 4. Физическая очистка папки audio (только те, что не нужны для текущих задач)
+        if app_settings.audio_dir.exists():
+            for p in app_settings.audio_dir.glob("*.wav"):
+                if p.resolve() not in active_audio_paths:
+                    try:
+                        p.unlink()
+                    except Exception:
+                        pass
+
+        logger.info("Очистка временных файлов и базы данных завершена.")
 
     async def run(self):
         if self.is_running:

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import httpx
 import json
 import logging
 import time
@@ -10,6 +9,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
 
+import httpx
 from fastapi import Depends, FastAPI, Form, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
@@ -30,7 +30,7 @@ from app.db import db_connection, init_db
 from app.gemini import UnifiedEmbeddingClient
 from app.google_drive import GoogleDriveClient
 from app.qdrant import get_qdrant_client, init_qdrant
-from app.schemas import VideoStatusItem, FeedbackRequest
+from app.schemas import FeedbackRequest, VideoStatusItem
 from app.search import hybrid_search
 from app.worker import broadcaster, get_worker, set_main_loop
 
@@ -311,27 +311,30 @@ async def api_worker_progress(_: str = Depends(require_access_token)):
             if r["status"] == "skipped_no_space":
                 stats["skipped_no_space"] = r["c"]
 
-        if stats.get("skipped_silent", 0) > 0:
+        skipped_silent_count = stats.get("skipped_silent", 0)
+        if isinstance(skipped_silent_count, int) and skipped_silent_count > 0:
             sql_ss = "SELECT payload FROM tasks WHERE status = 'skipped_silent' ORDER BY updated_at DESC LIMIT 20"
             ss_rows = conn.execute(sql_ss).fetchall()
             for ssr in ss_rows:
                 try:
                     p = json.loads(ssr["payload"])
                     stats["skipped_silent_list"].append(p.get("title") or "Unknown")
-                except: pass
+                except Exception:
+                    pass
 
-        if stats.get("skipped_no_space", 0) > 0:
+        skipped_no_space_count = stats.get("skipped_no_space", 0)
+        if isinstance(skipped_no_space_count, int) and skipped_no_space_count > 0:
             sql_ns = "SELECT payload FROM tasks WHERE status = 'skipped_no_space' ORDER BY updated_at DESC LIMIT 20"
             ns_rows = conn.execute(sql_ns).fetchall()
             for nsr in ns_rows:
                 try:
                     p = json.loads(nsr["payload"])
                     size_gb = p.get("file_size", 0) / (1024**3)
-                    stats["skipped_no_space_list"].append({
-                        "title": p.get("title") or "Unknown",
-                        "size": f"{size_gb:.2f} ГБ"
-                    })
-                except: pass
+                    stats["skipped_no_space_list"].append(
+                        {"title": p.get("title") or "Unknown", "size": f"{size_gb:.2f} ГБ"}
+                    )
+                except Exception:
+                    pass
 
         if stats["failed"] > 0:
             sql_e = """
@@ -811,8 +814,9 @@ def feedback_page(request: Request):
     return templates.TemplateResponse(request, "feedback.html", {"stats": get_global_stats()})
 
 
-from app.schemas import VideoStatusItem, FeedbackRequest
 ...
+
+
 @app.post("/api/v1/feedback")
 async def api_submit_feedback(req: FeedbackRequest, _: str = Depends(require_access_token)):
     app_settings = get_app_settings()
@@ -823,16 +827,12 @@ async def api_submit_feedback(req: FeedbackRequest, _: str = Depends(require_acc
     headers = {
         "Authorization": f"Bearer {app_settings.github_pat}",
         "Accept": "application/vnd.github.v3+json",
-        "User-Agent": "VideoDB-AI"
+        "User-Agent": "VideoDB-AI",
     }
 
     body_md = f"**Описание:**\n{req.description}\n\n---\n*Отправлено через VideoDB AI Feedback Form*"
-    
-    payload = {
-        "title": req.title,
-        "body": body_md,
-        "labels": ["feedback"]
-    }
+
+    payload = {"title": req.title, "body": body_md, "labels": ["feedback"]}
 
     async with httpx.AsyncClient() as client:
         try:
@@ -844,14 +844,14 @@ async def api_submit_feedback(req: FeedbackRequest, _: str = Depends(require_acc
                 try:
                     err_data = response.json()
                     detail = err_data.get("message", response.text)
-                except:
+                except Exception:
                     detail = response.text
                 raise HTTPException(status_code=response.status_code, detail=f"Ошибка GitHub API: {detail}")
         except HTTPException:
             raise
         except Exception as e:
             logger.error(f"Failed to submit feedback to GitHub: {e}")
-            raise HTTPException(status_code=500, detail=f"Ошибка сети или API: {str(e)}")
+            raise HTTPException(status_code=500, detail=f"Ошибка сети или API: {str(e)}") from e
 
 
 @app.get("/api/v1/tasks/active")
