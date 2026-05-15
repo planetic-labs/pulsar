@@ -250,6 +250,25 @@
         }
     }
 
+    async function restartTask(taskId) {
+        try {
+            const res = await fetch(`/api/v1/tasks/${taskId}/restart`, { method: 'POST' });
+            if (res.ok) {
+                const toast = document.createElement('div');
+                toast.className = "fixed bottom-8 left-8 z-[100] px-5 py-2.5 bg-[#3A3630] text-[#FAF9F6] rounded-xl text-[9px] font-black uppercase tracking-widest shadow-2xl animate-in slide-in-from-bottom-4 duration-200";
+                toast.textContent = `Задача возвращена в очередь`;
+                document.body.appendChild(toast);
+                setTimeout(() => {
+                    toast.classList.add('animate-out', 'fade-out', 'slide-out-to-bottom-4');
+                    setTimeout(() => toast.remove(), 200);
+                }, 2000);
+                updateProgressUI();
+            }
+        } catch (e) {
+            console.error(e);
+        }
+    }
+
     async function deleteTask(taskId) {
         if (!confirm('Удалить задачу?')) return;
         try {
@@ -378,11 +397,16 @@
             if (skippedContainer && skippedList && data.stats) {
                 if (data.stats.skipped_silent_list && data.stats.skipped_silent_list.length > 0) {
                     skippedContainer.classList.remove('hidden');
-                    skippedList.innerHTML = data.stats.skipped_silent_list.map(title => `
+                    skippedList.innerHTML = data.stats.skipped_silent_list.map(item => `
                         <div class="flex items-center justify-between group">
-                            <span class="text-[9px] font-bold text-amber-900 truncate pr-4">${title}</span>
+                            <span class="text-[9px] font-bold text-amber-900 truncate pr-4">${item.title}</span>
                             <div class="h-px flex-1 bg-amber-200/50 mr-4"></div>
-                            <span class="text-[7px] font-black text-amber-600/50 uppercase tracking-tighter shrink-0">Без звука</span>
+                            <div class="flex items-center gap-2">
+                                <span class="text-[7px] font-black text-amber-600/50 uppercase tracking-tighter shrink-0">Без звука</span>
+                                <button onclick="restartTask(${item.id})" class="p-1 bg-amber-100 rounded text-amber-600 opacity-0 group-hover:opacity-100 transition-opacity hover:bg-amber-200" title="Попробовать снова">
+                                    <svg class="w-2.5 h-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>
+                                </button>
+                            </div>
                         </div>
                     `).join('');
                 } else {
@@ -400,7 +424,12 @@
                         <div class="flex items-center justify-between group">
                             <span class="text-[9px] font-bold text-rose-900 truncate pr-4">${item.title}</span>
                             <div class="h-px flex-1 bg-rose-200/50 mr-4"></div>
-                            <span class="text-[7px] font-black text-rose-600 uppercase tracking-tighter shrink-0">${item.size}</span>
+                            <div class="flex items-center gap-2">
+                                <span class="text-[7px] font-black text-rose-600 uppercase tracking-tighter shrink-0">${item.size}</span>
+                                <button onclick="restartTask(${item.id})" class="p-1 bg-rose-100 rounded text-rose-600 opacity-0 group-hover:opacity-100 transition-opacity hover:bg-rose-200" title="Перезапустить">
+                                    <svg class="w-2.5 h-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>
+                                </button>
+                            </div>
                         </div>
                     `).join('');
                 } else {
