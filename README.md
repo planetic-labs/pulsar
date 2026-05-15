@@ -27,6 +27,18 @@
   </a>
 </p>
 
+<p align="left">
+  <img src="https://img.shields.io/github/last-commit/arassypnov/search-ui" alt="Last Commit">
+  <img src="https://img.shields.io/github/languages/top/arassypnov/search-ui" alt="Top Language">
+  <img src="https://img.shields.io/github/languages/code-size/arassypnov/search-ui" alt="Code Size">
+  <img src="https://img.shields.io/badge/Search-Hybrid%20RAG-orange" alt="Hybrid RAG">
+  <img src="https://img.shields.io/badge/Languages-RU%20%7C%20EN-blue" alt="Languages">
+  <img src="https://img.shields.io/badge/Maintained-yes-brightgreen.svg" alt="Maintained">
+  <a href="https://github.com/arassypnov/search-ui/stargazers">
+    <img src="https://img.shields.io/github/stars/arassypnov/search-ui?style=social" alt="Stars">
+  </a>
+</p>
+
 Enterprise-grade RAG (Retrieval-Augmented Generation) system for deep semantic search through video archives using AI transcription. Optimized for high-speed processing and precise quote retrieval.
 
 [Russian Description / Описание на русском](#видео-бд-ai)
