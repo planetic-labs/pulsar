@@ -269,10 +269,14 @@ async def transcribe_stage(
             raw_chunks = norm_payload.get("utterances") or norm_payload.get("chunks") or []
             chunks_data = chunk_from_utterances(raw_chunks, single_chunk=is_short)
             replace_chunks(conn, video_id=video_id, transcript_id=transcript_id, chunks=chunks_data)
-    finally:
-        # Delete audio immediately (on success or failure)
+
+        # Delete audio only on success
         if audio_p.exists():
             audio_p.unlink()
+
+    except Exception:
+        # Keep audio on failure for retries
+        raise
 
     return {"video_id": video_id}
 

@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any
 
 import httpx
-from fastapi import Depends, FastAPI, Form, HTTPException, Request, WebSocket, WebSocketDisconnect
+from fastapi import Depends, FastAPI, Form, HTTPException, Request, WebSocket, WebSocketDisconnect, status
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -160,6 +160,16 @@ def _status_rows(connection: Any) -> list[VideoStatusItem]:
 
 @app.websocket("/api/v1/logs/stream")
 async def websocket_logs(websocket: WebSocket):
+    # Auth check
+    settings = get_app_settings()
+    token = websocket.session.get("token")
+    if token != settings.access_token:
+        # Check cookie as fallback
+        token = websocket.cookies.get("access_token")
+        if token != settings.access_token:
+            await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+            return
+
     await websocket.accept()
 
     q = broadcaster.register()
