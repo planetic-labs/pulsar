@@ -1,4 +1,31 @@
-# VideoDB AI
+# 🎬 VideoDB AI
+
+<p align="left">
+  <a href="https://github.com/arassypnov/search-ui/actions/workflows/docker-publish.yml">
+    <img src="https://github.com/arassypnov/search-ui/actions/workflows/docker-publish.yml/badge.svg" alt="Build Status">
+  </a>
+  <img src="https://img.shields.io/badge/python-3.12+-blue.svg" alt="Python Version">
+  <a href="https://github.com/astral-sh/uv">
+    <img src="https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/uv/main/assets/badge/v0.json" alt="Built with uv">
+  </a>
+  <a href="https://github.com/astral-sh/ruff">
+    <img src="https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json" alt="Ruff">
+  </a>
+  <img src="https://img.shields.io/badge/types-Ty-blue" alt="Checked with Ty">
+  <a href="https://github.com/pre-commit/pre-commit">
+    <img src="https://img.shields.io/badge/pre--commit-enabled-brightgreen?logo=pre-commit" alt="Pre-commit">
+  </a>
+  <a href="https://deepgram.com/">
+    <img src="https://img.shields.io/badge/STT-Deepgram-black?logo=deepgram" alt="Deepgram">
+  </a>
+  <a href="https://qdrant.tech/">
+    <img src="https://img.shields.io/badge/VectorDB-Qdrant-red?logo=qdrant" alt="Qdrant">
+  </a>
+  <img src="https://img.shields.io/badge/PWA-ready-orange.svg" alt="PWA">
+  <a href="LICENSE">
+    <img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License: MIT">
+  </a>
+</p>
 
 Enterprise-grade RAG (Retrieval-Augmented Generation) system for deep semantic search through video archives using AI transcription. Optimized for high-speed processing and precise quote retrieval.
 
