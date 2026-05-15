@@ -401,7 +401,7 @@ class Worker:
             conn.execute("UPDATE tasks SET status = 'pending' WHERE status = 'running'")
 
             # 2. Сбор путей аудиофайлов, которые все еще нужны для активных задач
-            sql = "SELECT payload FROM tasks WHERE task_type = 'stage_2_transcribe' AND status = 'pending'"
+            sql = "SELECT payload FROM tasks WHERE task_type = 'stage_2_transcribe' AND status IN ('pending', 'failed')"
             rows = conn.execute(sql).fetchall()
             for r in rows:
                 try:

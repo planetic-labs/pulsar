@@ -161,7 +161,7 @@ def get_google_drive_settings() -> GoogleDriveSettings:
 def get_deepgram_settings() -> DeepgramSettings:
     return DeepgramSettings(
         api_key=os.getenv("DEEPGRAM_API_KEY", ""),
-        project_id=os.getenv("DEEPGRAM_PROJECT_ID", "bfdbbda9-97c5-4d05-917d-1da52417adeb"),
+        project_id=os.getenv("DEEPGRAM_PROJECT_ID", ""),
         model=os.getenv("DEEPGRAM_MODEL", "nova-3"),
         language=os.getenv("DEEPGRAM_LANGUAGE", "ru"),
         smart_format=_env_bool("DEEPGRAM_SMART_FORMAT", True),
@@ -176,8 +176,8 @@ def get_deepgram_settings() -> DeepgramSettings:
 
 def get_app_settings() -> AppSettings:
     return AppSettings(
-        access_token=os.getenv("APP_ACCESS_TOKEN", "Master"),
-        session_secret_key=os.getenv("SESSION_SECRET_KEY", "super-secret-key"),
+        access_token=os.getenv("APP_ACCESS_TOKEN", "change-me"),
+        session_secret_key=os.getenv("SESSION_SECRET_KEY", "change-me-to-something-very-secret"),
         host=os.getenv("APP_HOST", "0.0.0.0"),
         port=int(os.getenv("APP_PORT", "8000")),
         results_limit=int(os.getenv("APP_RESULTS_LIMIT", "20")),
@@ -187,7 +187,7 @@ def get_app_settings() -> AppSettings:
         data_dir=Path(os.getenv("APP_DATA_DIR", "/srv/search-ui/data")),
         disk_space_buffer_gb=int(os.getenv("DISK_SPACE_BUFFER_GB", "3")),
         github_pat=os.getenv("GITHUB_PAT", ""),
-        github_repo=os.getenv("GITHUB_REPO", "arassypnov/search-ui"),
+        github_repo=os.getenv("GITHUB_REPO", "username/repo"),
     )
 
 

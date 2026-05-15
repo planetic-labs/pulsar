@@ -1,72 +1,77 @@
 # VideoDB AI
 
-Корпоративная RAG-система для глубокого семантического поиска по архиву видео с использованием AI-транскрибации. Система оптимизирована для работы с русскоязычным контентом и обеспечивает мгновенный поиск по смыслу и точным цитатам.
+Enterprise-grade RAG (Retrieval-Augmented Generation) system for deep semantic search through video archives using AI transcription. Optimized for high-speed processing and precise quote retrieval.
 
-## 🚀 Основные возможности
+[Russian Description / Описание на русском](#видео-бд-ai)
 
-- **Гибридный поиск (RRF)**: Сочетание векторного поиска (Dense), разреженных векторов (Sparse) и классического текстового поиска (SQL REGEXP) для максимальной точности.
-- **Трехстадийный конвейер**: Параллельная обработка задач (загрузка -> транскрибация -> индексация) с автоматическим управлением ресурсами.
-- **Умная транскрибация**: Использование Deepgram Nova-3 с поддержкой диаризации (определение спикеров) и автоматической постобработкой текста.
-- **Интеграция с Google Drive**: Автономная работа через Service Account, поддержка общих дисков (Shared Drives) и пагинации.
-- **Дедупликация по MD5**: Автоматическая проверка контрольных сумм при импорте для предотвращения повторной обработки файлов.
-- **Многоуровневое кеширование**: Двухслойный кеш эмбеддингов (L1 Memory LRU + L2 SQLite) для мгновенной реакции интерфейса.
-- **Мобильная адаптация & PWA**: Раздельные интерфейсы для десктопа и мобильных устройств, возможность установки как нативное приложение.
+---
 
-## 🛠 Технологический стек
+## 🚀 Key Features
+
+- **Hybrid Search (RRF)**: Combines Dense vectors (BGE-M3), Sparse vectors, and SQL Quote Boost for maximum precision.
+- **3-Stage Pipeline**: Parallel processing (Download -> Transcribe -> Index) with automatic lifecycle management.
+- **Smart Transcription**: Powered by Deepgram Nova-3 with diarization and automated post-processing.
+- **Google Drive Native**: Seamless integration via Service Account with support for Shared Drives and large folder pagination.
+- **MD5 Deduplication**: Prevents redundant processing by tracking file content hashes.
+- **Tiered Caching**: Two-layer embedding cache (L1 Memory + L2 SQLite) for sub-millisecond response times.
+- **Mobile-First & PWA**: Dedicated mobile UI and Progressive Web App support for installation on iOS/Android.
+
+## 🛠 Tech Stack
 
 - **Backend**: FastAPI (Python 3.12+)
-- **Database**: 
-  - **SQLite**: Хранение метаданных, очереди задач и кеша векторов.
-  - **Qdrant**: Векторная БД для семантического поиска (Dense + Sparse).
-- **Пакетный менеджер**: `uv` (Astral)
-- **AI Интеграции**:
-  - **Infinity Remote**: Удаленный сервис эмбеддингов BGE-M3 (1024d).
-  - **Deepgram API**: Высокоскоростная транскрибация.
-- **Frontend**: Jinja2, Tailwind CSS, Vanilla JS.
-- **Инфраструктура**: Docker & Docker Compose.
+- **Storage**: SQLite (Metadata & Cache) + Qdrant (Vector Search)
+- **AI Integrations**: Infinity Remote (Embeddings), Deepgram API (ASR)
+- **Infrastructure**: Docker & Docker Compose
+- **Package Manager**: `uv`
 
-## 🏁 Быстрый старт
+## 🏁 Quick Start
 
-### 1. Настройка окружения
-Скопируйте пример конфига и заполните ключи:
-```bash
-cp .env.example .env
-```
-Основные переменные:
-- `SESSION_SECRET_KEY`: Секрет для сессий.
-- `DEEPGRAM_API_KEY`: API ключ Deepgram.
-- `EMBEDDING_BASE_URL`: URL сервиса Infinity.
-- `QDRANT_HOST`: Хост Qdrant (обычно `qdrant`).
+1.  **Setup Environment**:
+    ```bash
+    cp .env.example .env
+    # Edit .env and fill in APP_ACCESS_TOKEN, DEEPGRAM_API_KEY, and EMBEDDING_API_URL
+    ```
+2.  **Configure Google Drive**:
+    Place your Service Account JSON key in `config/service-key.json`.
+3.  **Launch**:
+    ```bash
+    docker compose up -d --build
+    ```
 
-### 2. Подготовка конфигурации Google
-Поместите JSON-файл вашего Service Account в директорию `config/service-account.json`.
+The application will be available at `http://localhost:8000`.
 
-### 3. Запуск через Docker (рекомендуется)
-```bash
-docker compose up -d --build
-```
-После запуска интерфейс будет доступен по адресу `http://localhost:8000`.
+## 📂 Documentation
 
-## 📂 Структура проекта
+Detailed documentation is available in the `docs/` directory:
+- [**Installation Guide**](./docs/INSTALLATION.md) - Full environment setup and Google Cloud configuration.
+- [**Architecture Overview**](./docs/ARCHITECTURE.md) - Pipeline design and data flow.
+- [**Usage Guide**](./docs/USAGE.md) - Importing content, searching, and managing speakers.
 
-- `app/` — Основная логика: воркер, поиск, репозиторий и API.
-- `scripts/` — Инструменты обслуживания (целостность БД, миграции, CLI).
-- `backups/` — Автономный плагин для бэкапов в S3.
-- `hf_embed_service/` — Опциональный локальный сервис эмбеддингов.
-- `templates/` — HTML-шаблоны (разделены на `index.html` и `index_mobile.html`).
-- `config/` — Директория для JSON-конфигов Google Drive.
+## 🔧 Maintenance & CLI
 
-## 🔧 Обслуживание и CLI
+Administrative utilities accessible via Docker:
+- **Clean Queue**: `docker compose exec app uv run python scripts/clear_queue.py`
+- **Integrity Check**: `docker compose exec app uv run scripts/check_integrity.py`
+- **Full Reindex**: `docker compose exec app uv run scripts/reindex_search.py`
+- **Backup**: `cd backups && uv run backup.py`
 
-Система включает набор утилит для администратора:
-- **Умная очистка очереди**: `docker compose exec app uv run python scripts/clear_queue.py` — удаляет новые задачи, сохраняя те, что уже скачаны или находятся в работе.
-- **Проверка целостности**: `docker compose exec app uv run scripts/check_integrity.py`
-- **Заполнение MD5**: `docker compose exec app uv run scripts/backfill_md5.py`
-- **Реиндексация**: `docker compose exec app uv run scripts/reindex_search.py`
-- **Бэкап**: `cd backups && uv run backup.py`
+## 🛡 Security
 
-## 🛡 Безопасность
+- Authorization via access token (`APP_ACCESS_TOKEN`).
+- Sensitive configuration is isolated in the `config/` directory.
+- Deepgram Balance Protection: Worker automatically halts if the account balance is low (< $1.00).
 
-- Авторизация через токен доступа (`APP_ACCESS_TOKEN`).
-- Все чувствительные данные вынесены в `config/` и монтируются в контейнер.
-- Защита баланса Deepgram: воркер автоматически останавливается при низком балансе (< $1.00).
+---
+
+## Видео-БД AI
+
+Корпоративная RAG-система для глубокого семантического поиска по архиву видео с использованием AI-транскрибации. Система оптимизирована для работы с русскоязычным контентом и обеспечивает мгновенный поиск по смыслу и точным цитатам.
+
+### Основные возможности
+- Гибридный поиск (Dense + Sparse + SQL).
+- Трехстадийный параллельный конвейер обработки.
+- Интеграция с Google Drive через Service Account.
+- Автоматическая дедупликация по MD5 и кеширование эмбеддингов.
+
+## 📜 License
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
