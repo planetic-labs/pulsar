@@ -297,7 +297,7 @@ async def api_worker_progress(_: str = Depends(require_access_token)):
     stats = {"pending": 0, "failed": 0, "recent_errors": []}
 
     with db_connection(settings) as conn:
-        # ... (rest of DB logic remains same)
+        # Get pending tasks per stage
         sql_q = "SELECT task_type, COUNT(*) as c FROM tasks WHERE status = 'pending' GROUP BY task_type"
         rows = conn.execute(sql_q).fetchall()
         for r in rows:
@@ -307,6 +307,7 @@ async def api_worker_progress(_: str = Depends(require_access_token)):
             if ttype in counts:
                 counts[ttype] += r["c"]
 
+        # Get aggregate stats
         sql_s = "SELECT status, COUNT(*) as c FROM tasks GROUP BY status"
         s_rows = conn.execute(sql_s).fetchall()
         stats["skipped_silent_list"] = []
@@ -321,31 +322,34 @@ async def api_worker_progress(_: str = Depends(require_access_token)):
             if r["status"] == "skipped_no_space":
                 stats["skipped_no_space"] = r["c"]
 
+        # Detail skipped silent
         skipped_silent_count = stats.get("skipped_silent", 0)
         if isinstance(skipped_silent_count, int) and skipped_silent_count > 0:
-            sql_ss = "SELECT payload FROM tasks WHERE status = 'skipped_silent' ORDER BY updated_at DESC LIMIT 20"
+            sql_ss = "SELECT id, payload FROM tasks WHERE status = 'skipped_silent' ORDER BY updated_at DESC LIMIT 20"
             ss_rows = conn.execute(sql_ss).fetchall()
             for ssr in ss_rows:
                 try:
                     p = json.loads(ssr["payload"])
-                    stats["skipped_silent_list"].append(p.get("title") or "Unknown")
+                    stats["skipped_silent_list"].append({"id": ssr["id"], "title": p.get("title") or "Unknown"})
                 except Exception:
                     pass
 
+        # Detail skipped no space
         skipped_no_space_count = stats.get("skipped_no_space", 0)
         if isinstance(skipped_no_space_count, int) and skipped_no_space_count > 0:
-            sql_ns = "SELECT payload FROM tasks WHERE status = 'skipped_no_space' ORDER BY updated_at DESC LIMIT 20"
+            sql_ns = "SELECT id, payload FROM tasks WHERE status = 'skipped_no_space' ORDER BY updated_at DESC LIMIT 20"
             ns_rows = conn.execute(sql_ns).fetchall()
             for nsr in ns_rows:
                 try:
                     p = json.loads(nsr["payload"])
                     size_gb = p.get("file_size", 0) / (1024**3)
                     stats["skipped_no_space_list"].append(
-                        {"title": p.get("title") or "Unknown", "size": f"{size_gb:.2f} ГБ"}
+                        {"id": nsr["id"], "title": p.get("title") or "Unknown", "size": f"{size_gb:.2f} ГБ"}
                     )
                 except Exception:
                     pass
 
+        # Detail failed
         if stats["failed"] > 0:
             sql_e = """
                 SELECT id, task_type, error_message, payload
@@ -365,7 +369,7 @@ async def api_worker_progress(_: str = Depends(require_access_token)):
                     {"id": er["id"], "title": title, "type": er["task_type"], "error": er["error_message"]}
                 )
 
-    # Get balance from cache (updated by worker only)
+    # Get balance from cache
     from app.transcription.deepgram import DeepgramEngine
 
     dg_engine = DeepgramEngine(get_deepgram_settings())
@@ -378,6 +382,21 @@ async def api_worker_progress(_: str = Depends(require_access_token)):
         "is_running": worker.is_running,
         "dg_balance": balance_data,
     }
+
+
+@app.post("/api/v1/tasks/{task_id}/restart")
+async def api_restart_task(task_id: int, _: str = Depends(require_access_token)):
+    """Restart a specific task (failed or skipped)."""
+    settings = get_sqlite_settings()
+    with db_connection(settings) as conn:
+        conn.execute("UPDATE tasks SET status = 'pending', error_message = NULL WHERE id = ?", (task_id,))
+
+    # Auto-start worker
+    worker = get_worker()
+    if not worker.is_running:
+        asyncio.create_task(worker.run())
+
+    return {"status": "restarted"}
 
 
 @app.get("/api/v1/deepgram/balance")
