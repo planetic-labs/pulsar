@@ -49,10 +49,11 @@ def require_access_token(request: Request) -> str:
 def login_user(response: Response, request: Request, token: str) -> bool:
     settings = get_app_settings()
     if token == settings.access_token:
-        request.session["token"] = token
+        trusted_token = settings.access_token
+        request.session["token"] = trusted_token
         response.set_cookie(
             key=AUTH_COOKIE_NAME,
-            value=token,
+            value=trusted_token,
             httponly=True,
             max_age=60 * 60 * 24 * 7,  # 7 days
             samesite="lax",
