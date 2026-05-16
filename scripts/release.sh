@@ -42,10 +42,10 @@ fi
 echo -e "📝 Changelog:\n$CHANGELOG"
 
 # 3. Создаем релиз через GitHub CLI
-# --generate-notes может добавить список PR автоматически, но мы используем свой CHANGELOG
+# Используем --generate-notes, который применит правила из .github/release.yml
 gh release create "$VERSION" \
     --title "$VERSION" \
-    --notes "$CHANGELOG"
+    --generate-notes
 
 if [ $? -eq 0 ]; then
     echo "✅ Release $VERSION successfully created!"
