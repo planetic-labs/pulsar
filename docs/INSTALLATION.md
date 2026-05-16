@@ -1,6 +1,6 @@
 # Installation and Setup Guide
 
-This guide will help you set up VideoDB AI from scratch using Docker.
+This guide will help you set up Pulsar from scratch using Docker.
 
 ## Prerequisites
 
@@ -12,8 +12,8 @@ This guide will help you set up VideoDB AI from scratch using Docker.
 ## Step 1: Clone the Repository
 
 ```bash
-git clone https://github.com/your-username/video-db.git
-cd video-db
+git clone https://github.com/planetic-labs/pulsar.git
+cd pulsar
 ```
 
 ## Step 2: Configure Environment Variables
@@ -29,7 +29,7 @@ cp .env.example .env
 - `SESSION_SECRET_KEY`: A long random string for session encryption.
 - `DEEPGRAM_API_KEY`: Your key from Deepgram.
 - `EMBEDDING_API_URL`: The URL of your Infinity embedding service.
-- `GOOGLE_DRIVE_CREDENTIALS_PATH`: Usually `/srv/search-ui/config/service-key.json` inside the container.
+- `GOOGLE_DRIVE_CREDENTIALS_PATH`: Usually `/app/config/service-key.json` inside the container.
 
 ## Step 3: Google Drive Credentials
 

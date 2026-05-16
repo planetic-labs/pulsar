@@ -1,6 +1,6 @@
-# VideoDB Backup Tool (Standalone)
+# Pulsar Backup Tool (Standalone)
 
-This directory contains standalone scripts for backing up and restoring the VideoDB system.
+This directory contains standalone scripts for backing up and restoring the Pulsar system.
 It can be used independently of the main repository.
 
 ## Installation
@@ -14,7 +14,7 @@ uv sync
 
 1. Copy `.env.example` to `.env`.
 2. Fill in your S3 credentials and Qdrant URL.
-3. If this folder is NOT inside the VideoDB project root, specify absolute paths to `DATA_DIR` and `STORAGE_DIR` in the `.env` file.
+3. If this folder is NOT inside the Pulsar project root, specify absolute paths to `DATA_DIR` and `STORAGE_DIR` in the `.env` file.
 
 ## Usage
 

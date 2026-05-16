@@ -24,17 +24,17 @@ services:
     networks:
       - homelab-net
     environment:
-      - HF_HOME=/srv/search-ui/models_cache
+      - HF_HOME=/app/models_cache
     env_file: .env
     depends_on:
       qdrant:
         condition: service_started
     volumes:
-      - .:/srv/search-ui
-      - ./downloads:/srv/search-ui/downloads
-      - ./data:/srv/search-ui/data
-      - ./storage:/srv/search-ui/storage
-      - ./models_cache:/srv/search-ui/models_cache
+      - .:/app
+      - ./downloads:/app/downloads
+      - ./data:/app/data
+      - ./storage:/app/storage
+      - ./models_cache:/app/models_cache
 
 volumes:
   qdrant_data:

@@ -19,7 +19,7 @@ def smart_clear_queue():
     """
     settings = get_sqlite_settings()
 
-    print("--- Умная очистка очереди VideoDB ---")
+    print("--- Умная очистка очереди Pulsar ---")
 
     with db_connection(settings) as conn:
         # 1. Считаем что есть сейчас

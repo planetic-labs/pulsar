@@ -56,7 +56,7 @@ jobs:
       - name: Delete old package versions
         uses: actions/delete-package-versions@v5
         with:
-          package-name: 'search-ui'
+          package-name: 'pulsar'
           package-type: 'container'
           min-versions-to-keep: 5
           # ВАЖНО: Для удаления пакетов может потребоваться PAT (Personal Access Token)

@@ -1,6 +1,6 @@
 # Architecture Overview
 
-VideoDB AI is built as a highly modular RAG (Retrieval-Augmented Generation) system optimized for video content. It leverages a modern asynchronous stack to handle heavy processing tasks like audio extraction, transcription, and vector indexing.
+Pulsar AI is built as a highly modular RAG (Retrieval-Augmented Generation) system optimized for video content. It leverages a modern asynchronous stack to handle heavy processing tasks like audio extraction, transcription, and vector indexing.
 
 ## Core Components
 
@@ -23,7 +23,7 @@ The worker operates as a three-stage independent consumer system using SQLite as
 
 ## Search Strategy (Hybrid RRF)
 
-VideoDB uses **Reciprocal Rank Fusion (RRF)** to combine results from multiple search methods:
+Pulsar uses **Reciprocal Rank Fusion (RRF)** to combine results from multiple search methods:
 1.  **Dense Retrieval**: Uses BGE-M3 embeddings for semantic "meaning-based" search.
 2.  **Sparse Retrieval**: Uses sparse vectors for precise "keyword-based" search.
 3.  **SQL Quote Boost**: Uses SQLite `REGEXP` for exact phrase matching and "Quote Search" mode.

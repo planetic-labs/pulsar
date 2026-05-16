@@ -187,7 +187,7 @@ def restore_qdrant(extract_dir: Path):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Restore VideoDB from backup")
+    parser = argparse.ArgumentParser(description="Restore Pulsar from backup")
     parser.add_argument("--file", help="Path to backup file (local or S3 key)")
     args = parser.parse_args()
 
