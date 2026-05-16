@@ -1,5 +1,5 @@
 [project]
-name = "search-ui"
+name = "Pulsar"
 version = "0.1.0"
 description = "Enterprise RAG for indexing Google Drive videos and searching transcripts"
 readme = "README.md"
@@ -21,6 +21,7 @@ dependencies = [
     "pydantic>=2.10.0",
     "fastembed>=0.5.1",
     "google-auth>=2.52.0",
+    "urllib3>=2.7.0"
 ]
 
 [dependency-groups]
@@ -69,19 +70,4 @@ allowed-unresolved-imports = [
     "torch.nn.functional",
     "speechbrain.inference.speaker",
     "soundfile"
-]
-
-[tool.mypy]
-python_version = "3.12"
-strict = false
-ignore_missing_imports = true
-check_untyped_defs = true
-disallow_untyped_defs = false
-warn_return_any = true
-warn_unused_configs = true
-exclude = [
-    "scripts/.*",
-    "tests/.*",
-    "hf_endpoint/.*",
-    "hf_embed_service/.*"
 ]
