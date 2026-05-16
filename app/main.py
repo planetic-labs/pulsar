@@ -725,8 +725,11 @@ async def index_page(
 
     # URL Token Auth
     token_param = request.query_params.get("token")
+    allowed_modes = {"hybrid", "semantic", "keyword"}
+    safe_mode = mode if mode in allowed_modes else "hybrid"
     if token_param == app_settings.access_token:
-        response = RedirectResponse(url=f"/?q={q or ''}&mode={mode}")
+        redirect_url = request.url_for("index_page").include_query_params(q=q or "", mode=safe_mode)
+        response = RedirectResponse(url=str(redirect_url))
         login_user(response, request, str(token_param))
         return response
 
