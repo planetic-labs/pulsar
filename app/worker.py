@@ -42,7 +42,7 @@ class LogBroadcaster:
 
     def broadcast(self, message: str):
         global _main_loop
-        if _main_loop:
+        if _main_loop and _main_loop.is_running():
             _main_loop.call_soon_threadsafe(self._do_broadcast, message)
 
     def _do_broadcast(self, message: str):
