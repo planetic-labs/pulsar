@@ -11,7 +11,7 @@ services:
       - qdrant_data:/qdrant/storage
 
   app:
-    image: ghcr.io/arassypnov/search-ui:latest
+    image: ghcr.io/planetic-labs/pulsar:latest
     user: "${UID:-1000}:${GID:-1000}"
     restart: always
     ports:
@@ -19,18 +19,18 @@ services:
     networks:
       - homelab-net
     environment:
-      - HF_HOME=/srv/search-ui/models_cache
+      - HF_HOME=/app/models_cache
     env_file: .env
     depends_on:
       qdrant:
         condition: service_started
     volumes:
       # Только данные, код уже внутри контейнера
-      - ./downloads:/srv/search-ui/downloads
-      - ./data:/srv/search-ui/data
-      - ./storage:/srv/search-ui/storage
-      - ./models_cache:/srv/search-ui/models_cache
-      - ./config:/srv/search-ui/config
+      - ./downloads:/app/downloads
+      - ./data:/app/data
+      - ./storage:/app/storage
+      - ./models_cache:/app/models_cache
+      - ./config:/app/config
 
 volumes:
   qdrant_data:

@@ -43,7 +43,7 @@ DB_PATH = DATA_DIR / "search_ui.db"
 QDRANT_URL = os.getenv("QDRANT_URL", "http://127.0.0.1:6333")
 COLLECTION_NAME = os.getenv("QDRANT_COLLECTION", "chunks_m3")
 TIMESTAMP = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-BACKUP_PREFIX = f"videodb_backup_{TIMESTAMP}"
+BACKUP_PREFIX = f"pulsar_backup_{TIMESTAMP}"
 BACKUP_CONTENT_DIR = TEMP_DIR / BACKUP_PREFIX
 
 # S3 Config
@@ -105,7 +105,7 @@ def manage_app_container(action: str):
 def cleanup_local_backups(keep_file: Path):
     """Keep only the latest backup in local/ folder."""
     logger.info("🧹 Cleaning up old local backups...")
-    local_backups = sorted(LOCAL_BACKUP_DIR.glob("videodb_backup_*.tar.gz"), key=os.path.getmtime, reverse=True)
+    local_backups = sorted(LOCAL_BACKUP_DIR.glob("pulsar_backup_*.tar.gz"), key=os.path.getmtime, reverse=True)
     for old_backup in local_backups:
         p = Path(cast(str, old_backup))
         if p.name != keep_file.name:
@@ -120,7 +120,7 @@ def cleanup_s3_backups():
         return
     logger.info(f"🧹 Cleaning up S3 backups (keeping last {MAX_BACKUPS_S3})...")
     try:
-        res = s3_client.list_objects_v2(Bucket=S3_BUCKET, Prefix="videodb_backup_")
+        res = s3_client.list_objects_v2(Bucket=S3_BUCKET, Prefix="pulsar_backup_")
         if "Contents" in res:
             objects = sorted(res["Contents"], key=lambda x: x["LastModified"], reverse=True)
             if len(objects) > MAX_BACKUPS_S3:

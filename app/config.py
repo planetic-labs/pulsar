@@ -124,7 +124,7 @@ def _env_bool(name: str, default: bool) -> bool:
 
 def get_sqlite_settings() -> SQLiteSettings:
     app_settings = get_app_settings()
-    default_db = app_settings.data_dir / "search_ui.db"
+    default_db = app_settings.data_dir / "pulsar.db"
     return SQLiteSettings(db_path=Path(os.getenv("SQLITE_DB_PATH", str(default_db))))
 
 
@@ -152,8 +152,8 @@ def get_local_ai_settings() -> LocalAISettings:
 def get_google_drive_settings() -> GoogleDriveSettings:
     scopes_raw = os.getenv("GOOGLE_DRIVE_SCOPES", "https://www.googleapis.com/auth/drive.readonly")
     return GoogleDriveSettings(
-        credentials_path=Path(os.getenv("GOOGLE_DRIVE_CREDENTIALS_PATH", "/srv/search-ui/config/service-key.json")),
-        download_dir=Path(os.getenv("GOOGLE_DRIVE_DOWNLOAD_DIR", "/srv/search-ui/downloads")),
+        credentials_path=Path(os.getenv("GOOGLE_DRIVE_CREDENTIALS_PATH", "/app/config/service-key.json")),
+        download_dir=Path(os.getenv("GOOGLE_DRIVE_DOWNLOAD_DIR", "/app/downloads")),
         scopes=tuple(s.strip() for s in scopes_raw.split(",") if s.strip()),
     )
 
@@ -183,11 +183,11 @@ def get_app_settings() -> AppSettings:
         results_limit=int(os.getenv("APP_RESULTS_LIMIT", "20")),
         download_concurrency=int(os.getenv("INGEST_DOWNLOAD_CONCURRENCY", "1")),
         process_concurrency=int(os.getenv("INGEST_PROCESS_CONCURRENCY", "1")),
-        storage_dir=Path(os.getenv("APP_STORAGE_DIR", "/srv/search-ui/storage")),
-        data_dir=Path(os.getenv("APP_DATA_DIR", "/srv/search-ui/data")),
+        storage_dir=Path(os.getenv("APP_STORAGE_DIR", "/app/storage")),
+        data_dir=Path(os.getenv("APP_DATA_DIR", "/app/data")),
         disk_space_buffer_gb=int(os.getenv("DISK_SPACE_BUFFER_GB", "3")),
         github_pat=os.getenv("GITHUB_PAT", ""),
-        github_repo=os.getenv("GITHUB_REPO", "username/repo"),
+        github_repo=os.getenv("GITHUB_REPO", "planetic-labs/pulsar"),
     )
 
 

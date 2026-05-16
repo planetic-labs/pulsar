@@ -106,7 +106,7 @@ async def lifespan(app: FastAPI):
     logger.info("Shutting down...")
 
 
-app = FastAPI(title="VideoDB", lifespan=lifespan)
+app = FastAPI(title="Pulsar", lifespan=lifespan)
 
 
 @app.middleware("http")
@@ -660,8 +660,8 @@ def health() -> dict[str, str]:
 @app.get("/manifest.json")
 async def manifest():
     return {
-        "name": "VideoDB AI",
-        "short_name": "VideoDB",
+        "name": "Pulsar AI",
+        "short_name": "Pulsar",
         "description": "Корпоративный поиск по видео-архиву",
         "start_url": "/",
         "display": "standalone",
@@ -859,10 +859,10 @@ async def api_submit_feedback(req: FeedbackRequest, _: str = Depends(require_acc
     headers = {
         "Authorization": f"Bearer {app_settings.github_pat}",
         "Accept": "application/vnd.github.v3+json",
-        "User-Agent": "VideoDB-AI",
+        "User-Agent": "Pulsar-AI",
     }
 
-    body_md = f"**Описание:**\n{req.description}\n\n---\n*Отправлено через VideoDB AI Feedback Form*"
+    body_md = f"**Описание:**\n{req.description}\n\n---\n*Отправлено через Pulsar AI Feedback Form*"
 
     payload = {"title": req.title, "body": body_md, "labels": ["feedback"]}
 

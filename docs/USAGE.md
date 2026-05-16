@@ -17,7 +17,7 @@ To start indexing your content:
 ---
 
 ## 🔍 Searching
-VideoDB AI provides several search modes accessible via the "Mode" dropdown:
+Pulsar AI provides several search modes accessible via the "Mode" dropdown:
 
 - **Hybrid (Recommended)**: Combines semantic meaning and keywords for the best results.
 - **Semantic**: Finds content based on meaning, even if exact words aren't present.

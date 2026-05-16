@@ -1,8 +1,8 @@
-# 🎬 VideoDB AI
+# 🎬 Pulsar
 
 <p align="left">
-  <a href="https://github.com/arassypnov/search-ui/actions/workflows/docker-publish.yml">
-    <img src="https://github.com/arassypnov/search-ui/actions/workflows/docker-publish.yml/badge.svg" alt="Build Status">
+  <a href="https://github.com/planetic-labs/pulsar/actions/workflows/docker-publish.yml">
+    <img src="https://github.com/planetic-labs/pulsar/actions/workflows/docker-publish.yml/badge.svg" alt="Build Status">
   </a>
   <img src="https://img.shields.io/badge/python-3.12+-blue.svg" alt="Python Version">
   <a href="https://github.com/astral-sh/uv">
@@ -28,20 +28,20 @@
 </p>
 
 <p align="left">
-  <img src="https://img.shields.io/github/last-commit/arassypnov/search-ui" alt="Last Commit">
-  <img src="https://img.shields.io/github/languages/top/arassypnov/search-ui" alt="Top Language">
-  <img src="https://img.shields.io/github/languages/code-size/arassypnov/search-ui" alt="Code Size">
+  <img src="https://img.shields.io/github/last-commit/planetic-labs/pulsar" alt="Last Commit">
+  <img src="https://img.shields.io/github/languages/top/planetic-labs/pulsar" alt="Top Language">
+  <img src="https://img.shields.io/github/languages/code-size/planetic-labs/pulsar" alt="Code Size">
   <img src="https://img.shields.io/badge/Search-Hybrid%20RAG-orange" alt="Hybrid RAG">
   <img src="https://img.shields.io/badge/Languages-RU%20%7C%20EN-blue" alt="Languages">
   <img src="https://img.shields.io/badge/Maintained-yes-brightgreen.svg" alt="Maintained">
-  <a href="https://github.com/arassypnov/search-ui/stargazers">
-    <img src="https://img.shields.io/github/stars/arassypnov/search-ui?style=social" alt="Stars">
+  <a href="https://github.com/planetic-labs/pulsar/stargazers">
+    <img src="https://img.shields.io/github/stars/planetic-labs/pulsar?style=social" alt="Stars">
   </a>
 </p>
 
 Enterprise-grade RAG (Retrieval-Augmented Generation) system for deep semantic search through video archives using AI transcription. Optimized for high-speed processing and precise quote retrieval.
 
-[Russian Description / Описание на русском](#видео-бд-ai)
+[Russian Description / Описание на русском](#pulsar-ru)
 
 ---
 
@@ -102,7 +102,7 @@ Administrative utilities accessible via Docker:
 
 ---
 
-## Видео-БД AI
+## Pulsar (RU)
 
 Корпоративная RAG-система для глубокого семантического поиска по архиву видео с использованием AI-транскрибации. Система оптимизирована для работы с русскоязычным контентом и обеспечивает мгновенный поиск по смыслу и точным цитатам.
 
