@@ -32,9 +32,14 @@ jobs:
       - name: Run tests
         run: uv run pytest
         env:
+          PYTHONPATH: .
+          APP_STORAGE_DIR: ./test_storage
+          APP_DATA_DIR: ./test_data
           DATABASE_URL: "sqlite:///./test.db"
           SECRET_KEY: "test-secret-key"
           QDRANT_HOST: "localhost"
+          APP_ACCESS_TOKEN: "test-token"
+          SESSION_SECRET_KEY: "test-secret"
 
   docker:
     runs-on: ubuntu-latest
