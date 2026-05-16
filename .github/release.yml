@@ -1,0 +1,26 @@
+changelog:
+  exclude:
+    labels:
+      - skip-changelog
+    authors:
+      - octocat
+  categories:
+    - title: "🚀 New Features"
+      labels:
+        - enhancement
+        - feature
+    - title: "🐛 Bug Fixes"
+      labels:
+        - bug
+        - fix
+    - title: "🛡️ Security Updates"
+      labels:
+        - security
+    - title: "📦 Dependencies"
+      labels:
+        - dependencies
+    - title: "🧹 Maintenance"
+      labels:
+        - chore
+        - documentation
+        - refactor
