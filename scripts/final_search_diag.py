@@ -7,10 +7,11 @@ ROOT_DIR = Path(__file__).resolve().parents[1]
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
+import pytest
+
 from app.config import get_sqlite_settings
 from app.db import db_connection
 from app.search import hybrid_search
-import pytest
 
 
 @pytest.mark.asyncio

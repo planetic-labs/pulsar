@@ -53,10 +53,10 @@ def smart_clear_queue():
         if remaining:
             print("\nОставлено для завершения цикла:")
             for row in remaining:
-                status_disp = row['status']
-                if status_disp == 'running':
+                status_disp = row["status"]
+                if status_disp == "running":
                     status_disp = "ВЫПОЛНЯЕТСЯ"
-                elif status_disp == 'pending':
+                elif status_disp == "pending":
                     status_disp = "В ОЧЕРЕДИ (уже скачано)"
 
                 print(f"  - {row['task_type']} [{status_disp}]: {row['c']}")
@@ -64,6 +64,7 @@ def smart_clear_queue():
             print("\nОчередь полностью пуста.")
 
         print("\nГотово. Воркер автоматически остановится после завершения оставшихся задач.")
+
 
 if __name__ == "__main__":
     smart_clear_queue()
