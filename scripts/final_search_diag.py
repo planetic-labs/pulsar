@@ -10,8 +10,10 @@ if str(ROOT_DIR) not in sys.path:
 from app.config import get_sqlite_settings
 from app.db import db_connection
 from app.search import hybrid_search
+import pytest
 
 
+@pytest.mark.asyncio
 async def test_final_search():
     print("--- Тестирование гибридного поиска (BGE-M3 Cloud + Qdrant) ---")
     pg_settings = get_sqlite_settings()
