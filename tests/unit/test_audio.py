@@ -11,6 +11,7 @@ def test_extract_audio_success(tmp_path, mocker):
     input_video.write_text("fake video")
     output_audio = tmp_path / "output.wav"
 
+    mocker.patch("app.audio._has_audio_stream", return_value=True)
     mock_run = mocker.patch("subprocess.run")
     mock_run.return_value = MagicMock(returncode=0)
 
@@ -34,6 +35,7 @@ def test_extract_audio_fail(tmp_path, mocker):
     input_video.write_text("fake video")
     output_audio = tmp_path / "output.wav"
 
+    mocker.patch("app.audio._has_audio_stream", return_value=True)
     mock_run = mocker.patch("subprocess.run")
     mock_run.return_value = MagicMock(returncode=1, stdout="", stderr="ffmpeg error")
 
