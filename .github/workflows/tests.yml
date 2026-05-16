@@ -10,35 +10,34 @@ jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-    - name: Install uv
-      uses: astral-sh/setup-uv@v5
-      with:
-        enable-cache: true
-        version: "latest"
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          version: "latest"
 
-    - name: Set up Python
-      uses: actions/setup-python@v5
-      with:
-        python-version-file: "pyproject.toml"
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version-file: "pyproject.toml"
 
-    - name: Install dependencies
-      run: uv sync --all-groups
+      - name: Install dependencies
+        run: uv sync --all-groups
 
-    - name: Run linting (Ruff)
-      run: uv run ruff check .
+      - name: Run linting (Ruff)
+        run: uv run ruff check .
 
-    - name: Run tests
-      run: uv run pytest
-      env:
-        DATABASE_URL: "sqlite:///./test.db"
-        SECRET_KEY: "test-secret-key"
-        QDRANT_HOST: "localhost"
+      - name: Run tests
+        run: uv run pytest
+        env:
+          DATABASE_URL: "sqlite:///./test.db"
+          SECRET_KEY: "test-secret-key"
+          QDRANT_HOST: "localhost"
 
   docker:
     runs-on: ubuntu-latest
-    # Run only on PRs (to check changes) OR if specific files were modified in a push
     if: |
       github.event_name == 'pull_request' ||
       contains(github.event.commits.*.added, 'Dockerfile') ||
@@ -50,17 +49,17 @@ jobs:
       contains(github.event.commits.*.added, 'docker-compose.yml') ||
       contains(github.event.commits.*.modified, 'docker-compose.yml')
     steps:
-    - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-    - name: Set up Docker Buildx
-      uses: docker/setup-buildx-action@v3
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
 
-    - name: Build Docker image
-      uses: docker/build-push-action@v5
-      with:
-        context: .
-        file: ./Dockerfile
-        push: false
-        tags: pulsar:test
-        cache-from: type=gha
-        cache-to: type=gha,mode=max
+      - name: Build Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./Dockerfile
+          push: false
+          tags: pulsar:test
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
