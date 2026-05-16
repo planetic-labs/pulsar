@@ -18,6 +18,11 @@ def get_session_token(request: Request) -> str | None:
     if session_token:
         return str(session_token)
 
+    # 3. Check Cookies (fallback/persistence)
+    cookie_token = request.cookies.get(AUTH_COOKIE_NAME)
+    if cookie_token:
+        return str(cookie_token)
+
     return None
 
 
@@ -44,8 +49,14 @@ def require_access_token(request: Request) -> str:
 def login_user(response: Response, request: Request, token: str) -> bool:
     settings = get_app_settings()
     if token == settings.access_token:
-        trusted_token = settings.access_token
-        request.session["token"] = trusted_token
+        request.session["token"] = token
+        response.set_cookie(
+            key=AUTH_COOKIE_NAME,
+            value=token,
+            httponly=True,
+            max_age=60 * 60 * 24 * 7,  # 7 days
+            samesite="lax",
+        )
         return True
     return False
 

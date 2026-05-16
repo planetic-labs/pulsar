@@ -11,6 +11,7 @@ _db_file = _tmp_dir / "test_search_ui_global.db"
 os.environ["APP_ACCESS_TOKEN"] = "test-token"
 os.environ["SESSION_SECRET_KEY"] = "test-secret"
 os.environ["QDRANT_URL"] = "http://mock-qdrant:6333"
+os.environ["EMBEDDING_API_URL"] = "http://mock-embedding:7997"
 os.environ["SQLITE_DB_PATH"] = str(_db_file)
 os.environ["APP_DATA_DIR"] = str(_tmp_dir)
 os.environ["APP_STORAGE_DIR"] = str(_tmp_dir / "storage")

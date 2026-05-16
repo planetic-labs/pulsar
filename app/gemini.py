@@ -17,6 +17,11 @@ logger = logging.getLogger(__name__)
 _L1_CACHE: OrderedDict[str, tuple[list[float], models.SparseVector | None]] = OrderedDict()
 
 
+def clear_l1_cache() -> None:
+    """Clears the global L1 cache. Primarily used for testing."""
+    _L1_CACHE.clear()
+
+
 class UnifiedEmbeddingClient:
     def __init__(self, settings: EmbeddingSettings) -> None:
         self.settings = settings
