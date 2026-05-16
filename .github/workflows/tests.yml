@@ -9,11 +9,6 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
-
-    services:
-      # Optional: if you need Redis/Postgres for tests, add them here
-      # For now, we assume tests use mocks or local sqllite/files
-
     steps:
     - uses: actions/checkout@v4
 
@@ -37,13 +32,23 @@ jobs:
     - name: Run tests
       run: uv run pytest
       env:
-        # Mocking environment variables for tests
         DATABASE_URL: "sqlite:///./test.db"
         SECRET_KEY: "test-secret-key"
         QDRANT_HOST: "localhost"
 
   docker:
     runs-on: ubuntu-latest
+    # Run only on PRs (to check changes) OR if specific files were modified in a push
+    if: |
+      github.event_name == 'pull_request' ||
+      contains(github.event.commits.*.added, 'Dockerfile') ||
+      contains(github.event.commits.*.modified, 'Dockerfile') ||
+      contains(github.event.commits.*.added, 'pyproject.toml') ||
+      contains(github.event.commits.*.modified, 'pyproject.toml') ||
+      contains(github.event.commits.*.added, 'uv.lock') ||
+      contains(github.event.commits.*.modified, 'uv.lock') ||
+      contains(github.event.commits.*.added, 'docker-compose.yml') ||
+      contains(github.event.commits.*.modified, 'docker-compose.yml')
     steps:
     - uses: actions/checkout@v4
 
