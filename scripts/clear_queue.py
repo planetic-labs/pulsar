@@ -8,6 +8,7 @@ sys.path.append(str(Path(__file__).resolve().parents[1]))
 from app.config import get_sqlite_settings
 from app.db import db_connection
 
+
 def smart_clear_queue():
     """
     Умная очистка очереди воркера.
