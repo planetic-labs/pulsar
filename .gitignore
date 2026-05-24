@@ -18,3 +18,5 @@ storage/
 backups/tmp/
 backups/local/
 *.log
+.antigravitycli/d0a2556a-6ea3-4542-ae68-98c5b69d2585.json
+.antigravityignore

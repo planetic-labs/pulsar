@@ -17,7 +17,7 @@ from fastapi.templating import Jinja2Templates
 from qdrant_client import models
 from starlette.middleware.sessions import SessionMiddleware
 
-from app.auth import get_session_token, login_user, logout_user, require_access_token
+from app.auth import get_session_token, login_user, logout_user, require_access_token, is_valid_token
 from app.config import (
     get_app_settings,
     get_deepgram_settings,
@@ -161,12 +161,11 @@ def _status_rows(connection: Any) -> list[VideoStatusItem]:
 @app.websocket("/api/v1/logs/stream")
 async def websocket_logs(websocket: WebSocket):
     # Auth check
-    settings = get_app_settings()
     token = websocket.session.get("token")
-    if token != settings.access_token:
+    if not is_valid_token(token):
         # Check cookie as fallback
         token = websocket.cookies.get("access_token")
-        if token != settings.access_token:
+        if not is_valid_token(token):
             await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
             return
 
@@ -447,9 +446,8 @@ async def api_add_ingest_task(
 
 @app.get("/indexed", response_class=HTMLResponse)
 def indexed_page(request: Request):
-    app_settings = get_app_settings()
     current_token = get_session_token(request)
-    if current_token != app_settings.access_token:
+    if not is_valid_token(current_token):
         return RedirectResponse(url="/login")
     return templates.TemplateResponse(request, "indexed.html", {})
 
@@ -696,16 +694,186 @@ def login_page(request: Request, error: str | None = None):
 
 
 @app.post("/login")
-def login_post(request: Request, response: Response, token: str = Form(...)):
-    if login_user(response, request, token):
-        return RedirectResponse(url="/", status_code=303)
-    return templates.TemplateResponse(request, "login.html", {"error": "Invalid access token"})
+async def login_post(
+    request: Request,
+    response: Response,
+    token: str | None = Form(None),
+    email: str | None = Form(None),
+    code: str | None = Form(None)
+):
+    # 1. Fallback / Static access token login
+    if token:
+        if login_user(response, request, token):
+            return RedirectResponse(url="/", status_code=303)
+        return templates.TemplateResponse(request, "login.html", {"error": "Invalid access token"})
+
+    # 2. Ark Messenger 2-step login (email + code)
+    if email and code:
+        app_settings = get_app_settings()
+        if not app_settings.ark_jwks_url:
+            return templates.TemplateResponse(
+                request, "login.html", {"error": "Ark Messenger authentication is not configured"}
+            )
+        
+        base_url = app_settings.ark_jwks_url.rsplit("/.well-known/jwks.json", 1)[0]
+        verify_url = f"{base_url}/api/v1/auth/verify-code"
+
+        async with httpx.AsyncClient() as client:
+            try:
+                res = await client.post(
+                    verify_url,
+                    json={"email": email, "code": code},
+                    timeout=10.0
+                )
+                if res.status_code == 200:
+                    data = res.json()
+                    next_step = data.get("next")
+                    if next_step == "home":
+                        access_token = data.get("access_token")
+                        if access_token and login_user(response, request, access_token):
+                            return RedirectResponse(url="/", status_code=303)
+                        else:
+                            return templates.TemplateResponse(
+                                request, "login.html", {"error": "Failed to log in with returned token"}
+                            )
+                    elif next_step == "setup_profile":
+                        return templates.TemplateResponse(
+                            request, "login.html", {
+                                "error": "Профиль еще не заполнен. Пожалуйста, завершите настройку профиля в мессенджере.",
+                                "email": email,
+                                "code": code
+                            }
+                        )
+                    else:
+                        return templates.TemplateResponse(
+                            request, "login.html", {"error": f"Unexpected login state: {next_step}"}
+                        )
+                elif res.status_code == 401:
+                    try:
+                        detail = res.json().get("detail", "Неверный пинкод или email")
+                    except Exception:
+                        detail = "Неверный пинкод или email"
+                    return templates.TemplateResponse(
+                        request, "login.html", {"error": detail, "email": email, "code": code}
+                    )
+                else:
+                    return templates.TemplateResponse(
+                        request, "login.html", {"error": f"Ошибка сервера авторизации: {res.status_code}"}
+                    )
+            except Exception as e:
+                logger.error(f"Error calling Ark Messenger verify-code: {e}")
+                return templates.TemplateResponse(
+                    request, "login.html", {"error": "Не удалось связаться с сервером авторизации Ark Messenger"}
+                )
+
+    return templates.TemplateResponse(request, "login.html", {"error": "Не указаны учетные данные"})
+
+
+@app.post("/api/v1/auth/identify")
+async def api_auth_identify(request: Request):
+    app_settings = get_app_settings()
+    if not app_settings.ark_jwks_url:
+        raise HTTPException(
+            status_code=status.HTTP_501_NOT_IMPLEMENTED,
+            detail="Ark Messenger authentication is not configured"
+        )
+    
+    base_url = app_settings.ark_jwks_url.rsplit("/.well-known/jwks.json", 1)[0]
+    identify_url = f"{base_url}/api/v1/auth/identify"
+
+    try:
+        body = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid JSON payload")
+
+    email = body.get("email")
+    if not email:
+        raise HTTPException(status_code=400, detail="Missing email field")
+
+    async with httpx.AsyncClient() as client:
+        try:
+            response = await client.post(identify_url, json={"email": email}, timeout=10.0)
+            return Response(
+                content=response.content,
+                status_code=response.status_code,
+                media_type="application/json"
+            )
+        except Exception as e:
+            logger.error(f"Error calling Ark Messenger identify: {e}")
+            raise HTTPException(status_code=502, detail="Error communicating with Ark Messenger server")
 
 
 @app.get("/logout")
 def logout(request: Request, response: Response):
     logout_user(response, request)
     return RedirectResponse(url="/login")
+
+
+@app.post("/api/v1/webhooks/revocation")
+async def handle_revocation_webhook(request: Request):
+    import hmac
+    import hashlib
+    from app.auth import revoke_session, revoke_user
+
+    app_settings = get_app_settings()
+    
+    # 1. Check if webhook secret is configured
+    webhook_secret = app_settings.ark_webhook_secret
+    if not webhook_secret:
+        raise HTTPException(
+            status_code=status.HTTP_501_NOT_IMPLEMENTED,
+            detail="Webhook revocation is not configured"
+        )
+
+    # 2. Get raw request body for signature verification
+    payload = await request.body()
+
+    # 3. Extract signature from headers
+    signature = request.headers.get("X-Ark-Signature")
+    if not signature:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Missing signature header"
+        )
+
+    # 4. Calculate expected signature
+    expected_signature = hmac.new(
+        webhook_secret.encode("utf-8"),
+        payload,
+        hashlib.sha256
+    ).hexdigest()
+
+    # 5. Securely compare signatures
+    if not hmac.compare_digest(expected_signature, signature):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Invalid signature"
+        )
+
+    # 6. Parse JSON payload and revoke session/user
+    try:
+        data = json.loads(payload)
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid JSON payload: {str(e)}"
+        )
+
+    user_id = data.get("user_id")
+    jti = data.get("jti")
+
+    if not user_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Missing user_id in payload"
+        )
+
+    if jti:
+        revoke_session(jti)
+    else:
+        revoke_user(user_id)
+
+    return {"status": "ok"}
 
 
 # --- UI ROUTES ---
@@ -727,14 +895,14 @@ async def index_page(
     token_param = request.query_params.get("token")
     allowed_modes = {"hybrid", "semantic", "keyword"}
     safe_mode = mode if mode in allowed_modes else "hybrid"
-    if token_param == app_settings.access_token:
+    if token_param and is_valid_token(token_param):
         redirect_url = request.url_for("index_page").include_query_params(q=q or "", mode=safe_mode)
         response = RedirectResponse(url=str(redirect_url))
         login_user(response, request, str(token_param))
         return response
 
     current_token = get_session_token(request)
-    if current_token != app_settings.access_token:
+    if not is_valid_token(current_token):
         return RedirectResponse(url="/login")
 
     results = []
@@ -773,27 +941,25 @@ async def index_page(
             "today_val": today,
             "default_start": default_start,
             "video_type": video_type,
-            "token": app_settings.access_token,
+            "token": current_token,
         },
     )
 
 
 @app.get("/import", response_class=HTMLResponse)
 def import_page(request: Request):
-    app_settings = get_app_settings()
     current_token = get_session_token(request)
-    if current_token != app_settings.access_token:
+    if not is_valid_token(current_token):
         return RedirectResponse(url="/login")
     return templates.TemplateResponse(request, "import.html", {})
 
 
 @app.get("/status", response_class=HTMLResponse)
 def status_page(request: Request):
-    app_settings = get_app_settings()
     pg_settings = get_sqlite_settings()
 
     current_token = get_session_token(request)
-    if current_token != app_settings.access_token:
+    if not is_valid_token(current_token):
         return RedirectResponse(url="/login")
 
     with db_connection(pg_settings) as connection:
@@ -839,9 +1005,8 @@ def status_page(request: Request):
 
 @app.get("/feedback", response_class=HTMLResponse)
 def feedback_page(request: Request):
-    app_settings = get_app_settings()
     current_token = get_session_token(request)
-    if current_token != app_settings.access_token:
+    if not is_valid_token(current_token):
         return RedirectResponse(url="/login")
     return templates.TemplateResponse(request, "feedback.html", {"stats": get_global_stats()})
 
@@ -1269,10 +1434,8 @@ async def api_drive_ls(folder_id: str | None = None, refresh: bool = False, _: s
 
 @app.get("/videos/{video_id}/file")
 async def video_file(video_id: int, request: Request, token: str | None = None) -> Response:
-    app_settings = get_app_settings()
-    # Check token from session or query param
     current_token = get_session_token(request) or token
-    if current_token != app_settings.access_token:
+    if not is_valid_token(current_token):
         raise HTTPException(status_code=401)
 
     pg_settings = get_sqlite_settings()
