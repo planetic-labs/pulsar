@@ -308,6 +308,14 @@
                                    class="px-3 py-1.5 bg-brand-50 border border-brand-200 rounded-lg text-[9px] lg:text-[10px] font-black text-brand-600 hover:bg-brand-100 hover:border-brand-400 uppercase tracking-widest transition-all shadow-sm">
                                     Drive ↗
                                 </a>
+                                <button onclick="event.stopPropagation(); copyToClipboard('{{ item.source_url }}{% if '?' in item.source_url %}&{% else %}?{% endif %}t={{ item.start_sec|int }}s', this)" 
+                                        class="p-1.5 bg-warm-50 border border-warm-200 rounded-lg text-warm-500 hover:text-brand-600 hover:bg-brand-50 hover:border-brand-300 transition-all shadow-sm flex items-center justify-center group"
+                                        title="Копировать ссылку с таймкодом">
+                                    <svg class="w-3.5 h-3.5 group-hover:scale-105 transition-transform" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                                        <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                                        <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                                    </svg>
+                                </button>
                                 {% endif %}
                             </div>
                         </div>
@@ -378,6 +386,27 @@
 </div>
 
 <script>
+    function copyToClipboard(text, btnElement) {
+        navigator.clipboard.writeText(text).then(() => {
+            const originalHTML = btnElement.innerHTML;
+            btnElement.innerHTML = `
+                <svg class="w-3.5 h-3.5 text-emerald-500 scale-110 transition-transform" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
+                    <polyline points="20 6 9 17 4 12"></polyline>
+                </svg>
+            `;
+            btnElement.classList.remove('bg-warm-50', 'border-warm-200', 'text-warm-500');
+            btnElement.classList.add('bg-emerald-50', 'border-emerald-200');
+            
+            setTimeout(() => {
+                btnElement.innerHTML = originalHTML;
+                btnElement.classList.remove('bg-emerald-50', 'border-emerald-200');
+                btnElement.classList.add('bg-warm-50', 'border-warm-200', 'text-warm-500');
+            }, 2000);
+        }).catch(err => {
+            console.error('Failed to copy text: ', err);
+        });
+    }
+
     const searchInput = document.getElementById('search-input');
     const clearSearchBtn = document.getElementById('clear-search');
 
