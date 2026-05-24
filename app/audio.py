@@ -116,3 +116,44 @@ def extract_audio(
 
     logger.info(f"Аудио успешно извлечено: {output_path.name}")
     return output_path
+
+
+def convert_wav_to_ogg(wav_path: Path, ogg_path: Path) -> Path:
+    if not wav_path.exists():
+        raise FileNotFoundError(f"Input WAV not found: {wav_path}")
+
+    logger.info(f"Начало сжатия аудио в OGG: {wav_path.name}...")
+    ogg_path.parent.mkdir(parents=True, exist_ok=True)
+
+    # Use system ffmpeg to convert WAV to OGG using libvorbis codec
+    command = [
+        "ffmpeg",
+        "-y",
+        "-nostdin",
+        "-i",
+        str(wav_path),
+        "-acodec",
+        "libvorbis",
+        str(ogg_path),
+    ]
+
+    try:
+        # We give it a timeout of 10 minutes to prevent indefinite hangs
+        completed = subprocess.run(
+            command,
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=600,
+        )
+    except subprocess.TimeoutExpired as e:
+        raise RuntimeError(f"Audio compression timed out for {wav_path.name}") from e
+
+    if completed.returncode != 0:
+        err_msg = (
+            f"Audio compression failed for {wav_path.name}.\nstdout:\n{completed.stdout}\nstderr:\n{completed.stderr}"
+        )
+        raise RuntimeError(err_msg)
+
+    logger.info(f"Аудио успешно сжато в OGG: {ogg_path.name}")
+    return ogg_path
