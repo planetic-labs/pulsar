@@ -134,3 +134,52 @@ async def test_worker_stage_3_index(tmp_db, monkeypatch, mocker, mock_qdrant):
         assert row["status"] == "completed"
         v_row = conn.execute("SELECT processing_status FROM videos WHERE id=?", (vid,)).fetchone()
         assert v_row["processing_status"] == "indexed_chunks_ready"
+
+
+@pytest.mark.asyncio
+async def test_worker_stage_2_missing_file_recovery(tmp_db, monkeypatch, mocker):
+    monkeypatch.setattr("app.worker.get_sqlite_settings", lambda: tmp_db)
+
+    # Mock settings and check_balance_threshold_async to pass
+    mock_dg_settings = MagicMock()
+    monkeypatch.setattr("app.worker.get_deepgram_settings", lambda: mock_dg_settings)
+
+    # Mock DeepgramEngine check_balance_threshold_async to return (True, 10.0)
+    mock_engine_cls = mocker.patch("app.worker.DeepgramEngine")
+    mock_engine = mock_engine_cls.return_value
+    mock_engine.check_balance_threshold_async = AsyncMock(return_value=(True, 10.0))
+
+    # Mock transcribe_stage to raise FileNotFoundError
+    mock_transcribe = mocker.patch("app.worker.transcribe_stage", new_callable=AsyncMock)
+    mock_transcribe.side_effect = FileNotFoundError("Audio file not found")
+
+    worker = Worker()
+
+    # Insert stage 2 task
+    payload = {"file_id": "drive_file_123", "audio_path": "/missing/file.wav", "title": "Missing File Video"}
+    from app.db import db_connection
+
+    with db_connection(tmp_db) as conn:
+        conn.execute(
+            "INSERT INTO tasks (task_type, payload, status) VALUES ('stage_2_transcribe', ?, 'pending')",
+            (json.dumps(payload),),
+        )
+
+    # Run stage 2 transcribe (task_id should be 1 because it's the first task in this fresh db)
+    await worker._run_stage_2_transcribe(task_id=1, payload=payload)
+
+    # Verify:
+    # 1. The original stage_2_transcribe task (id=1) is deleted
+    # 2. A new stage_1_download task is created with the correct payload
+    with db_connection(tmp_db) as conn:
+        old_task = conn.execute("SELECT * FROM tasks WHERE id = 1").fetchone()
+        assert old_task is None
+
+        new_task = conn.execute("SELECT * FROM tasks WHERE task_type = 'stage_1_download'").fetchone()
+        assert new_task is not None
+        assert new_task["status"] == "pending"
+
+        new_payload = json.loads(new_task["payload"])
+        assert new_payload["file_id"] == "drive_file_123"
+        assert new_payload["title"] == "Missing File Video"
+
