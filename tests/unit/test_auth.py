@@ -5,11 +5,11 @@ from fastapi import HTTPException
 
 from app.auth import (
     get_session_token,
-    login_user,
-    require_access_token,
-    is_valid_token,
     is_jti_revoked,
     is_user_revoked,
+    is_valid_token,
+    login_user,
+    require_access_token,
     revoke_session,
     revoke_user,
 )
@@ -106,11 +106,7 @@ def test_is_valid_token_jwt(monkeypatch):
     monkeypatch.setattr("app.auth.get_jwk_client", lambda: mock_jwk_client)
 
     # Mock jwt.decode
-    mock_payload = {
-        "sub": "user-123",
-        "status": "active",
-        "jti": "session-456"
-    }
+    mock_payload = {"sub": "user-123", "status": "active", "jti": "session-456"}
     monkeypatch.setattr("jwt.decode", lambda *args, **kwargs: mock_payload)
 
     # Mock db check to return False (not revoked)
@@ -129,11 +125,7 @@ def test_is_valid_token_revoked_session(monkeypatch):
     mock_jwk_client = MagicMock()
     monkeypatch.setattr("app.auth.get_jwk_client", lambda: mock_jwk_client)
 
-    mock_payload = {
-        "sub": "user-123",
-        "status": "active",
-        "jti": "session-456"
-    }
+    mock_payload = {"sub": "user-123", "status": "active", "jti": "session-456"}
     monkeypatch.setattr("jwt.decode", lambda *args, **kwargs: mock_payload)
 
     # Mock revoked check: session is revoked
@@ -152,11 +144,7 @@ def test_is_valid_token_revoked_user(monkeypatch):
     mock_jwk_client = MagicMock()
     monkeypatch.setattr("app.auth.get_jwk_client", lambda: mock_jwk_client)
 
-    mock_payload = {
-        "sub": "user-123",
-        "status": "active",
-        "jti": "session-456"
-    }
+    mock_payload = {"sub": "user-123", "status": "active", "jti": "session-456"}
     monkeypatch.setattr("jwt.decode", lambda *args, **kwargs: mock_payload)
 
     # Mock revoked check: user is revoked
@@ -175,11 +163,7 @@ def test_is_valid_token_inactive(monkeypatch):
     mock_jwk_client = MagicMock()
     monkeypatch.setattr("app.auth.get_jwk_client", lambda: mock_jwk_client)
 
-    mock_payload = {
-        "sub": "user-123",
-        "status": "inactive",
-        "jti": "session-456"
-    }
+    mock_payload = {"sub": "user-123", "status": "inactive", "jti": "session-456"}
     monkeypatch.setattr("jwt.decode", lambda *args, **kwargs: mock_payload)
 
     monkeypatch.setattr("app.auth.is_jti_revoked", lambda jti: False)

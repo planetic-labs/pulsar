@@ -71,8 +71,8 @@ def test_webhook_revocation_no_secret(client, monkeypatch):
 
 
 def test_webhook_revocation_success_session(client, monkeypatch, mocker):
-    import hmac
     import hashlib
+    import hmac
 
     # Mock settings with a secret key
     settings = MagicMock()
@@ -85,19 +85,16 @@ def test_webhook_revocation_success_session(client, monkeypatch, mocker):
 
     payload_data = {"event": "session_revoked", "user_id": "user-123", "jti": "jti-456"}
     import json
+
     raw_payload = json.dumps(payload_data).encode("utf-8")
 
     # Generate expected signature
-    signature = hmac.new(
-        b"test-webhook-secret",
-        raw_payload,
-        hashlib.sha256
-    ).hexdigest()
+    signature = hmac.new(b"test-webhook-secret", raw_payload, hashlib.sha256).hexdigest()
 
     response = client.post(
         "/api/v1/webhooks/revocation",
         content=raw_payload,
-        headers={"X-Ark-Signature": signature, "Content-Type": "application/json"}
+        headers={"X-Ark-Signature": signature, "Content-Type": "application/json"},
     )
     assert response.status_code == 200
     assert response.json() == {"status": "ok"}
@@ -106,8 +103,8 @@ def test_webhook_revocation_success_session(client, monkeypatch, mocker):
 
 
 def test_webhook_revocation_success_user(client, monkeypatch, mocker):
-    import hmac
     import hashlib
+    import hmac
 
     settings = MagicMock()
     settings.ark_webhook_secret = "test-webhook-secret"
@@ -118,18 +115,15 @@ def test_webhook_revocation_success_user(client, monkeypatch, mocker):
 
     payload_data = {"event": "session_revoked", "user_id": "user-123", "jti": None}
     import json
+
     raw_payload = json.dumps(payload_data).encode("utf-8")
 
-    signature = hmac.new(
-        b"test-webhook-secret",
-        raw_payload,
-        hashlib.sha256
-    ).hexdigest()
+    signature = hmac.new(b"test-webhook-secret", raw_payload, hashlib.sha256).hexdigest()
 
     response = client.post(
         "/api/v1/webhooks/revocation",
         content=raw_payload,
-        headers={"X-Ark-Signature": signature, "Content-Type": "application/json"}
+        headers={"X-Ark-Signature": signature, "Content-Type": "application/json"},
     )
     assert response.status_code == 200
     assert response.json() == {"status": "ok"}
@@ -145,7 +139,7 @@ def test_webhook_revocation_invalid_signature(client, monkeypatch):
     response = client.post(
         "/api/v1/webhooks/revocation",
         json={"event": "session_revoked", "user_id": "user-123", "jti": "jti-456"},
-        headers={"X-Ark-Signature": "invalid-signature-value"}
+        headers={"X-Ark-Signature": "invalid-signature-value"},
     )
     assert response.status_code == 403
 
@@ -156,8 +150,7 @@ def test_webhook_revocation_missing_signature(client, monkeypatch):
     monkeypatch.setattr("app.main.get_app_settings", lambda: settings)
 
     response = client.post(
-        "/api/v1/webhooks/revocation",
-        json={"event": "session_revoked", "user_id": "user-123", "jti": "jti-456"}
+        "/api/v1/webhooks/revocation", json={"event": "session_revoked", "user_id": "user-123", "jti": "jti-456"}
     )
     assert response.status_code == 403
 
@@ -179,7 +172,7 @@ def test_api_auth_identify_success(client, monkeypatch, mocker):
     mock_response = MagicMock()
     mock_response.status_code = 200
     mock_response.content = b'{"next": "enter_code"}'
-    
+
     mock_post = mocker.patch("httpx.AsyncClient.post", new_callable=AsyncMock)
     mock_post.return_value = mock_response
 
@@ -187,9 +180,7 @@ def test_api_auth_identify_success(client, monkeypatch, mocker):
     assert response.status_code == 200
     assert response.json() == {"next": "enter_code"}
     mock_post.assert_called_once_with(
-        "https://api.mock.com/api/v1/auth/identify",
-        json={"email": "user@domain.com"},
-        timeout=10.0
+        "https://api.mock.com/api/v1/auth/identify", json={"email": "user@domain.com"}, timeout=10.0
     )
 
 
@@ -204,7 +195,7 @@ def test_login_ark_success(client, monkeypatch, mocker):
         "next": "home",
         "access_token": "valid-mock-jwt-token",
         "refresh_token": "refresh-mock",
-        "expires_in": 900
+        "expires_in": 900,
     }
 
     mock_post = mocker.patch("httpx.AsyncClient.post", new_callable=AsyncMock)
@@ -213,11 +204,7 @@ def test_login_ark_success(client, monkeypatch, mocker):
     mocker.patch("app.main.is_valid_token", return_value=True)
     mock_login = mocker.patch("app.main.login_user", return_value=True)
 
-    response = client.post(
-        "/login",
-        data={"email": "user@domain.com", "code": "123456"},
-        follow_redirects=False
-    )
+    response = client.post("/login", data={"email": "user@domain.com", "code": "123456"}, follow_redirects=False)
     assert response.status_code == 303
     assert response.headers["location"].endswith("/")
     mock_login.assert_called_once()
@@ -235,11 +222,6 @@ def test_login_ark_fail_invalid_code(client, monkeypatch, mocker):
     mock_post = mocker.patch("httpx.AsyncClient.post", new_callable=AsyncMock)
     mock_post.return_value = mock_response
 
-    response = client.post(
-        "/login",
-        data={"email": "user@domain.com", "code": "111111"},
-        follow_redirects=False
-    )
+    response = client.post("/login", data={"email": "user@domain.com", "code": "111111"}, follow_redirects=False)
     assert response.status_code == 200
     assert "Invalid code or email" in response.text
-

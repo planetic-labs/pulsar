@@ -94,9 +94,10 @@ class DeepgramEngine(TranscriptionEngine):
         file_size = audio_path.stat().st_size
         logger.info(f"Starting Deepgram transcription for {audio_path.name} ({file_size / 1024 / 1024:.2f} MB)")
 
+        content_type = "audio/ogg" if audio_path.suffix.lower() == ".ogg" else "audio/wav"
         headers = {
             "Authorization": f"Token {self.settings.api_key}",
-            "Content-Type": "audio/wav",
+            "Content-Type": content_type,
         }
 
         def file_iterator(file_path: Path, chunk_size: int = 65536):
@@ -158,9 +159,10 @@ class DeepgramEngine(TranscriptionEngine):
         file_size = audio_path.stat().st_size
         logger.info(f"Starting Deepgram transcription (async) for {audio_path.name} ({file_size / 1024 / 1024:.2f} MB)")
 
+        content_type = "audio/ogg" if audio_path.suffix.lower() == ".ogg" else "audio/wav"
         headers = {
             "Authorization": f"Token {self.settings.api_key}",
-            "Content-Type": "audio/wav",
+            "Content-Type": content_type,
         }
 
         async def async_file_iterator(file_path: Path, chunk_size: int = 65536):

@@ -422,12 +422,13 @@ class Worker:
 
         # 4. Физическая очистка папки audio (только те, что не нужны для текущих задач)
         if app_settings.audio_dir.exists():
-            for p in app_settings.audio_dir.glob("*.wav"):
-                if p.resolve() not in active_audio_paths:
-                    try:
-                        p.unlink()
-                    except Exception:
-                        pass
+            for ext in ("*.wav", "*.ogg"):
+                for p in app_settings.audio_dir.glob(ext):
+                    if p.resolve() not in active_audio_paths:
+                        try:
+                            p.unlink()
+                        except Exception:
+                            pass
 
         logger.info("Очистка временных файлов и базы данных завершена.")
 

@@ -17,7 +17,7 @@ from fastapi.templating import Jinja2Templates
 from qdrant_client import models
 from starlette.middleware.sessions import SessionMiddleware
 
-from app.auth import get_session_token, login_user, logout_user, require_access_token, is_valid_token
+from app.auth import get_session_token, is_valid_token, login_user, logout_user, require_access_token
 from app.config import (
     get_app_settings,
     get_deepgram_settings,
@@ -699,7 +699,7 @@ async def login_post(
     response: Response,
     token: str | None = Form(None),
     email: str | None = Form(None),
-    code: str | None = Form(None)
+    code: str | None = Form(None),
 ):
     # 1. Fallback / Static access token login
     if token:
@@ -714,17 +714,13 @@ async def login_post(
             return templates.TemplateResponse(
                 request, "login.html", {"error": "Ark Messenger authentication is not configured"}
             )
-        
+
         base_url = app_settings.ark_jwks_url.rsplit("/.well-known/jwks.json", 1)[0]
         verify_url = f"{base_url}/api/v1/auth/verify-code"
 
         async with httpx.AsyncClient() as client:
             try:
-                res = await client.post(
-                    verify_url,
-                    json={"email": email, "code": code},
-                    timeout=10.0
-                )
+                res = await client.post(verify_url, json={"email": email, "code": code}, timeout=10.0)
                 if res.status_code == 200:
                     data = res.json()
                     next_step = data.get("next")
@@ -738,11 +734,15 @@ async def login_post(
                             )
                     elif next_step == "setup_profile":
                         return templates.TemplateResponse(
-                            request, "login.html", {
-                                "error": "Профиль еще не заполнен. Пожалуйста, завершите настройку профиля в мессенджере.",
+                            request,
+                            "login.html",
+                            {
+                                "error": (
+                                    "Профиль еще не заполнен. Пожалуйста, завершите настройку профиля в мессенджере."
+                                ),
                                 "email": email,
-                                "code": code
-                            }
+                                "code": code,
+                            },
                         )
                     else:
                         return templates.TemplateResponse(
@@ -774,17 +774,16 @@ async def api_auth_identify(request: Request):
     app_settings = get_app_settings()
     if not app_settings.ark_jwks_url:
         raise HTTPException(
-            status_code=status.HTTP_501_NOT_IMPLEMENTED,
-            detail="Ark Messenger authentication is not configured"
+            status_code=status.HTTP_501_NOT_IMPLEMENTED, detail="Ark Messenger authentication is not configured"
         )
-    
+
     base_url = app_settings.ark_jwks_url.rsplit("/.well-known/jwks.json", 1)[0]
     identify_url = f"{base_url}/api/v1/auth/identify"
 
     try:
         body = await request.json()
-    except Exception:
-        raise HTTPException(status_code=400, detail="Invalid JSON payload")
+    except Exception as e:
+        raise HTTPException(status_code=400, detail="Invalid JSON payload") from e
 
     email = body.get("email")
     if not email:
@@ -793,14 +792,10 @@ async def api_auth_identify(request: Request):
     async with httpx.AsyncClient() as client:
         try:
             response = await client.post(identify_url, json={"email": email}, timeout=10.0)
-            return Response(
-                content=response.content,
-                status_code=response.status_code,
-                media_type="application/json"
-            )
+            return Response(content=response.content, status_code=response.status_code, media_type="application/json")
         except Exception as e:
             logger.error(f"Error calling Ark Messenger identify: {e}")
-            raise HTTPException(status_code=502, detail="Error communicating with Ark Messenger server")
+            raise HTTPException(status_code=502, detail="Error communicating with Ark Messenger server") from e
 
 
 @app.get("/logout")
@@ -811,19 +806,17 @@ def logout(request: Request, response: Response):
 
 @app.post("/api/v1/webhooks/revocation")
 async def handle_revocation_webhook(request: Request):
-    import hmac
     import hashlib
+    import hmac
+
     from app.auth import revoke_session, revoke_user
 
     app_settings = get_app_settings()
-    
+
     # 1. Check if webhook secret is configured
     webhook_secret = app_settings.ark_webhook_secret
     if not webhook_secret:
-        raise HTTPException(
-            status_code=status.HTTP_501_NOT_IMPLEMENTED,
-            detail="Webhook revocation is not configured"
-        )
+        raise HTTPException(status_code=status.HTTP_501_NOT_IMPLEMENTED, detail="Webhook revocation is not configured")
 
     # 2. Get raw request body for signature verification
     payload = await request.body()
@@ -831,42 +824,26 @@ async def handle_revocation_webhook(request: Request):
     # 3. Extract signature from headers
     signature = request.headers.get("X-Ark-Signature")
     if not signature:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Missing signature header"
-        )
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Missing signature header")
 
     # 4. Calculate expected signature
-    expected_signature = hmac.new(
-        webhook_secret.encode("utf-8"),
-        payload,
-        hashlib.sha256
-    ).hexdigest()
+    expected_signature = hmac.new(webhook_secret.encode("utf-8"), payload, hashlib.sha256).hexdigest()
 
     # 5. Securely compare signatures
     if not hmac.compare_digest(expected_signature, signature):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Invalid signature"
-        )
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Invalid signature")
 
     # 6. Parse JSON payload and revoke session/user
     try:
         data = json.loads(payload)
     except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Invalid JSON payload: {str(e)}"
-        )
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Invalid JSON payload: {str(e)}") from e
 
     user_id = data.get("user_id")
     jti = data.get("jti")
 
     if not user_id:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Missing user_id in payload"
-        )
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Missing user_id in payload")
 
     if jti:
         revoke_session(jti)

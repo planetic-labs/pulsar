@@ -13,7 +13,7 @@ ROOT_DIR = Path(__file__).resolve().parents[1]
 if str(ROOT_DIR) not in sys.path:
     sys.path.append(str(ROOT_DIR))
 
-from app.audio import extract_audio
+from app.audio import convert_wav_to_ogg, extract_audio
 from app.chunking import chunk_from_utterances
 from app.config import (
     get_app_settings,
@@ -121,6 +121,7 @@ async def download_and_extract_stage(
             last_ui_update_time = current_time
             last_downloaded = downloaded
 
+    ogg_path = None
     try:
         await drive.download_file(file_id, video_path, progress_callback=progress_callback)
 
@@ -137,12 +138,33 @@ async def download_and_extract_stage(
         # Run CPU-bound extraction in a separate thread to not block the event loop
         loop = asyncio.get_running_loop()
         await loop.run_in_executor(None, lambda: extract_audio(video_path, audio_path))
+
+        # Check if the extracted WAV size exceeds the limit
+        wav_size_mb = audio_path.stat().st_size / (1024 * 1024)
+        if wav_size_mb > app_settings.max_audio_size_mb:
+            ogg_path = audio_path.with_suffix(".ogg")
+            if status_callback:
+                status_callback(
+                    f"Сжатие: {clean_title} ({wav_size_mb:.1f} MB WAV "
+                    f"превышает лимит {app_settings.max_audio_size_mb} MB) -> OGG"
+                )
+            if state_callback:
+                state_callback({"status_text": "Сжатие аудио...", "progress": 99, "speed": ""})
+
+            await loop.run_in_executor(None, lambda: convert_wav_to_ogg(audio_path, ogg_path))
+
+            # Delete the temporary WAV file
+            if audio_path.exists():
+                audio_path.unlink()
+            audio_path = ogg_path
     except Exception:
         # Cleanup partial/failed files
         if video_path.exists():
             video_path.unlink()
         if audio_path.exists():
             audio_path.unlink()
+        if ogg_path and ogg_path.exists():
+            ogg_path.unlink()
         raise
     finally:
         # Video is always deleted after extraction (success or failure handled above)
