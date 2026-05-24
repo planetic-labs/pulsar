@@ -230,9 +230,23 @@ class Worker:
                 self._state["stage_2_transcribe"].update(data)
 
             try:
-                result = await transcribe_stage(
-                    file_id, audio_path, payload, status_callback=logger.info, state_callback=update_state
-                )
+                try:
+                    result = await transcribe_stage(
+                        file_id, audio_path, payload, status_callback=logger.info, state_callback=update_state
+                    )
+                except FileNotFoundError as e:
+                    # If audio file is missing, re-queue download and delete current task
+                    logger.warning(
+                        f"Аудиофайл для {title} не найден на диске. "
+                        f"Создаем новую задачу на скачивание и удаляем текущую задачу транскрибации. Ошибка: {e}"
+                    )
+                    with db_connection(get_sqlite_settings()) as conn:
+                        conn.execute(
+                            "INSERT INTO tasks (task_type, payload, status) VALUES ('stage_1_download', ?, 'pending')",
+                            (json.dumps({"file_id": file_id, "title": title}),)
+                        )
+                        conn.execute("DELETE FROM tasks WHERE id = ?", (task_id,))
+                    return
 
                 new_payload = {"video_id": result["video_id"], "title": title}
                 sql = """
