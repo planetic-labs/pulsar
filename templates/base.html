@@ -51,13 +51,14 @@
 <body class="h-full antialiased overflow-hidden text-[#4A453E]">
     <div class="flex h-full flex-col lg:flex-row">
         <!-- Mobile Header -->
-        <header class="{% if request.url.path == '/' %} hidden {% else %} lg:hidden {% endif %} h-16 bg-[#F2F0EB] border-b border-[#E5E1D8] flex items-center justify-between px-6 z-[60] shrink-0">
-            <div class="flex items-center">
+        <header class="{% if request.url.path == '/' %} hidden {% else %} lg:hidden {% endif %} h-16 bg-[#F2F0EB] border-b border-[#E5E1D8] flex items-center justify-between px-6 z-[60] shrink-0 relative">
+            <div class="absolute inset-y-0 left-1/2 -translate-x-1/2 flex items-center">
                 <div class="w-8 h-8 bg-brand-500 rounded-xl flex items-center justify-center shadow-sm opacity-80">
                     <svg class="w-5 h-5 text-[#FAF9F6]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v7.764a1 1 0 01-1.447.894L15 15M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"></path></svg>
                 </div>
             </div>
-            <button onclick="toggleMobileMenu()" class="p-2 text-warm-500 hover:text-brand-500 transition-colors">
+            <div></div>
+            <button onclick="toggleMobileMenu()" class="p-2 text-warm-500 hover:text-brand-500 transition-colors z-10">
                 <svg id="menu-icon" class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"></path></svg>
                 <svg id="close-icon" class="w-6 h-6 hidden" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
             </button>
@@ -67,7 +68,7 @@
         <aside id="sidebar" class="hidden lg:flex lg:w-72 bg-[#F2F0EB] border-r border-[#E5E1D8] flex-col shrink-0 transition-transform duration-300">
             <div class="bg-[#F2F0EB] h-full flex flex-col w-full">
                 <div class="p-8">
-                    <div class="hidden lg:flex items-center mb-10">
+                    <div class="hidden lg:flex items-center justify-center mb-10">
                         <div class="w-10 h-10 bg-brand-500 rounded-2xl flex items-center justify-center shadow-md opacity-80">
                             <svg class="w-6 h-6 text-[#FAF9F6]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v7.764a1 1 0 01-1.447.894L15 15M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"></path></svg>
                         </div>
