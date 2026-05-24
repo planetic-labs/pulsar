@@ -174,5 +174,21 @@ def init_db(connection: sqlite3.Connection) -> None:
     connection.execute("CREATE INDEX IF NOT EXISTS idx_videos_md5 ON videos(md5_checksum)")
     connection.execute("CREATE INDEX IF NOT EXISTS idx_query_cache_query ON query_cache(query)")
 
+    # 8. Revoked sessions table (for JWT revocation)
+    connection.execute("""
+        CREATE TABLE IF NOT EXISTS revoked_sessions (
+            jti TEXT PRIMARY KEY,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+
+    # 9. Revoked users table (for user revocation)
+    connection.execute("""
+        CREATE TABLE IF NOT EXISTS revoked_users (
+            user_id TEXT PRIMARY KEY,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+
     connection.commit()
     logger.info("SQLite database schema initialized.")

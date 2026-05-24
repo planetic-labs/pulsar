@@ -93,6 +93,8 @@ class AppSettings:
     disk_space_buffer_gb: int
     github_pat: str
     github_repo: str
+    ark_jwks_url: str | None = None
+    ark_webhook_secret: str | None = None
 
     @property
     def raw_transcripts_dir(self) -> Path:
@@ -188,6 +190,8 @@ def get_app_settings() -> AppSettings:
         disk_space_buffer_gb=int(os.getenv("DISK_SPACE_BUFFER_GB", "3")),
         github_pat=os.getenv("GITHUB_PAT", ""),
         github_repo=os.getenv("GITHUB_REPO", "planetic-labs/pulsar"),
+        ark_jwks_url=os.getenv("ARK_JWKS_URL"),
+        ark_webhook_secret=os.getenv("ARK_WEBHOOK_SECRET"),
     )
 
 

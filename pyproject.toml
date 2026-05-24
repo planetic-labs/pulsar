@@ -21,7 +21,8 @@ dependencies = [
     "pydantic>=2.10.0",
     "fastembed>=0.5.1",
     "google-auth>=2.52.0",
-    "urllib3>=2.7.0"
+    "urllib3>=2.7.0",
+    "pyjwt[crypto]>=2.8.0"
 ]
 
 [dependency-groups]
