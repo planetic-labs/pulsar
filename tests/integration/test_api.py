@@ -225,3 +225,30 @@ def test_login_ark_fail_invalid_code(client, monkeypatch, mocker):
     response = client.post("/login", data={"email": "user@domain.com", "code": "111111"}, follow_redirects=False)
     assert response.status_code == 200
     assert "Invalid code or email" in response.text
+
+
+def test_api_restart_no_space_tasks(client, tmp_db, mocker):
+    client.post("/login", data={"token": "test-token"})
+    mocker.patch("app.main.get_worker")
+
+    # Mock DB insert of a skipped task due to lack of space using tmp_db
+    import json
+
+    from app.db import db_connection
+
+    with db_connection(tmp_db) as conn:
+        conn.execute(
+            "INSERT INTO tasks (task_type, payload, status) VALUES ('stage_1_download', ?, 'skipped_no_space')",
+            (json.dumps({"file_id": "file123"}),),
+        )
+
+    response = client.post("/api/v1/tasks/restart_no_space")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["status"] == "restarted"
+    assert data["count"] == 1
+
+    # Check it was set to pending in DB
+    with db_connection(tmp_db) as conn:
+        task = conn.execute("SELECT status FROM tasks WHERE task_type = 'stage_1_download'").fetchone()
+        assert task["status"] == "pending"

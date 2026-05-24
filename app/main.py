@@ -1079,6 +1079,24 @@ async def api_restart_failed_tasks(_: str = Depends(require_access_token)):
     return {"status": "restarted", "count": count}
 
 
+@app.post("/api/v1/tasks/restart_no_space")
+async def api_restart_no_space_tasks(_: str = Depends(require_access_token)):
+    """Restart all tasks that were skipped due to lack of space."""
+    settings = get_sqlite_settings()
+    with db_connection(settings) as conn:
+        res = conn.execute(
+            "UPDATE tasks SET status = 'pending', error_message = NULL WHERE status = 'skipped_no_space'"
+        )
+        count = res.rowcount
+
+    # Auto-start worker
+    worker = get_worker()
+    if not worker.is_running:
+        asyncio.create_task(worker.run())
+
+    return {"status": "restarted", "count": count}
+
+
 @app.post("/api/v1/reindex/all")
 async def api_reindex_all(clear_qdrant: bool = False, _: str = Depends(require_access_token)):
     """Queues all transcribed videos for re-indexing in Qdrant."""
