@@ -25,6 +25,27 @@ def check_integrity() -> dict[str, Any]:
     sqlite_settings = get_sqlite_settings()
     q_settings = get_qdrant_settings()
 
+    # Check if worker queue is active before running integrity checks
+    with db_connection(sqlite_settings) as conn:
+        active_tasks = conn.execute(
+            "SELECT COUNT(*) as cnt FROM tasks WHERE status IN ('pending', 'running')"
+        ).fetchone()
+        active_tasks_count = active_tasks["cnt"] if active_tasks else 0
+
+    if active_tasks_count > 0:
+        print(f"\n⚠️  Воркер занят. В очереди задач: {active_tasks_count}.")
+        print("Проверка целостности отложена во избежание конфликтов данных.")
+        return {
+            "status": "worker_running",
+            "active_tasks_count": active_tasks_count,
+            "issues": [],
+            "deleted_raw_count": 0,
+            "deleted_norm_count": 0,
+            "reindexed_videos_count": 0,
+            "reindexed_chunks_count": 0,
+            "deleted_qdrant_points_count": 0,
+        }
+
     qdrant = get_qdrant_client()
 
     print("\n=== [1] ПРОВЕРКА ФАЙЛОВОЙ СИСТЕМЫ И SQLITE ===")
@@ -368,6 +389,7 @@ def check_integrity() -> dict[str, Any]:
 
     print("\n=== ПРОВЕРКА ЗАВЕРШЕНА ===")
     return {
+        "status": "completed",
         "issues": issues,
         "deleted_raw_count": deleted_raw_count,
         "deleted_norm_count": deleted_norm_count,
