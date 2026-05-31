@@ -115,6 +115,21 @@ async def send_telegram_duplicate_alerts(duplicates: list[dict]):
             break
 
 
+async def send_telegram_text(text: str):
+    if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
+        logger.warning("Telegram Bot Token or Chat ID not configured. Skipping text notification.")
+        return
+
+    url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+    payload = {"chat_id": TELEGRAM_CHAT_ID, "text": text, "parse_mode": "HTML", "disable_web_page_preview": True}
+    try:
+        async with httpx.AsyncClient() as client:
+            res = await client.post(url, json=payload, timeout=10.0)
+            res.raise_for_status()
+    except Exception as e:
+        logger.error(f"Failed to send Telegram text notification: {e}")
+
+
 async def scan_folder_recursive(
     drive: GoogleDriveClient,
     folder_id: str,
@@ -132,7 +147,7 @@ async def scan_folder_recursive(
         items = await drive.list_folder_contents(folder_id, use_cache=False)
     except Exception as e:
         logger.error(f"Failed to list folder contents for {folder_name} ({folder_id}): {e}")
-        return
+        raise RuntimeError(f"Ошибка при чтении папки '{folder_name}' ({folder_id}): {e}") from e
 
     for item in items:
         if item["is_folder"]:
@@ -190,14 +205,13 @@ async def main():
         )
     except Exception as e:
         logger.error(f"Failed to fetch root folders from Google Drive: {e}")
-        logger.info("Falling back to root folders stored in database...")
-        with db_connection(sqlite_settings) as conn:
-            rows = conn.execute("""
-                SELECT id, name FROM folders
-                WHERE parent_id IS NULL OR parent_id NOT IN (SELECT id FROM folders)
-            """).fetchall()
-            for row in rows:
-                root_folders.append({"id": row["id"], "name": row["name"]})
+        err_msg = (
+            "<b>❌ Ошибка синхронизации Pulsar!</b>\n\n"
+            f"Не удалось подключиться к Google Drive API: <code>{e}</code>\n"
+            "Синхронизация прервана."
+        )
+        await send_telegram_text(err_msg)
+        return
 
     with db_connection(sqlite_settings) as conn:
         # Get all local videos from DB
@@ -246,20 +260,30 @@ async def main():
     visited_folders = []
     drive_files = []
 
-    for rf in root_folders:
-        rf_id = rf["id"]
-        rf_name = rf["name"]
-        if not rf_name:
-            try:
-                folder_meta = await drive.get_file(rf_id)
-                rf_name = folder_meta.name
-            except Exception as e:
-                logger.error(f"Could not fetch metadata for root folder {rf_id}: {e}")
-                rf_name = "Root Folder"
+    try:
+        for rf in root_folders:
+            rf_id = rf["id"]
+            rf_name = rf["name"]
+            if not rf_name:
+                try:
+                    folder_meta = await drive.get_file(rf_id)
+                    rf_name = folder_meta.name
+                except Exception as e:
+                    logger.error(f"Could not fetch metadata for root folder {rf_id}: {e}")
+                    rf_name = "Root Folder"
 
-        await scan_folder_recursive(
-            drive, rf_id, None, rf_name, visited_folders, drive_files, app_settings.exclude_keywords
+            await scan_folder_recursive(
+                drive, rf_id, None, rf_name, visited_folders, drive_files, app_settings.exclude_keywords
+            )
+    except Exception as e:
+        logger.error(f"Critical error during Google Drive scan: {e}")
+        err_msg = (
+            "<b>❌ Ошибка синхронизации Pulsar!</b>\n\n"
+            f"Произошел сбой при сканировании Google Drive: <code>{e}</code>\n"
+            "Синхронизация прервана."
         )
+        await send_telegram_text(err_msg)
+        return
 
     logger.info(f"Scan complete. Found {len(visited_folders)} folders and {len(drive_files)} videos on Google Drive.")
 

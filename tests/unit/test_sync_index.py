@@ -289,3 +289,60 @@ async def test_sync_main_flow(tmp_db, monkeypatch, mocker):
     assert dup_args[0]["title"] == "2026.05.01 Unchanged Video.mp4"
     assert dup_args[0]["new_file_id"] == "new_video_duplicate"
     assert dup_args[0]["existing_file_id"] == "video_unchanged"
+
+
+@pytest.mark.asyncio
+async def test_sync_main_flow_gdrive_error(tmp_db, monkeypatch, mocker):
+    mock_settings = MagicMock()
+    mock_settings.db_path = tmp_db
+    mock_settings.port = 8000
+    mock_settings.access_token = "test-token"
+    mock_settings.exclude_keywords = ("ГАЛЕРЕЯ",)
+    monkeypatch.setattr("scripts.sync_index.get_app_settings", lambda: mock_settings)
+
+    # Pre-populate database with a folder and a video
+    with db_connection(tmp_db) as conn:
+        conn.execute(
+            "INSERT INTO folders (id, name, parent_id) VALUES (?, ?, ?)",
+            ("root_folder_id", "Indexed Root", None)
+        )
+        conn.execute(
+            """
+            INSERT INTO videos (
+                id, source_file_id, title, parent_folder_id,
+                recorded_date, is_4k, processing_status, source_type
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                103, "video_unchanged", "2026.05.01 Unchanged Video.mp4",
+                "root_folder_id", "2026-05-01", 0, "transcribed", "google_drive"
+            )
+        )
+
+    # Mock GoogleDriveClient to throw exception
+    drive_mock = MagicMock()
+    async def mock_list_contents_error(folder_id, use_cache=False):
+        raise RuntimeError("API Connection Error")
+
+    drive_mock.list_folder_contents = mock_list_contents_error
+    mocker.patch("scripts.sync_index.GoogleDriveClient", return_value=drive_mock)
+
+    # Mock Telegram alert call
+    mock_telegram_text = mocker.patch("scripts.sync_index.send_telegram_text", new_callable=AsyncMock)
+
+    # Run main sync logic
+    await sync_main()
+
+    # Verify that synchronization was aborted, Telegram notification was sent,
+    # and the database remained unmodified (no folders or videos deleted).
+    mock_telegram_text.assert_called_once()
+    alert_text = mock_telegram_text.call_args[0][0]
+    assert "Не удалось подключиться к Google Drive API" in alert_text
+
+    with db_connection(tmp_db) as conn:
+        folders = conn.execute("SELECT id FROM folders").fetchall()
+        assert len(folders) == 1
+        videos = conn.execute("SELECT id FROM videos").fetchall()
+        assert len(videos) == 1
+
