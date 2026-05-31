@@ -71,6 +71,11 @@ def test_user_api_endpoints_forbidden(client, user_token, monkeypatch, mocker):
     assert response.status_code == 403
     assert "Admin role required" in response.json()["detail"]
 
+    # Try deleting a video (should fail with 403 Forbidden)
+    response = client.delete("/api/v1/indexed/videos/42")
+    assert response.status_code == 403
+    assert "Admin role required" in response.json()["detail"]
+
 
 def test_user_can_access_video_chunks(client, user_token, monkeypatch, tmp_db):
     monkeypatch.setattr("app.auth.is_valid_token", lambda t: t == user_token)
