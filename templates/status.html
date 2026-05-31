@@ -195,6 +195,24 @@
                     </div>
                 </div>
             </div>
+
+            <!-- Excluded by Keywords -->
+            <div id="excluded-by-keywords-container" class="hidden animate-in fade-in slide-in-from-top-4 duration-500 mt-4">
+                <div class="bg-amber-50 border border-amber-200 rounded-2xl p-4 flex flex-col gap-3">
+                    <div class="flex items-center gap-2">
+                        <div class="w-8 h-8 rounded-xl bg-amber-100 flex items-center justify-center text-amber-600">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg>
+                        </div>
+                        <div>
+                            <h4 class="text-[10px] font-black text-amber-800 uppercase tracking-widest">Исключены по ключевым словам</h4>
+                            <p class="text-[8px] text-amber-600 font-bold uppercase tracking-tight">Содержат ключевые слова исключений и подлежат удалению</p>
+                        </div>
+                    </div>
+                    <div id="excluded-by-keywords-list" class="flex flex-col gap-1.5">
+                        <!-- List items will be injected here -->
+                    </div>
+                </div>
+            </div>
         </div>
 
         <!-- Deletion Confirmation Modal -->
@@ -552,6 +570,37 @@
                     `).join('');
                 } else {
                     missingContainer.classList.add('hidden');
+                }
+            }
+
+            // 7. Update Excluded by Keywords Block
+            const excludedContainer = document.getElementById('excluded-by-keywords-container');
+            const excludedList = document.getElementById('excluded-by-keywords-list');
+            if (excludedContainer && excludedList && data.stats) {
+                if (data.stats.excluded_by_keyword_list && data.stats.excluded_by_keyword_list.length > 0) {
+                    excludedContainer.classList.remove('hidden');
+                    excludedList.innerHTML = data.stats.excluded_by_keyword_list.map(item => `
+                        <div class="flex items-center justify-between group">
+                            <span class="text-[9px] font-bold text-amber-900 truncate pr-4">${item.title}</span>
+                            <div class="h-px flex-1 bg-amber-200/50 mr-4"></div>
+                            <div class="flex items-center gap-2">
+                                ${item.source_url ? `
+                                    <a href="${item.source_url}" target="_blank" class="p-1 bg-blue-50 text-blue-600 rounded hover:bg-blue-100 transition-all shadow-sm shrink-0" title="Открыть диск">
+                                        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                                        </svg>
+                                    </a>
+                                ` : ''}
+                                <button onclick="confirmDeleteVideo(${item.id}, '${item.title.replace(/'/g, "\\'")}', '${item.file_id}')" class="p-1 bg-rose-50 text-rose-600 rounded hover:bg-rose-100 transition-all shadow-sm shrink-0" title="Удалить из индекса">
+                                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                    </svg>
+                                </button>
+                            </div>
+                        </div>
+                    `).join('');
+                } else {
+                    excludedContainer.classList.add('hidden');
                 }
             }
         } catch (e) {

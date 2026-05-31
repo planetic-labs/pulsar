@@ -138,6 +138,7 @@ async def scan_folder_recursive(
     visited_folders: list[dict],
     drive_files: list[dict],
     exclude_keywords: tuple[str, ...],
+    excluded_by_keyword_ids: list[str],
 ):
     logger.info(f"Scanning folder: {folder_name} ({folder_id})")
 
@@ -152,11 +153,23 @@ async def scan_folder_recursive(
     for item in items:
         if item["is_folder"]:
             await scan_folder_recursive(
-                drive, item["id"], folder_id, item["name"], visited_folders, drive_files, exclude_keywords
+                drive=drive,
+                folder_id=item["id"],
+                parent_id=folder_id,
+                folder_name=item["name"],
+                visited_folders=visited_folders,
+                drive_files=drive_files,
+                exclude_keywords=exclude_keywords,
+                excluded_by_keyword_ids=excluded_by_keyword_ids,
             )
         else:
             mime_type = item.get("mime_type") or ""
-            if "video/" in mime_type:
+            name_lower = item["name"].lower()
+            is_video_ext = any(
+                name_lower.endswith(ext)
+                for ext in [".mp4", ".mkv", ".mov", ".avi", ".webm", ".flv", ".3gp", ".mpeg", ".mpg", ".m4v"]
+            )
+            if "video/" in mime_type or is_video_ext:
                 # Check for excluded keywords (case-insensitive)
                 name_upper = item["name"].upper()
                 should_exclude = False
@@ -164,6 +177,7 @@ async def scan_folder_recursive(
                     if kw.upper() in name_upper:
                         logger.info(f"Excluding file from indexing due to keyword '{kw}': {item['name']}")
                         should_exclude = True
+                        excluded_by_keyword_ids.append(item["id"])
                         break
 
                 if not should_exclude:
@@ -210,10 +224,14 @@ async def main():
         return
 
     with db_connection(sqlite_settings) as conn:
+        # Clear previous notification flags (is_missing, is_excluded) to ensure we start fresh
+        logger.info("Clearing previous notification flags (is_missing, is_excluded)...")
+        conn.execute("UPDATE videos SET is_missing = 0, is_excluded = 0 WHERE source_type = 'google_drive'")
+
         # Get all local videos from DB
         videos = conn.execute("""
             SELECT id, source_file_id, title, parent_folder_id, recorded_date,
-                   is_4k, processing_status, source_url, is_missing
+                   is_4k, processing_status, source_url, is_missing, is_excluded
             FROM videos WHERE source_type = 'google_drive'
         """).fetchall()
         for v in videos:
@@ -256,6 +274,7 @@ async def main():
     # 2. Recursively scan Google Drive
     visited_folders = []
     drive_files = []
+    excluded_by_keyword_ids = []
 
     try:
         for rf in root_folders:
@@ -270,7 +289,14 @@ async def main():
                     rf_name = "Root Folder"
 
             await scan_folder_recursive(
-                drive, rf_id, None, rf_name, visited_folders, drive_files, app_settings.exclude_keywords
+                drive=drive,
+                folder_id=rf_id,
+                parent_id=None,
+                folder_name=rf_name,
+                visited_folders=visited_folders,
+                drive_files=drive_files,
+                exclude_keywords=app_settings.exclude_keywords,
+                excluded_by_keyword_ids=excluded_by_keyword_ids,
             )
     except Exception as e:
         logger.error(f"Critical error during Google Drive scan: {e}")
@@ -384,10 +410,33 @@ async def main():
                 )
                 logger.info(f"Queued download task for file: {name} ({file_id})")
 
+    # 5.5. Process excluded files and update their status in the database
+    with db_connection(sqlite_settings) as conn:
+        for file_id in excluded_by_keyword_ids:
+            if file_id in local_videos:
+                lv = local_videos[file_id]
+                if not lv.get("is_excluded"):
+                    logger.info(f"Marking video as excluded due to keyword: {lv['title']}")
+                    conn.execute("UPDATE videos SET is_excluded = 1 WHERE source_file_id = ?", (file_id,))
+                    lv["is_excluded"] = 1
+
+        for file_id, lv in local_videos.items():
+            if file_id not in excluded_by_keyword_ids and lv.get("is_excluded"):
+                logger.info(f"Clearing excluded status for video: {lv['title']}")
+                conn.execute("UPDATE videos SET is_excluded = 0 WHERE source_file_id = ?", (file_id,))
+                lv["is_excluded"] = 0
+
     # 6. Check for missing files (present locally but missing on Google Drive)
     missing_files = []
     with db_connection(sqlite_settings) as conn:
         for file_id, lv in local_videos.items():
+            # If a video is excluded by keyword, do not mark it as missing
+            if lv.get("is_excluded") or file_id in excluded_by_keyword_ids:
+                if lv.get("is_missing"):
+                    conn.execute("UPDATE videos SET is_missing = 0 WHERE source_file_id = ?", (file_id,))
+                    lv["is_missing"] = 0
+                continue
+
             # Only notify about successfully processed or indexing videos, ignore failed ones
             if file_id not in drive_file_ids and lv["processing_status"] not in ("failed", "skipped_silent"):
                 missing_files.append({"file_id": file_id, "title": lv["title"], "source_url": lv["source_url"]})
