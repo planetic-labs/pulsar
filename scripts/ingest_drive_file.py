@@ -254,14 +254,7 @@ async def transcribe_stage(
         raw_path.write_text(json.dumps(raw_payload, ensure_ascii=False, indent=2), encoding="utf-8")
         norm_path.write_text(json.dumps(norm_payload, ensure_ascii=False, indent=2), encoding="utf-8")
 
-        # Archive raw transcript copy
-        try:
-            archive_dir = app_settings.storage_dir / "transcripts" / "archive"
-            archive_dir.mkdir(parents=True, exist_ok=True)
-            archive_path = archive_dir / f"{file_id}_{raw_filename}"
-            archive_path.write_text(json.dumps(raw_payload, ensure_ascii=False, indent=2), encoding="utf-8")
-        except Exception as e:
-            logger.error(f"Failed to save archive raw transcript: {e}")
+
 
         if state_callback:
             state_callback({"status_text": "Сохранение в базу...", "progress": 99, "speed": ""})
