@@ -160,7 +160,7 @@ def _status_rows(connection: Any) -> list[VideoStatusItem]:
 @app.websocket("/api/v1/logs/stream")
 async def websocket_logs(websocket: WebSocket):
     # Auth check
-    token = websocket.session.get("token")
+    token = websocket.session.get("access_token") or websocket.session.get("token")
     if not is_valid_token(token):
         # Check cookie as fallback
         token = websocket.cookies.get("access_token")
