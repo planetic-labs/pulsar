@@ -4,7 +4,7 @@ import random
 import sys
 from pathlib import Path
 
-# Добавляем корень проекта в пути
+# Add project root to path
 ROOT_DIR = Path(__file__).resolve().parents[1]
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
@@ -17,7 +17,7 @@ logging.basicConfig(level=logging.INFO, format="%(message)s")
 logger = logging.getLogger("integrity_check")
 
 
-def check_integrity():
+def check_integrity() -> list[str]:
     app_settings = get_app_settings()
     sqlite_settings = get_sqlite_settings()
     q_settings = get_qdrant_settings()
@@ -26,6 +26,7 @@ def check_integrity():
 
     print("\n=== [1] ПРОВЕРКА ФАЙЛОВОЙ СИСТЕМЫ И SQLITE ===")
 
+    issues = []
     db_raw_files = set()
     db_norm_files = set()
     corrupted_json = []
@@ -37,45 +38,52 @@ def check_integrity():
         transcripts = conn.execute(sql).fetchall()
 
         for t in transcripts:
-            # Проверка RAW
+            # Check RAW
             if t["raw_json_path"]:
                 raw_path = Path(t["raw_json_path"])
                 db_raw_files.add(raw_path.resolve())
                 if not raw_path.exists():
-                    missing_files.append(f"Video {t['video_id']}: Missing RAW at {raw_path}")
+                    msg = f"Video {t['video_id']}: Missing RAW at {raw_path}"
+                    missing_files.append(msg)
+                    issues.append(msg)
                 else:
                     try:
                         with open(raw_path, encoding="utf-8") as f:
                             json.load(f)
                     except Exception:
-                        corrupted_json.append(f"Video {t['video_id']}: Corrupted RAW JSON at {raw_path}")
+                        msg = f"Video {t['video_id']}: Corrupted RAW JSON at {raw_path}"
+                        corrupted_json.append(msg)
+                        issues.append(msg)
 
-            # Проверка NORMALIZED + Сравнение текста (SQLite vs JSON)
+            # Check NORMALIZED + text comparison
             if t["normalized_json_path"]:
                 norm_path = Path(t["normalized_json_path"])
                 db_norm_files.add(norm_path.resolve())
                 if not norm_path.exists():
-                    missing_files.append(f"Video {t['video_id']}: Missing NORMALIZED at {norm_path}")
+                    msg = f"Video {t['video_id']}: Missing NORMALIZED at {norm_path}"
+                    missing_files.append(msg)
+                    issues.append(msg)
                 else:
                     try:
                         with open(norm_path, encoding="utf-8") as f:
                             norm_data = json.load(f)
 
-                        # Выборочная проверка текста первого чанка из этого транскрипта в БД
+                        # Check text of the first chunk
                         sql_chunk = "SELECT text FROM chunks WHERE transcript_id = ? ORDER BY chunk_index LIMIT 1"
                         first_chunk = conn.execute(sql_chunk, (t["id"],)).fetchone()
 
                         if first_chunk and "utterances" in norm_data and len(norm_data["utterances"]) > 0:
                             json_text = norm_data["utterances"][0].get("text", "")
                             if json_text and not first_chunk["text"].startswith(json_text):
-                                # Проверяем, не является ли это просто разницей в пробелах или спецсимволах в начале
                                 if first_chunk["text"].strip().startswith(json_text.strip()):
                                     continue
                                 msg = f"Video {t['video_id']}: Text mismatch between DB and JSON"
                                 text_mismatch_errors.append(msg)
+                                issues.append(msg)
                     except Exception as e:
                         msg = f"Video {t['video_id']}: Corrupted NORM JSON at {norm_path} ({e})"
                         corrupted_json.append(msg)
+                        issues.append(msg)
 
     print(f"Записей в базе: {len(transcripts)}")
     if missing_files:
@@ -99,7 +107,7 @@ def check_integrity():
     else:
         print("✅ Текст в БД соответствует файлам на диске.")
 
-    # Поиск бесхозных файлов
+    # Search orphan files
     print("\n--- Поиск файлов-сирот (есть на диске, нет в базе) ---")
     all_raw_on_disk = {p.resolve() for p in app_settings.raw_transcripts_dir.glob("**/*.json")}
     all_norm_on_disk = {p.resolve() for p in app_settings.normalized_transcripts_dir.glob("*.json")}
@@ -109,8 +117,10 @@ def check_integrity():
 
     if orphan_raw:
         print(f"⚠️  Сиротских RAW файлов: {len(orphan_raw)}")
+        issues.append(f"Orphan RAW files on disk: {len(orphan_raw)}")
     if orphan_norm:
         print(f"⚠️  Сиротских NORMALIZED файлов: {len(orphan_norm)}")
+        issues.append(f"Orphan NORMALIZED files on disk: {len(orphan_norm)}")
     if not orphan_raw and not orphan_norm:
         print("✅ Лишних файлов не обнаружено.")
 
@@ -128,7 +138,7 @@ def check_integrity():
 
     print("Получение данных из Qdrant...")
     q_point_ids = set()
-    q_sample_points = []  # Для выборочной проверки метаданных
+    q_sample_points = []
 
     offset = None
     while True:
@@ -141,7 +151,7 @@ def check_integrity():
         )
         for p in points:
             q_point_ids.add(p.id)
-            if len(q_sample_points) < 100:  # Берем первые 100 для проверки
+            if len(q_sample_points) < 100:
                 q_sample_points.append(p)
 
         if not next_offset:
@@ -154,16 +164,20 @@ def check_integrity():
     orphan_in_qdrant = q_point_ids - db_chunk_ids
 
     if missing_in_qdrant:
-        print(f"❌ Чанков из базы НЕТ в Qdrant: {len(missing_in_qdrant)}")
+        msg = f"Chunks in SQLite missing in Qdrant: {len(missing_in_qdrant)}"
+        print(f"❌ {msg}")
+        issues.append(msg)
     else:
         print("✅ Все чанки из базы есть в поиске.")
 
     if orphan_in_qdrant:
-        print(f"⚠️  Лишних точек в Qdrant: {len(orphan_in_qdrant)}")
+        msg = f"Orphan points in Qdrant (missing in SQLite): {len(orphan_in_qdrant)}"
+        print(f"⚠️  {msg}")
+        issues.append(msg)
     else:
         print("✅ В Qdrant нет лишних данных.")
 
-    # Выборочная проверка метаданных Qdrant vs SQLite
+    # Check sample Qdrant metadata vs SQLite
     metadata_errors = 0
     print("--- Выборочная проверка метаданных (Qdrant vs SQLite) ---")
     for p in random.sample(q_sample_points, min(len(q_sample_points), 20)):
@@ -172,6 +186,7 @@ def check_integrity():
         if db_text and q_text and db_text.strip() != q_text.strip():
             print(f"❌ Payload mismatch for point {p.id}!")
             metadata_errors += 1
+            issues.append(f"Payload mismatch for point {p.id} in Qdrant vs SQLite")
 
     if metadata_errors == 0:
         print("✅ Выборочная проверка метаданных пройдена.")
@@ -179,13 +194,15 @@ def check_integrity():
     print("\n=== [3] ЛОГИЧЕСКИЕ ОШИБКИ И ЭВРИСТИКА ===")
 
     with db_connection(sqlite_settings) as conn:
-        # 1. Видео без чанков
+        # 1. Videos without chunks
         for v in completed_videos:
             count = conn.execute("SELECT COUNT(*) as cnt FROM chunks WHERE video_id = ?", (v["id"],)).fetchone()["cnt"]
             if count == 0:
-                print(f"❌ Видео '{v['title']}' (ID:{v['id']}): 0 чанков!")
+                msg = f"Video '{v['title']}' (ID:{v['id']}): 0 chunks in DB!"
+                print(f"❌ {msg}")
+                issues.append(msg)
 
-            # 2. Эвристика: Плотность данных (слов на минуту)
+            # 2. Heuristics: wpm density
             video_data = conn.execute("SELECT duration_sec FROM videos WHERE id = ?", (v["id"],)).fetchone()
             if video_data and video_data["duration_sec"] and video_data["duration_sec"] > 30:
                 duration_min = video_data["duration_sec"] / 60
@@ -196,17 +213,21 @@ def check_integrity():
                 words_count = conn.execute(sql_words, (v["id"],)).fetchone()["w_cnt"] or 0
 
                 wpm = words_count / duration_min
-                if wpm < 10:  # Подозрительно мало слов для видео > 30 сек
-                    print(f"⚠️  Низкая плотность текста: '{v['title']}' - {wpm:.1f} слов/мин (всего {words_count} слов)")
+                if wpm < 10:
+                    msg = f"Low WPM density for video '{v['title']}' (ID:{v['id']}): {wpm:.1f} WPM"
+                    print(f"⚠️  {msg}")
+                    issues.append(msg)
 
-        # 3. Поиск дубликатов по source_file_id
+        # 3. Duplicate source_file_id
         sql_dupes = """
             SELECT source_file_id, COUNT(*) as cnt FROM videos
             GROUP BY source_file_id HAVING cnt > 1
         """
         dupes = conn.execute(sql_dupes).fetchall()
         if dupes:
-            print(f"❌ Найдены дубликаты source_file_id: {len(dupes)}")
+            msg = f"Duplicate source_file_ids in videos table: {len(dupes)}"
+            print(f"❌ {msg}")
+            issues.append(msg)
             for d in dupes:
                 print(f"  - {d['source_file_id']} ({d['cnt']} раз)")
         else:
@@ -236,16 +257,21 @@ def check_integrity():
                     time_logic_errors += 1
 
         if sequence_errors:
-            print(f"❌ Ошибок последовательности индексов: {sequence_errors}")
+            msg = f"Chunk sequence errors in DB: {sequence_errors}"
+            print(f"❌ {msg}")
+            issues.append(msg)
         else:
             print("✅ Индексы чанков последовательны.")
 
         if time_logic_errors:
-            print(f"❌ Ошибок логики времени (start > end): {time_logic_errors}")
+            msg = f"Chunk time logic errors (start >= end): {time_logic_errors}"
+            print(f"❌ {msg}")
+            issues.append(msg)
         else:
             print("✅ Таймкоды чанков логически верны.")
 
     print("\n=== ПРОВЕРКА ЗАВЕРШЕНА ===")
+    return issues
 
 
 if __name__ == "__main__":

@@ -1,8 +1,7 @@
 # Pulsar Cron Jobs configuration example
-# Copy or append these lines to your crontab using command: crontab -e
+# Copy or append this line to your crontab using command: crontab -e
 
-# Run backup daily at 3:00 AM
-0 3 * * * /home/devman/workspace/pulsar/cron/backup.sh >> /home/devman/workspace/pulsar/backups/local/backup.log 2>&1
-
-# Run search index synchronization every hour (at minute 0)
-0 * * * * /home/devman/workspace/pulsar/cron/sync.sh >> /home/devman/workspace/pulsar/data/sync.log 2>&1
+# Run unified cron workflow (backup, sync, integrity check) daily at 3:00 AM
+# Detailed step-by-step logs are written directly to logs/ directory.
+# This crontab redirect captures standard output/errors in case of bootstrap issues.
+0 3 * * * /home/devman/workspace/pulsar/cron/run_all.sh >> /home/devman/workspace/pulsar/logs/cron_stdout.log 2>&1
