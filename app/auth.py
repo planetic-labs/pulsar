@@ -195,11 +195,15 @@ def require_admin(request: Request) -> str:
 
 
 def login_user(response: Response, request: Request, token: str) -> bool:
+    import re
+
     if is_valid_token(token):
-        request.session["token"] = token
+        # Sanitize token to prevent cookie/CRLF injection (only allow safe characters)
+        sanitized_token = re.sub(r"[^A-Za-z0-9._=-]", "", token)
+        request.session["token"] = sanitized_token
         response.set_cookie(
             key=AUTH_COOKIE_NAME,
-            value=token,
+            value=sanitized_token,
             httponly=True,
             max_age=60 * 60 * 24 * 7,  # 7 days
             samesite="lax",
