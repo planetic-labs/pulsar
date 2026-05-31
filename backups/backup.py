@@ -26,7 +26,7 @@ for h in root_logger.handlers[:]:
     root_logger.removeHandler(h)
 
 # File handler
-file_handler = logging.FileHandler(log_file, encoding="utf-8")
+file_handler = logging.FileHandler(log_file, mode="w", encoding="utf-8")
 file_handler.setFormatter(logging.Formatter("%(asctime)s - %(levelname)s - %(message)s"))
 root_logger.addHandler(file_handler)
 
