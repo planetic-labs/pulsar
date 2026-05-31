@@ -635,15 +635,30 @@ async def api_indexed_delete_video(video_id: int, _: str = Depends(require_admin
         except Exception as e:
             logger.error(f"Failed to delete Qdrant points for video {video_id}: {e}")
 
-    # Delete files from the filesystem
+    # Delete files from the filesystem (with raw transcript archiving)
+    app_settings = get_app_settings()
+    archive_dir = app_settings.storage_dir / "transcripts" / "archive"
+    archive_dir.mkdir(parents=True, exist_ok=True)
+
     files_to_delete = []
     if video_row["local_video_path"]:
         files_to_delete.append(Path(video_row["local_video_path"]))
     if video_row["local_audio_path"]:
         files_to_delete.append(Path(video_row["local_audio_path"]))
+
+    import shutil
+
     for t_row in transcript_rows:
         if t_row["raw_json_path"]:
-            files_to_delete.append(Path(t_row["raw_json_path"]))
+            raw_path = Path(t_row["raw_json_path"])
+            if raw_path.exists():
+                try:
+                    archive_dest = archive_dir / f"video_{video_id}_{raw_path.name}"
+                    shutil.copy2(raw_path, archive_dest)
+                    logger.info(f"Archived raw transcript to {archive_dest}")
+                except Exception as e:
+                    logger.error(f"Failed to archive raw transcript {raw_path}: {e}")
+            files_to_delete.append(raw_path)
         if t_row["normalized_json_path"]:
             files_to_delete.append(Path(t_row["normalized_json_path"]))
 

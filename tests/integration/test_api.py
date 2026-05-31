@@ -254,7 +254,8 @@ def test_api_restart_no_space_tasks(client, tmp_db, mocker):
         assert task["status"] == "pending"
 
 
-def test_api_indexed_delete_video(client, tmp_db, mocker, mock_qdrant, tmp_path):
+def test_api_indexed_delete_video(client, tmp_db, mocker, mock_qdrant, tmp_path, monkeypatch):
+    monkeypatch.setenv("APP_STORAGE_DIR", str(tmp_path))
     client.post("/login", data={"token": "test-token"})
 
     # Create dummy local files
@@ -335,4 +336,9 @@ def test_api_indexed_delete_video(client, tmp_db, mocker, mock_qdrant, tmp_path)
     assert not dummy_audio.exists()
     assert not dummy_raw_json.exists()
     assert not dummy_norm_json.exists()
+
+    # Verify the raw transcript was successfully archived
+    archived_file = tmp_path / "transcripts" / "archive" / f"video_{video_id}_{dummy_raw_json.name}"
+    assert archived_file.exists()
+    assert archived_file.read_text() == "raw json"
 
