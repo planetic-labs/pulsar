@@ -96,6 +96,7 @@ class AppSettings:
     max_audio_size_mb: int = 20
     ark_jwks_url: str | None = None
     ark_webhook_secret: str | None = None
+    exclude_keywords: tuple[str, ...] = ()
 
     @property
     def raw_transcripts_dir(self) -> Path:
@@ -194,6 +195,9 @@ def get_app_settings() -> AppSettings:
         max_audio_size_mb=int(os.getenv("MAX_AUDIO_SIZE_MB", "20")),
         ark_jwks_url=os.getenv("ARK_JWKS_URL"),
         ark_webhook_secret=os.getenv("ARK_WEBHOOK_SECRET"),
+        exclude_keywords=tuple(
+            k.strip() for k in os.getenv("EXCLUDE_KEYWORDS", "").split(",") if k.strip()
+        ),
     )
 
 

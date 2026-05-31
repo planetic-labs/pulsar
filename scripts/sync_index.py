@@ -13,7 +13,7 @@ ROOT_DIR = Path(__file__).resolve().parents[1]
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
-from app.config import get_google_drive_settings, get_sqlite_settings
+from app.config import get_app_settings, get_google_drive_settings, get_sqlite_settings
 from app.db import db_connection
 from app.google_drive import GoogleDriveClient
 from app.repository import extract_date_from_title, upsert_folder
@@ -38,7 +38,6 @@ console_handler.setFormatter(logging.Formatter("%(asctime)s - %(levelname)s - %(
 root_logger.addHandler(console_handler)
 
 logger = logging.getLogger("sync_index")
-
 
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
@@ -82,6 +81,40 @@ async def send_telegram_notification(missing_files: list[dict]):
             break
 
 
+async def send_telegram_duplicate_alerts(duplicates: list[dict]):
+    if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
+        logger.warning("Telegram Bot Token or Chat ID not configured. Skipping duplicate alert.")
+        return
+
+    if not duplicates:
+        return
+
+    logger.info("Sending Telegram notification for duplicate files in database...")
+
+    # Compose message
+    lines = ["<b>⚠️ Обнаружены файлы с дублирующимися названиями в БД!</b>\n"]
+    for idx, d in enumerate(duplicates, 1):
+        lines.append(f"{idx}. Название: <b>{d['title']}</b>")
+        lines.append(f"   Новый файл ID: <code>{d['new_file_id']}</code>")
+        lines.append(f"   Существующий файл ID: <code>{d['existing_file_id']}</code>")
+        lines.append("")
+
+    message = "\n".join(lines)
+    url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+
+    chunk_size = 4000
+    for i in range(0, len(message), chunk_size):
+        chunk = message[i : i + chunk_size]
+        payload = {"chat_id": TELEGRAM_CHAT_ID, "text": chunk, "parse_mode": "HTML", "disable_web_page_preview": True}
+        try:
+            async with httpx.AsyncClient() as client:
+                res = await client.post(url, json=payload, timeout=10.0)
+                res.raise_for_status()
+        except Exception as e:
+            logger.error(f"Failed to send Telegram duplicate alert chunk: {e}")
+            break
+
+
 async def scan_folder_recursive(
     drive: GoogleDriveClient,
     folder_id: str,
@@ -89,6 +122,7 @@ async def scan_folder_recursive(
     folder_name: str,
     visited_folders: list[dict],
     drive_files: list[dict],
+    exclude_keywords: tuple[str, ...],
 ):
     logger.info(f"Scanning folder: {folder_name} ({folder_id})")
 
@@ -102,25 +136,38 @@ async def scan_folder_recursive(
 
     for item in items:
         if item["is_folder"]:
-            await scan_folder_recursive(drive, item["id"], folder_id, item["name"], visited_folders, drive_files)
+            await scan_folder_recursive(
+                drive, item["id"], folder_id, item["name"], visited_folders, drive_files, exclude_keywords
+            )
         else:
             mime_type = item.get("mime_type") or ""
             if "video/" in mime_type:
-                drive_files.append(
-                    {
-                        "file_id": item["id"],
-                        "name": item["name"],
-                        "parent_folder_id": folder_id,
-                        "mime_type": mime_type,
-                        "md5_checksum": item.get("md5_checksum"),
-                    }
-                )
+                # Check for excluded keywords (case-insensitive)
+                name_upper = item["name"].upper()
+                should_exclude = False
+                for kw in exclude_keywords:
+                    if kw.upper() in name_upper:
+                        logger.info(f"Excluding file from indexing due to keyword '{kw}': {item['name']}")
+                        should_exclude = True
+                        break
+
+                if not should_exclude:
+                    drive_files.append(
+                        {
+                            "file_id": item["id"],
+                            "name": item["name"],
+                            "parent_folder_id": folder_id,
+                            "mime_type": mime_type,
+                            "md5_checksum": item.get("md5_checksum"),
+                        }
+                    )
 
 
 async def main():
     logger.info("Starting Google Drive index synchronization...")
     sqlite_settings = get_sqlite_settings()
     drive_settings = get_google_drive_settings()
+    app_settings = get_app_settings()
     drive = GoogleDriveClient(drive_settings)
 
     # 1. Fetch root folders and existing local data
@@ -195,12 +242,13 @@ async def main():
                 logger.error(f"Could not fetch metadata for root folder {rf_id}: {e}")
                 rf_name = "Root Folder"
 
-        await scan_folder_recursive(drive, rf_id, None, rf_name, visited_folders, drive_files)
+        await scan_folder_recursive(
+            drive, rf_id, None, rf_name, visited_folders, drive_files, app_settings.exclude_keywords
+        )
 
     logger.info(f"Scan complete. Found {len(visited_folders)} folders and {len(drive_files)} videos on Google Drive.")
 
     # 3. Synchronize folders structure
-    # We will do complete sync: create missing folders, update changed ones, and delete removed ones.
     visited_folder_ids = {f["id"] for f in visited_folders}
 
     with db_connection(sqlite_settings) as conn:
@@ -221,12 +269,21 @@ async def main():
     # 4. Synchronize video files and metadata
     drive_file_ids = {f["file_id"] for f in drive_files}
     new_files_to_queue = []
+    duplicate_alerts = []
+
+    # Map existing titles to their source_file_id to check for duplicates
+    title_to_file_id = {v["title"]: v["source_file_id"] for v in local_videos.values() if v["title"]}
 
     with db_connection(sqlite_settings) as conn:
         for df in drive_files:
             file_id = df["file_id"]
             name = df["name"]
             parent_id = df["parent_folder_id"]
+
+            # Check if this filename is already indexed under another file_id
+            existing_fid = title_to_file_id.get(name)
+            if existing_fid and existing_fid != file_id:
+                duplicate_alerts.append({"title": name, "new_file_id": file_id, "existing_file_id": existing_fid})
 
             # Compute metadata dates and 4K flag
             recorded_date = extract_date_from_title(name)
@@ -298,9 +355,45 @@ async def main():
             missing_files.append({"file_id": file_id, "title": lv["title"], "source_url": lv["source_url"]})
             logger.warning(f"File missing on Google Drive: {lv['title']} ({file_id})")
 
-    # 7. Send Telegram Notification
+    # 7. Send Telegram Notifications
     if missing_files:
         await send_telegram_notification(missing_files)
+
+    if duplicate_alerts:
+        await send_telegram_duplicate_alerts(duplicate_alerts)
+
+    # 8. Check pending tasks and start the background worker if not already running
+    try:
+        with db_connection(sqlite_settings) as conn:
+            pending_count = conn.execute("SELECT COUNT(*) as cnt FROM tasks WHERE status = 'pending'").fetchone()[
+                "cnt"
+            ]
+
+        if pending_count > 0:
+            logger.info(f"Found {pending_count} pending tasks in queue. Checking worker status...")
+            base_url = f"http://127.0.0.1:{app_settings.port}"
+            headers = {"Authorization": f"Bearer {app_settings.access_token}"}
+
+            async with httpx.AsyncClient(timeout=5.0) as client:
+                try:
+                    status_res = await client.get(f"{base_url}/api/v1/worker/status", headers=headers)
+                    if status_res.status_code == 200:
+                        status_data = status_res.json()
+                        if not status_data.get("is_running"):
+                            logger.info("Worker is not running. Triggering worker start...")
+                            start_res = await client.post(f"{base_url}/api/v1/worker/start", headers=headers)
+                            if start_res.status_code == 200:
+                                logger.info(f"Worker start triggered successfully: {start_res.json()}")
+                            else:
+                                logger.warning(f"Failed to start worker: HTTP {start_res.status_code}")
+                        else:
+                            logger.info("Worker is already running.")
+                    else:
+                        logger.warning(f"Failed to get worker status: HTTP {status_res.status_code}")
+                except httpx.RequestError as req_err:
+                    logger.warning(f"Could not connect to Pulsar API to check/start worker: {req_err}")
+    except Exception as e:
+        logger.error(f"Error checking/starting worker: {e}")
 
     logger.info("Synchronization complete.")
 
