@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import secrets
 import jwt
 from fastapi import HTTPException, Request, Response, status
 
@@ -137,6 +138,10 @@ def get_session_token(request: Request) -> str | None:
         return str(token)
 
     # 2. Check Session (managed by SessionMiddleware)
+    access_token = request.session.get("access_token")
+    if access_token:
+        return str(access_token)
+
     session_token = request.session.get("token")
     if session_token:
         return str(session_token)
@@ -164,6 +169,8 @@ def require_access_token(request: Request) -> str:
         )
 
     # Save to session if valid and not already there
+    if request.session.get("access_token") != token:
+        request.session["access_token"] = token
     if request.session.get("token") != token:
         request.session["token"] = token
 
@@ -195,15 +202,16 @@ def require_admin(request: Request) -> str:
 
 
 def login_user(response: Response, request: Request, token: str) -> bool:
-    import re
-
     if is_valid_token(token):
-        # Sanitize token to prevent cookie/CRLF injection (only allow safe characters)
-        sanitized_token = re.sub(r"[^A-Za-z0-9._=-]", "", token)
-        request.session["token"] = sanitized_token
+        # Keep validated access token server-side; never write user-supplied token directly to cookie.
+        request.session["access_token"] = token
+
+        # Use a server-generated opaque value for cookie/session persistence.
+        session_token = secrets.token_urlsafe(32)
+        request.session["token"] = session_token
         response.set_cookie(
             key=AUTH_COOKIE_NAME,
-            value=sanitized_token,
+            value=session_token,
             httponly=True,
             max_age=60 * 60 * 24 * 7,  # 7 days
             samesite="lax",

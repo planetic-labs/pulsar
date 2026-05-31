@@ -18,15 +18,19 @@ from app.auth import (
 def test_get_session_token():
     request = MagicMock()
     request.query_params = {"token": "query-t"}
-    request.session = {"token": "session-t"}
+    request.session = {"access_token": "access-t", "token": "session-t"}
     request.cookies = {"access_token": "cookie-t"}
     request.headers = {"Authorization": "Bearer header-t"}
 
     # Priority 1: Query
     assert get_session_token(request) == "query-t"
 
-    # Priority 2: Session
+    # Priority 2: Session (access_token)
     request.query_params = {}
+    assert get_session_token(request) == "access-t"
+
+    # Priority 2b: Session (token fallback)
+    request.session = {"token": "session-t"}
     assert get_session_token(request) == "session-t"
 
     # Priority 3: Cookies
@@ -49,6 +53,7 @@ def test_require_access_token_success(monkeypatch):
     request.session = {}
 
     assert require_access_token(request) == "valid-token"
+    assert request.session["access_token"] == "valid-token"
     assert request.session["token"] == "valid-token"
 
 
@@ -78,7 +83,8 @@ def test_login_user(monkeypatch):
     response = MagicMock()
 
     assert login_user(response, request, "master") is True
-    assert request.session["token"] == "master"
+    assert request.session["access_token"] == "master"
+    assert "token" in request.session
     response.set_cookie.assert_called_once()
 
     assert login_user(response, request, "wrong") is False
