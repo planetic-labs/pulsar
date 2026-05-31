@@ -404,10 +404,34 @@ async def api_worker_progress(_: str = Depends(require_admin)):
         stats["duplicate_md5_count"] = 0
         sql_dc = "SELECT COUNT(*) as c FROM videos WHERE is_md5_duplicate = 1"
         stats["duplicate_md5_count"] = conn.execute(sql_dc).fetchone()["c"]
+
+        def get_folder_path(connection, folder_id: str | None) -> str:
+            # Recursively build human-readable folder path
+            if not folder_id:
+                return "Корневой каталог"
+            path_parts = []
+            curr = folder_id
+            visited = set()
+            while curr:
+                if curr in visited:
+                    break
+                visited.add(curr)
+                row = connection.execute("SELECT name, parent_id FROM folders WHERE id = ?", (curr,)).fetchone()
+                if row:
+                    path_parts.append(row["name"])
+                    curr = str(row["parent_id"]) if row["parent_id"] else None
+                else:
+                    path_parts.append(f"Неизвестная папка ({curr})")
+                    break
+            if not path_parts:
+                return "Корневой каталог"
+            path_parts.reverse()
+            return " / ".join(path_parts)
+
         if stats["duplicate_md5_count"] > 0:
             sql_d = """
                 SELECT id, title, source_file_id, source_url, md5_checksum,
-                       size_bytes, duration_sec, processing_status, created_at
+                       size_bytes, duration_sec, processing_status, created_at, parent_folder_id
                 FROM videos WHERE is_md5_duplicate = 1
                 ORDER BY updated_at DESC LIMIT 20
             """
@@ -419,7 +443,7 @@ async def api_worker_progress(_: str = Depends(require_admin)):
                 if dr["md5_checksum"]:
                     sql_orig = """
                         SELECT id, title, source_file_id, source_url,
-                               size_bytes, duration_sec, processing_status, created_at
+                               size_bytes, duration_sec, processing_status, created_at, parent_folder_id
                         FROM videos WHERE md5_checksum = ? AND is_md5_duplicate = 0 LIMIT 1
                     """
                     orig_row = conn.execute(sql_orig, (dr["md5_checksum"],)).fetchone()
@@ -437,6 +461,7 @@ async def api_worker_progress(_: str = Depends(require_admin)):
                             "created_at": (
                                 created_val.isoformat() if hasattr(created_val, "isoformat") else str(created_val)
                             ),
+                            "folder_path": get_folder_path(conn, orig_row["parent_folder_id"]),
                         }
                 created_val_dr = dr["created_at"]
                 stats["duplicate_md5_list"].append(
@@ -454,6 +479,7 @@ async def api_worker_progress(_: str = Depends(require_admin)):
                         "md5_checksum": dr["md5_checksum"],
                         "original_title": original_title,
                         "original": original_info,
+                        "folder_path": get_folder_path(conn, dr["parent_folder_id"]),
                     }
                 )
 

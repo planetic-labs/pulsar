@@ -306,6 +306,7 @@
                         <h4 id="dup-modal-orig-title" class="text-xs font-bold text-[#3A3630] leading-relaxed break-words line-clamp-3"></h4>
                         <div class="h-px bg-emerald-100/50 my-1"></div>
                         <div class="text-[10px] text-warm-500 flex flex-col gap-1">
+                            <p class="break-words"><b>Путь:</b> <span id="dup-modal-orig-path" class="font-semibold text-warm-700"></span></p>
                             <p><b>Размер:</b> <span id="dup-modal-orig-size"></span></p>
                             <p><b>Длительность:</b> <span id="dup-modal-orig-duration"></span></p>
                             <p><b>Статус:</b> <span id="dup-modal-orig-status" class="px-1.5 py-0.5 rounded text-[9px] font-bold"></span></p>
@@ -326,6 +327,7 @@
                         <h4 id="dup-modal-copy-title" class="text-xs font-bold text-[#3A3630] leading-relaxed break-words line-clamp-3"></h4>
                         <div class="h-px bg-orange-100/50 my-1"></div>
                         <div class="text-[10px] text-warm-500 flex flex-col gap-1">
+                            <p class="break-words"><b>Путь:</b> <span id="dup-modal-copy-path" class="font-semibold text-warm-700"></span></p>
                             <p><b>Размер:</b> <span id="dup-modal-copy-size"></span></p>
                             <p><b>Длительность:</b> <span id="dup-modal-copy-duration"></span></p>
                             <p><b>Статус:</b> <span id="dup-modal-copy-status" class="px-1.5 py-0.5 rounded text-[9px] font-bold"></span></p>
@@ -865,6 +867,7 @@
             document.getElementById('dup-modal-hash').innerText = item.md5_checksum || "неизвестно";
 
             document.getElementById('dup-modal-copy-title').innerText = item.title;
+            document.getElementById('dup-modal-copy-path').innerText = item.folder_path || "Корневой каталог";
             document.getElementById('dup-modal-copy-size').innerText = formatSize(item.size_bytes);
             document.getElementById('dup-modal-copy-duration').innerText = formatDuration(item.duration_sec);
             document.getElementById('dup-modal-copy-status').className = `px-1.5 py-0.5 rounded text-[9px] font-bold ${getStatusClass(item.processing_status)}`;
@@ -883,6 +886,7 @@
             const orig = item.original;
             if (orig) {
                 document.getElementById('dup-modal-orig-title').innerText = orig.title;
+                document.getElementById('dup-modal-orig-path').innerText = orig.folder_path || "Корневой каталог";
                 document.getElementById('dup-modal-orig-size').innerText = formatSize(orig.size_bytes);
                 document.getElementById('dup-modal-orig-duration').innerText = formatDuration(orig.duration_sec);
                 
@@ -902,6 +906,7 @@
                 }
             } else {
                 document.getElementById('dup-modal-orig-title').innerText = item.original_title || "Неизвестный оригинал";
+                document.getElementById('dup-modal-orig-path').innerText = "неизвестно";
                 document.getElementById('dup-modal-orig-size').innerText = "неизвестно";
                 document.getElementById('dup-modal-orig-duration').innerText = "неизвестно";
                 
