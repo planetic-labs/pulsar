@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import secrets
+
 import jwt
 from fastapi import HTTPException, Request, Response, status
 
