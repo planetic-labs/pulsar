@@ -14,7 +14,7 @@ if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
 from app.config import get_app_settings, get_google_drive_settings, get_sqlite_settings
-from app.db import db_connection
+from app.db import db_connection, init_db
 from app.google_drive import GoogleDriveClient
 from app.repository import extract_date_from_title, upsert_folder
 
@@ -224,6 +224,9 @@ async def main():
         return
 
     with db_connection(sqlite_settings) as conn:
+        # Initialize database and apply migrations first (e.g. to add is_excluded column)
+        init_db(conn)
+
         # Clear previous notification flags (is_missing, is_excluded) to ensure we start fresh
         logger.info("Clearing previous notification flags (is_missing, is_excluded)...")
         conn.execute("UPDATE videos SET is_missing = 0, is_excluded = 0 WHERE source_type = 'google_drive'")
