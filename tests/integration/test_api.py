@@ -341,3 +341,107 @@ def test_api_indexed_delete_video(client, tmp_db, mocker, mock_qdrant, tmp_path,
     archived_file = tmp_path / "transcripts" / "archive" / f"video_{video_id}_{dummy_raw_json.name}"
     assert archived_file.exists()
     assert archived_file.read_text() == "raw json"
+
+
+def test_api_worker_duplicates_swap(client, tmp_db, mocker, mock_qdrant):
+    client.post("/login", data={"token": "test-token"})
+    mocker.patch("app.main.get_qdrant_client", return_value=mock_qdrant)
+    mocker.patch("app.main.get_worker")
+
+    import json
+
+    from app.db import db_connection
+
+    # Insert two videos with the same MD5 (one original, one duplicate)
+    with db_connection(tmp_db) as conn:
+        cursor = conn.cursor()
+
+        # 1. Original
+        cursor.execute(
+            """
+            INSERT INTO videos (
+                source_type, source_file_id, title, is_md5_duplicate, md5_checksum,
+                size_bytes, duration_sec, processing_status, local_audio_path
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "google_drive",
+                "file_orig_id",
+                "Orig Video",
+                0,
+                "swap-md5",
+                500,
+                30.0,
+                "indexed_chunks_ready",
+                "audio.ogg",
+            ),
+        )
+        orig_id = cursor.lastrowid
+
+        # 2. Duplicate
+        cursor.execute(
+            """
+            INSERT INTO videos (
+                source_type, source_file_id, title, is_md5_duplicate, md5_checksum,
+                processing_status
+            ) VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            ("google_drive", "file_dup_id", "Dup Video", 1, "swap-md5", "skipped_duplicate_md5"),
+        )
+        dup_id = cursor.lastrowid
+
+        # 3. Transcript
+        cursor.execute(
+            "INSERT INTO transcripts (video_id, language) VALUES (?, ?)",
+            (orig_id, "ru"),
+        )
+        trans_id = cursor.lastrowid
+
+        # 4. Chunk
+        cursor.execute(
+            "INSERT INTO chunks (video_id, transcript_id, chunk_index, "
+            "start_sec, end_sec, text) VALUES (?, ?, ?, ?, ?, ?)",
+            (orig_id, trans_id, 0, 0.0, 10.0, "dummy chunk text"),
+        )
+
+    # Call swap roles endpoint
+    response = client.post(
+        "/api/v1/worker/duplicates/swap",
+        data={"original_id": orig_id, "duplicate_id": dup_id},
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["status"] == "success"
+
+    # Verify DB changes
+    with db_connection(tmp_db) as conn:
+        # Check original video (became duplicate)
+        o_row = conn.execute("SELECT * FROM videos WHERE id = ?", (orig_id,)).fetchone()
+        assert o_row["is_md5_duplicate"] == 1
+        assert o_row["processing_status"] == "skipped_duplicate_md5"
+        assert o_row["size_bytes"] is None
+        assert o_row["duration_sec"] is None
+        assert o_row["local_audio_path"] is None
+
+        # Check duplicate video (became original)
+        d_row = conn.execute("SELECT * FROM videos WHERE id = ?", (dup_id,)).fetchone()
+        assert d_row["is_md5_duplicate"] == 0
+        assert d_row["processing_status"] == "transcribed"
+        assert d_row["size_bytes"] == 500
+        assert d_row["duration_sec"] == 30.0
+        assert d_row["local_audio_path"] == "audio.ogg"
+
+        # Check transcript and chunks mapped to new video_id
+        t_row = conn.execute("SELECT * FROM transcripts WHERE video_id = ?", (dup_id,)).fetchone()
+        assert t_row is not None
+        c_row = conn.execute("SELECT * FROM chunks WHERE video_id = ?", (dup_id,)).fetchone()
+        assert c_row is not None
+
+        # Check Qdrant indexing task was queued
+        task = conn.execute("SELECT * FROM tasks WHERE task_type = 'stage_3_index' AND status = 'pending'").fetchone()
+        assert task is not None
+        task_payload = json.loads(task["payload"])
+        assert task_payload["video_id"] == dup_id
+
+    # Verify Qdrant points deletion for old original ID A
+    mock_qdrant.delete.assert_called_once()

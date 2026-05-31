@@ -334,11 +334,15 @@
                             <p><b>Добавлен:</b> <span id="dup-modal-copy-created"></span></p>
                             <p class="truncate font-mono text-[9px] mt-1" title="Google Drive ID"><b>ID:</b> <span id="dup-modal-copy-id"></span></p>
                         </div>
-                        <div class="mt-auto pt-3">
+                        <div class="mt-auto pt-3 flex flex-col gap-2">
                             <a id="dup-modal-copy-link" href="#" target="_blank" class="w-full flex items-center justify-center gap-1.5 px-3 py-2 bg-orange-600 hover:bg-orange-700 text-white rounded-xl text-[9px] font-black uppercase tracking-widest transition-all shadow-sm">
                                 <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" /></svg>
                                 Открыть на диске
                             </a>
+                            <button id="dup-modal-swap-btn" onclick="executeSwapRoles()" class="w-full flex items-center justify-center gap-1.5 px-3 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-xl text-[9px] font-black uppercase tracking-widest transition-all shadow-sm">
+                                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" /></svg>
+                                Сделать основным
+                            </button>
                         </div>
                     </div>
                 </div>
@@ -803,6 +807,8 @@
     }
 
     let videoIdToDelete = null;
+    let currentOriginalId = null;
+    let currentDuplicateId = null;
 
     function confirmDeleteVideo(videoId, fileTitle, fileId) {
         videoIdToDelete = videoId;
@@ -822,6 +828,7 @@
     function showDuplicateModal(itemJsonStr) {
         try {
             const item = JSON.parse(decodeURIComponent(itemJsonStr));
+            currentDuplicateId = item.id;
             
             const formatSize = (bytes) => {
                 if (!bytes) return "неизвестно";
@@ -884,7 +891,11 @@
             }
 
             const orig = item.original;
+            const swapBtn = document.getElementById('dup-modal-swap-btn');
             if (orig) {
+                currentOriginalId = orig.id;
+                swapBtn.classList.remove('hidden');
+                
                 document.getElementById('dup-modal-orig-title').innerText = orig.title;
                 document.getElementById('dup-modal-orig-path').innerText = orig.folder_path || "Корневой каталог";
                 document.getElementById('dup-modal-orig-size').innerText = formatSize(orig.size_bytes);
@@ -905,6 +916,9 @@
                     origLink.classList.add('hidden');
                 }
             } else {
+                currentOriginalId = null;
+                swapBtn.classList.add('hidden');
+                
                 document.getElementById('dup-modal-orig-title').innerText = item.original_title || "Неизвестный оригинал";
                 document.getElementById('dup-modal-orig-path').innerText = "неизвестно";
                 document.getElementById('dup-modal-orig-size').innerText = "неизвестно";
@@ -927,6 +941,58 @@
 
     function closeDuplicateModal() {
         document.getElementById('duplicate-info-modal').classList.add('hidden');
+        currentOriginalId = null;
+        currentDuplicateId = null;
+    }
+
+    async function executeSwapRoles() {
+        if (!currentOriginalId || !currentDuplicateId) return;
+
+        if (!confirm("Вы уверены, что хотите сделать этот дубликат основным? Все тексты и разметка будут перенесены на него, а старый оригинал станет пропущенным дубликатом.")) {
+            return;
+        }
+
+        const swapBtn = document.getElementById('dup-modal-swap-btn');
+        swapBtn.disabled = true;
+        const originalText = swapBtn.innerText;
+        swapBtn.innerText = "Выполняется...";
+
+        try {
+            const formData = new FormData();
+            formData.append('original_id', currentOriginalId);
+            formData.append('duplicate_id', currentDuplicateId);
+
+            const res = await fetch('/api/v1/worker/duplicates/swap', {
+                method: 'POST',
+                body: formData
+            });
+
+            if (res.ok) {
+                const data = await res.json();
+                closeDuplicateModal();
+                
+                // Show success toast
+                const toast = document.createElement('div');
+                toast.className = "fixed bottom-8 left-8 z-[200] px-5 py-2.5 bg-[#3A3630] text-[#FAF9F6] rounded-xl text-[9px] font-black uppercase tracking-widest shadow-2xl animate-in slide-in-from-bottom-4 duration-200";
+                toast.textContent = data.message || "Роли успешно изменены";
+                document.body.appendChild(toast);
+                setTimeout(() => {
+                    toast.classList.add('animate-out', 'fade-out', 'slide-out-to-bottom-4');
+                    setTimeout(() => toast.remove(), 200);
+                }, 3000);
+
+                updateProgressUI();
+            } else {
+                const errData = await res.json();
+                alert(`Ошибка изменения ролей: ${errData.detail || res.statusText}`);
+            }
+        } catch (e) {
+            console.error(e);
+            alert(`Ошибка при смене ролей дубликатов: ${e.message}`);
+        } finally {
+            swapBtn.disabled = false;
+            swapBtn.innerText = originalText;
+        }
     }
 
     async function executeDeleteVideo() {

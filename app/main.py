@@ -750,6 +750,104 @@ async def api_indexed_delete_video(video_id: int, _: str = Depends(require_admin
     return {"status": "success"}
 
 
+@app.post("/api/v1/worker/duplicates/swap")
+async def api_worker_duplicates_swap(
+    original_id: int = Form(...),
+    duplicate_id: int = Form(...),
+    _: str = Depends(require_admin),
+):
+    """Swaps the roles of an original video and a duplicate video."""
+    pg_settings = get_sqlite_settings()
+    q_settings = get_qdrant_settings()
+
+    from qdrant_client import models
+
+    with db_connection(pg_settings) as conn:
+        orig_row = conn.execute(
+            "SELECT id, md5_checksum, size_bytes, duration_sec, "
+            "local_video_path, local_audio_path, processing_status, title "
+            "FROM videos WHERE id = ?",
+            (original_id,),
+        ).fetchone()
+
+        dup_row = conn.execute(
+            "SELECT id, md5_checksum, title FROM videos WHERE id = ?",
+            (duplicate_id,),
+        ).fetchone()
+
+        if not orig_row or not dup_row:
+            raise HTTPException(status_code=404, detail="Файлы не найдены")
+
+        # Verify MD5 match
+        if orig_row["md5_checksum"] != dup_row["md5_checksum"]:
+            raise HTTPException(status_code=400, detail="Файлы имеют разные контрольные суммы MD5")
+
+        # Swap roles in SQLite
+        # 1. Move transcripts and chunks from original_id to duplicate_id
+        conn.execute("UPDATE transcripts SET video_id = ? WHERE video_id = ?", (duplicate_id, original_id))
+        conn.execute("UPDATE chunks SET video_id = ? WHERE video_id = ?", (duplicate_id, original_id))
+
+        # 2. Make duplicate_id the new original
+        conn.execute(
+            "UPDATE videos "
+            "SET is_md5_duplicate = 0, processing_status = 'transcribed', "
+            "    size_bytes = ?, duration_sec = ?, "
+            "    local_video_path = ?, local_audio_path = ? "
+            "WHERE id = ?",
+            (
+                orig_row["size_bytes"],
+                orig_row["duration_sec"],
+                orig_row["local_video_path"],
+                orig_row["local_audio_path"],
+                duplicate_id,
+            ),
+        )
+
+        # 3. Make original_id the new duplicate
+        conn.execute(
+            "UPDATE videos "
+            "SET is_md5_duplicate = 1, processing_status = 'skipped_duplicate_md5', "
+            "    size_bytes = NULL, duration_sec = NULL, "
+            "    local_video_path = NULL, local_audio_path = NULL "
+            "WHERE id = ?",
+            (original_id,),
+        )
+
+        # 4. Queue a re-indexing task for the new original to rebuild vectors in Qdrant with new metadata
+        new_payload = {"video_id": duplicate_id, "title": dup_row["title"]}
+        conn.execute(
+            "INSERT INTO tasks (task_type, payload, status, priority) VALUES ('stage_3_index', ?, 'pending', 5)",
+            (json.dumps(new_payload, ensure_ascii=False),),
+        )
+
+    # 5. Delete old points of original_id from Qdrant
+    try:
+        qdrant = get_qdrant_client()
+        qdrant.delete(
+            collection_name=q_settings.collection_name,
+            points_selector=models.Filter(
+                must=[
+                    models.FieldCondition(
+                        key="video_id",
+                        match=models.MatchValue(value=original_id),
+                    )
+                ]
+            ),
+        )
+    except Exception as e:
+        logger.error(f"Failed to delete old points from Qdrant during swap: {e}")
+
+    # Auto-start worker to process stage_3_index for the new original
+    worker = get_worker()
+    if not worker.is_running:
+        asyncio.create_task(worker.run())
+
+    return {
+        "status": "success",
+        "message": "Роли успешно изменены. Новый оригинал поставлен в очередь на переиндексацию.",
+    }
+
+
 @app.get("/api/v1/indexed/ls")
 async def api_indexed_ls(folder_id: str | None = None, _: str = Depends(require_admin)):
     """Lists indexed folders and videos from local DB with metadata."""
