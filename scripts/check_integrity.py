@@ -3,11 +3,14 @@ import logging
 import random
 import sys
 from pathlib import Path
+from typing import Any
 
 # Add project root to path
 ROOT_DIR = Path(__file__).resolve().parents[1]
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
+
+from qdrant_client import models
 
 from app.config import get_app_settings, get_qdrant_settings, get_sqlite_settings
 from app.db import db_connection
@@ -17,7 +20,7 @@ logging.basicConfig(level=logging.INFO, format="%(message)s")
 logger = logging.getLogger("integrity_check")
 
 
-def check_integrity() -> list[str]:
+def check_integrity() -> dict[str, Any]:
     app_settings = get_app_settings()
     sqlite_settings = get_sqlite_settings()
     q_settings = get_qdrant_settings()
@@ -27,6 +30,10 @@ def check_integrity() -> list[str]:
     print("\n=== [1] ПРОВЕРКА ФАЙЛОВОЙ СИСТЕМЫ И SQLITE ===")
 
     issues = []
+    deleted_raw_count = 0
+    deleted_norm_count = 0
+    reindexed_videos_count = 0
+    deleted_qdrant_points_count = 0
     db_raw_files = set()
     db_norm_files = set()
     corrupted_json = []
@@ -109,8 +116,8 @@ def check_integrity() -> list[str]:
     else:
         print("✅ Текст в БД соответствует файлам на диске.")
 
-    # Search orphan files
-    print("\n--- Поиск файлов-сирот (есть на диске, нет в базе) ---")
+    # Search and clean up orphan files
+    print("\n--- Поиск и очистка файлов-сирот (есть на диске, нет в базе) ---")
     all_raw_on_disk = {p.resolve() for p in app_settings.raw_transcripts_dir.glob("**/*.json")}
     all_norm_on_disk = {p.resolve() for p in app_settings.normalized_transcripts_dir.glob("*.json")}
 
@@ -118,11 +125,32 @@ def check_integrity() -> list[str]:
     orphan_norm = all_norm_on_disk - db_norm_files
 
     if orphan_raw:
-        print(f"⚠️  Сиротских RAW файлов: {len(orphan_raw)}")
-        issues.append(f"Orphan RAW files on disk: {len(orphan_raw)}")
+        print(f"⚠️  Найдено сиротских RAW файлов: {len(orphan_raw)}. Удаление...")
+        for p in orphan_raw:
+            try:
+                p.unlink()
+                deleted_raw_count += 1
+            except Exception as e:
+                msg = f"Failed to delete orphan RAW file {p}: {e}"
+                print(f"❌ {msg}")
+                issues.append(msg)
+
     if orphan_norm:
-        print(f"⚠️  Сиротских NORMALIZED файлов: {len(orphan_norm)}")
-        issues.append(f"Orphan NORMALIZED files on disk: {len(orphan_norm)}")
+        print(f"⚠️  Найдено сиротских NORMALIZED файлов: {len(orphan_norm)}. Удаление...")
+        for p in orphan_norm:
+            try:
+                p.unlink()
+                deleted_norm_count += 1
+            except Exception as e:
+                msg = f"Failed to delete orphan NORMALIZED file {p}: {e}"
+                print(f"❌ {msg}")
+                issues.append(msg)
+
+    if deleted_raw_count:
+        print(f"✅ Успешно удалено сиротских RAW файлов: {deleted_raw_count}")
+    if deleted_norm_count:
+        print(f"✅ Успешно удалено сиротских NORMALIZED файлов: {deleted_norm_count}")
+
     if not orphan_raw and not orphan_norm:
         print("✅ Лишних файлов не обнаружено.")
 
@@ -167,15 +195,81 @@ def check_integrity() -> list[str]:
 
     if missing_in_qdrant:
         msg = f"Chunks in SQLite missing in Qdrant: {len(missing_in_qdrant)}"
-        print(f"❌ {msg}")
-        issues.append(msg)
+        print(f"⚠️  {msg}. Инициируем автоматическую повторную индексацию через воркер...")
+
+        # Find videos for these missing chunks
+        missing_list = list(missing_in_qdrant)
+        batch_size = 500
+        video_map = {}  # video_id -> title
+
+        with db_connection(sqlite_settings) as conn:
+            for i in range(0, len(missing_list), batch_size):
+                batch = missing_list[i : i + batch_size]
+                placeholders = ",".join(["?"] * len(batch))
+                sql = f"""
+                    SELECT DISTINCT v.id, v.title
+                    FROM chunks c
+                    JOIN videos v ON v.id = c.video_id
+                    WHERE c.id IN ({placeholders})
+                """
+                rows = conn.execute(sql, batch).fetchall()
+                for r in rows:
+                    video_map[r["id"]] = r["title"]
+
+            # Read active stage_3_index tasks to avoid duplicates
+            active_tasks = conn.execute(
+                "SELECT payload FROM tasks WHERE task_type = 'stage_3_index' AND status IN ('pending', 'running')"
+            ).fetchall()
+            active_video_ids = set()
+            for t in active_tasks:
+                try:
+                    p = json.loads(t["payload"])
+                    if "video_id" in p:
+                        active_video_ids.add(p["video_id"])
+                except Exception:
+                    pass
+
+            # Queue missing for indexing
+            for video_id, title in video_map.items():
+                if video_id in active_video_ids:
+                    print(f"  - Видео '{title}' (ID:{video_id}) уже в очереди на индексацию. Пропускаем.")
+                    continue
+
+                payload = {"video_id": video_id, "title": title}
+                try:
+                    conn.execute(
+                        """
+                        INSERT INTO tasks (task_type, payload, status, priority)
+                        VALUES (?, ?, ?, ?)
+                    """,
+                        ("stage_3_index", json.dumps(payload, ensure_ascii=False), "pending", 5),
+                    )
+                    reindexed_videos_count += 1
+                    print(f"  - Добавлена задача индексации для видео '{title}' (ID:{video_id})")
+                except Exception as e:
+                    err_msg = f"Failed to queue indexing task for video ID {video_id}: {e}"
+                    print(f"❌ {err_msg}")
+                    issues.append(err_msg)
+
+        print(f"✅ Отправлено задач на переиндексацию: {reindexed_videos_count}")
     else:
         print("✅ Все чанки из базы есть в поиске.")
 
     if orphan_in_qdrant:
         msg = f"Orphan points in Qdrant (missing in SQLite): {len(orphan_in_qdrant)}"
-        print(f"⚠️  {msg}")
-        issues.append(msg)
+        print(f"⚠️  {msg}. Удаляем сиротские точки из Qdrant...")
+        try:
+            orphan_list = list(orphan_in_qdrant)
+            qdrant.delete(
+                collection_name=q_settings.collection_name,
+                points_selector=models.PointIdsList(points=orphan_list),
+            )
+            deleted_qdrant_points_count = len(orphan_list)
+            print(f"✅ Успешно удалено точек из Qdrant: {deleted_qdrant_points_count}")
+        except Exception as e:
+            err_msg = f"Failed to delete orphan points from Qdrant: {e}"
+            print(f"❌ {err_msg}")
+            issues.append(err_msg)
     else:
         print("✅ В Qdrant нет лишних данных.")
 
@@ -273,7 +367,14 @@ def check_integrity() -> list[str]:
             print("✅ Таймкоды чанков логически верны.")
 
     print("\n=== ПРОВЕРКА ЗАВЕРШЕНА ===")
-    return issues
+    return {
+        "issues": issues,
+        "deleted_raw_count": deleted_raw_count,
+        "deleted_norm_count": deleted_norm_count,
+        "reindexed_videos_count": reindexed_videos_count,
+        "reindexed_chunks_count": len(missing_in_qdrant),
+        "deleted_qdrant_points_count": deleted_qdrant_points_count,
+    }
 
 
 if __name__ == "__main__":
