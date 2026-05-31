@@ -24,59 +24,65 @@ def test_send_telegram_alert(monkeypatch, mocker):
 
 
 def test_cron_main_success(mocker):
-    # Mock subprocess.run to simulate successful runs
-    mock_run = mocker.patch("subprocess.run")
-    mock_run.return_value.returncode = 0
-    mock_run.return_value.stdout = "Everything fine"
+    def mock_run_impl(args, **kwargs):
+        mock_res = MagicMock()
+        mock_res.returncode = 0
+        if any("check_integrity" in str(arg) for arg in args):
+            mock_res.stdout = "INTEGRITY_ISSUES:[]"
+        else:
+            mock_res.stdout = "Success/Version"
+        return mock_res
 
-    # Mock check_integrity to return no issues
-    mock_integrity = mocker.patch("scripts.check_integrity.check_integrity", return_value=[])
+    mock_run = mocker.patch("subprocess.run", side_effect=mock_run_impl)
     mock_alert = mocker.patch("cron.run_all.send_telegram_alert")
 
     cron_main()
 
-    # Verify both subprocesses were called
-    assert mock_run.call_count == 2
-    assert mock_integrity.called
+    assert mock_run.called
+    called_cmds = [call[0][0] for call in mock_run.call_args_list]
+    assert any("backup.py" in str(cmd) for cmd in called_cmds)
+    assert any("sync_index.py" in str(cmd) for cmd in called_cmds)
+    assert any("check_integrity" in str(cmd) for cmd in called_cmds)
     assert not mock_alert.called
 
 
 def test_cron_main_with_integrity_issues(mocker):
-    # Mock subprocess.run to simulate success
-    mock_run = mocker.patch("subprocess.run")
-    mock_run.return_value.returncode = 0
-    mock_run.return_value.stdout = "Subprocess OK"
+    def mock_run_impl(args, **kwargs):
+        mock_res = MagicMock()
+        mock_res.returncode = 0
+        if any("check_integrity" in str(arg) for arg in args):
+            mock_res.stdout = 'INTEGRITY_ISSUES:["DB mismatch", "Missing audio"]'
+        else:
+            mock_res.stdout = "Success/Version"
+        return mock_res
 
-    mock_integrity = mocker.patch(
-        "scripts.check_integrity.check_integrity", return_value=["DB mismatch", "Missing audio"]
-    )
+    mock_run = mocker.patch("subprocess.run", side_effect=mock_run_impl)
     mock_alert = mocker.patch("cron.run_all.send_telegram_alert")
 
     cron_main()
 
-    assert mock_run.call_count == 2
-    assert mock_integrity.called
-    # Alert should be triggered with consolidated list
+    assert mock_run.called
     mock_alert.assert_called_once_with(["DB mismatch", "Missing audio"])
 
 
 def test_cron_main_subprocess_failure(mocker):
-    # Mock subprocess.run to raise exception on backup but succeed on sync
     def mock_run_impl(args, **kwargs):
-        if "backup.py" in args[0]:
+        if any("backup.py" in str(arg) for arg in args):
             raise subprocess.CalledProcessError(returncode=1, cmd=args, output="Failed backup", stderr="Out of space")
-        # For sync
+
         mock_res = MagicMock()
         mock_res.returncode = 0
-        mock_res.stdout = "Sync success"
+        if any("check_integrity" in str(arg) for arg in args):
+            mock_res.stdout = "INTEGRITY_ISSUES:[]"
+        else:
+            mock_res.stdout = "Success"
         return mock_res
 
-    mocker.patch("subprocess.run", side_effect=mock_run_impl)
-    mock_integrity = mocker.patch("scripts.check_integrity.check_integrity", return_value=[])
+    mock_run = mocker.patch("subprocess.run", side_effect=mock_run_impl)
     mock_alert = mocker.patch("cron.run_all.send_telegram_alert")
 
     # cron_main should complete without throwing exception
     cron_main()
 
-    assert mock_integrity.called
+    assert mock_run.called
     assert not mock_alert.called
