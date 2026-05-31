@@ -368,12 +368,36 @@ async def api_worker_progress(_: str = Depends(require_admin)):
             )
             m_rows = conn.execute(sql_m).fetchall()
             for mr in m_rows:
-                stats["missing_on_drive_list"].append({
-                    "id": mr["id"],
-                    "title": mr["title"],
-                    "file_id": mr["source_file_id"],
-                    "source_url": mr["source_url"]
-                })
+                stats["missing_on_drive_list"].append(
+                    {
+                        "id": mr["id"],
+                        "title": mr["title"],
+                        "file_id": mr["source_file_id"],
+                        "source_url": mr["source_url"],
+                    }
+                )
+
+        # Detail excluded by keyword
+        stats["excluded_by_keyword_list"] = []
+        stats["excluded_by_keyword_count"] = 0
+        sql_ec = "SELECT COUNT(*) as c FROM videos WHERE is_excluded = 1"
+        stats["excluded_by_keyword_count"] = conn.execute(sql_ec).fetchone()["c"]
+        if stats["excluded_by_keyword_count"] > 0:
+            sql_ex = (
+                "SELECT id, title, source_file_id, source_url "
+                "FROM videos WHERE is_excluded = 1 "
+                "ORDER BY updated_at DESC LIMIT 20"
+            )
+            ex_rows = conn.execute(sql_ex).fetchall()
+            for exr in ex_rows:
+                stats["excluded_by_keyword_list"].append(
+                    {
+                        "id": exr["id"],
+                        "title": exr["title"],
+                        "file_id": exr["source_file_id"],
+                        "source_url": exr["source_url"],
+                    }
+                )
 
         # Detail failed
         if stats["failed"] > 0:

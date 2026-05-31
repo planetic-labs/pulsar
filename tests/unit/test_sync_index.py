@@ -80,6 +80,7 @@ async def test_scan_folder_recursive():
 
     visited_folders = []
     drive_files = []
+    excluded_by_keyword_ids = []
 
     await scan_folder_recursive(
         drive=drive_mock,
@@ -89,6 +90,7 @@ async def test_scan_folder_recursive():
         visited_folders=visited_folders,
         drive_files=drive_files,
         exclude_keywords=("ГАЛЕРЕЯ",),
+        excluded_by_keyword_ids=excluded_by_keyword_ids,
     )
 
     assert {"id": "root_id", "name": "Root", "parent_id": None} in visited_folders
@@ -98,6 +100,7 @@ async def test_scan_folder_recursive():
     file_ids = {f["file_id"] for f in drive_files}
     assert "video_id" in file_ids
     assert "excluded_id" not in file_ids
+    assert "excluded_id" in excluded_by_keyword_ids
     assert len(drive_files) == 1
 
 
