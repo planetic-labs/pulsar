@@ -194,11 +194,7 @@ async def main():
     logger.info("Fetching root folders from Google Drive...")
     try:
         drive_roots = await drive.list_folder_contents("root", use_cache=False)
-        root_folders = [
-            {"id": item["id"], "name": item["name"]}
-            for item in drive_roots
-            if item.get("is_folder")
-        ]
+        root_folders = [{"id": item["id"], "name": item["name"]} for item in drive_roots if item.get("is_folder")]
         logger.info(
             f"Automatically loaded {len(root_folders)} root folders from Google Drive: "
             f"{', '.join(rf['name'] for rf in root_folders)}"
@@ -405,9 +401,7 @@ async def main():
     # 8. Check pending tasks and start the background worker if not already running
     try:
         with db_connection(sqlite_settings) as conn:
-            pending_count = conn.execute("SELECT COUNT(*) as cnt FROM tasks WHERE status = 'pending'").fetchone()[
-                "cnt"
-            ]
+            pending_count = conn.execute("SELECT COUNT(*) as cnt FROM tasks WHERE status = 'pending'").fetchone()["cnt"]
 
         if pending_count > 0:
             logger.info(f"Found {pending_count} pending tasks in queue. Checking worker status...")

@@ -142,7 +142,7 @@ def main():
         issues = []
         for line in res.stdout.splitlines():
             if line.startswith("INTEGRITY_ISSUES:"):
-                json_str = line[len("INTEGRITY_ISSUES:"):]
+                json_str = line[len("INTEGRITY_ISSUES:") :]
                 issues = json.loads(json_str)
                 break
 
