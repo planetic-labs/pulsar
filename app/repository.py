@@ -114,6 +114,7 @@ def upsert_video(
     local_video_path: str | None,
     local_audio_path: str | None,
     processing_status: str,
+    is_4k: bool | None = None,
 ) -> int:
     source_id = source_file_id or ""
     # If recorded_date is not provided, try to extract it from title
@@ -123,13 +124,16 @@ def upsert_video(
     if is_short is None:
         is_short = bool(duration_sec and duration_sec <= 1800)
 
+    if is_4k is None:
+        is_4k = bool(re.search(r"4[KК]", title))
+
     cursor = connection.execute(
         """
         INSERT INTO videos (
             source_type, source_file_id, parent_folder_id, md5_checksum, title, recorded_date,
             is_short, source_url, mime_type, size_bytes, duration_sec,
-            local_video_path, local_audio_path, processing_status
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            local_video_path, local_audio_path, processing_status, is_4k
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT (source_type, source_file_id) DO UPDATE SET
             parent_folder_id = EXCLUDED.parent_folder_id,
             md5_checksum = EXCLUDED.md5_checksum,
@@ -143,6 +147,7 @@ def upsert_video(
             local_video_path = EXCLUDED.local_video_path,
             local_audio_path = EXCLUDED.local_audio_path,
             processing_status = EXCLUDED.processing_status,
+            is_4k = EXCLUDED.is_4k,
             updated_at = CURRENT_TIMESTAMP
         RETURNING id
         """,
@@ -161,6 +166,7 @@ def upsert_video(
             local_video_path,
             local_audio_path,
             processing_status,
+            is_4k,
         ),
     )
     row = cursor.fetchone()

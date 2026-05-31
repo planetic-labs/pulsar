@@ -16,19 +16,40 @@ from dotenv import load_dotenv
 logging.basicConfig(level=logging.INFO, format="%(message)s")
 logger = logging.getLogger("restore")
 
-# Load local .env file
-ENV_PATH = Path(__file__).parent / ".env"
+# Load root .env file
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+ENV_PATH = PROJECT_ROOT / ".env"
 if ENV_PATH.exists():
     load_dotenv(ENV_PATH)
 else:
-    logger.warning(f"Local .env file not found in {ENV_PATH.parent}. Using system environment variables.")
+    logger.warning(f"Root .env file not found in {PROJECT_ROOT}. Using system environment variables.")
+
+
+# Helper to resolve container paths when running on host
+def resolve_path(env_var: str, default_relative: str) -> Path:
+    val = os.getenv(env_var)
+    if val:
+        p = Path(val)
+        if p.exists():
+            return p.resolve()
+        # If path looks like container /app but we are on host
+        if str(p).startswith("/app/"):
+            relative_part = str(p)[5:]
+            host_path = PROJECT_ROOT / relative_part
+            if host_path.exists():
+                return host_path.resolve()
+        # Fallback to relative path if not absolute or doesn't exist
+        host_path = PROJECT_ROOT / p.relative_to(p.anchor)
+        if host_path.exists():
+            return host_path.resolve()
+    return (PROJECT_ROOT / default_relative).resolve()
+
+
+DATA_DIR = resolve_path("APP_DATA_DIR", "data")
+STORAGE_DIR = resolve_path("APP_STORAGE_DIR", "storage")
 
 # Configuration
-BACKUP_TOOL_DIR = Path(__file__).parent.resolve()
-PROJECT_ROOT = BACKUP_TOOL_DIR.parent
-DATA_DIR = Path(os.getenv("DATA_DIR", PROJECT_ROOT / "data"))
-STORAGE_DIR = Path(os.getenv("STORAGE_DIR", PROJECT_ROOT / "storage"))
-
+BACKUP_TOOL_DIR = PROJECT_ROOT / "backups"
 LOCAL_BACKUP_DIR = BACKUP_TOOL_DIR / "local"
 TEMP_RESTORE_DIR = BACKUP_TOOL_DIR / "tmp"
 
@@ -36,7 +57,25 @@ LOCAL_BACKUP_DIR.mkdir(exist_ok=True)
 TEMP_RESTORE_DIR.mkdir(exist_ok=True)
 
 # App Config
+db_val = os.getenv("SQLITE_DB_PATH")
+if db_val:
+    p = Path(db_val)
+    if p.exists():
+        DB_PATH = p.resolve()
+    elif str(p).startswith("/app/"):
+        DB_PATH = (PROJECT_ROOT / str(p)[5:]).resolve()
+    else:
+        DB_PATH = (PROJECT_ROOT / p.relative_to(p.anchor)).resolve()
+else:
+    DB_PATH = DATA_DIR / "pulsar.db"
+
+# Detect if running inside Docker container
+is_container = Path("/.dockerenv").exists() or str(PROJECT_ROOT) == "/app"
+
 QDRANT_URL = os.getenv("QDRANT_URL", "http://127.0.0.1:6333")
+if not is_container and "://qdrant" in QDRANT_URL:
+    QDRANT_URL = QDRANT_URL.replace("://qdrant", "://127.0.0.1")
+
 COLLECTION_NAME = os.getenv("QDRANT_COLLECTION", "chunks_m3")
 
 # S3 Config
@@ -77,15 +116,15 @@ def check_disk_space(archive_path: Path):
 
 
 def manage_app_container(action: str):
-    """Start or stop the app container using docker compose."""
+    """Start or stop the pulsar container using docker compose."""
     compose_file = os.getenv("COMPOSE_FILE", "docker-compose.yml")
-    cmd = ["docker", "compose", "-f", compose_file, action, "app"]
-    logger.info(f"🐳 Docker: {action}ing app container using {compose_file}...")
+    cmd = ["docker", "compose", "-f", compose_file, action, "pulsar"]
+    logger.info(f"🐳 Docker: {action}ing pulsar container using {compose_file}...")
     try:
         subprocess.run(cmd, cwd=PROJECT_ROOT, check=True, capture_output=True)
-        logger.info(f"✅ App container {action}ed successfully.")
+        logger.info(f"✅ Pulsar container {action}ed successfully.")
     except subprocess.CalledProcessError as e:
-        logger.warning(f"⚠️ Failed to {action} app container: {e.stderr.decode().strip()}")
+        logger.warning(f"⚠️ Failed to {action} pulsar container: {e.stderr.decode().strip()}")
 
 
 def list_backups():
@@ -283,12 +322,13 @@ def main():
 
         extract_root = next(extraction_path.iterdir())
 
-        db_backup = extract_root / "search_ui.db"
-        if db_backup.exists():
-            logger.info("📦 Restoring SQLite database...")
-            DATA_DIR.mkdir(exist_ok=True)
-            shutil.copy2(db_backup, DATA_DIR / "search_ui.db")
-            logger.info("✅ SQLite restored.")
+        db_backups = list(extract_root.glob("*.db"))
+        if db_backups:
+            db_backup = db_backups[0]
+            logger.info(f"📦 Restoring SQLite database: {db_backup.name}...")
+            DB_PATH.parent.mkdir(exist_ok=True, parents=True)
+            shutil.copy2(db_backup, DB_PATH)
+            logger.info(f"✅ SQLite restored to {DB_PATH}.")
 
         logger.info("📂 Restoring static files...")
         for sub_dir in ["transcripts", "voice_samples"]:

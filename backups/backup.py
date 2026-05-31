@@ -18,19 +18,40 @@ from dotenv import load_dotenv
 logging.basicConfig(level=logging.INFO, format="%(message)s")
 logger = logging.getLogger("backup")
 
-# Load local .env file
-ENV_PATH = Path(__file__).parent / ".env"
+# Load root .env file
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+ENV_PATH = PROJECT_ROOT / ".env"
 if ENV_PATH.exists():
     load_dotenv(ENV_PATH)
 else:
-    logger.warning(f"Local .env file not found in {ENV_PATH.parent}. Using system environment variables.")
+    logger.warning(f"Root .env file not found in {PROJECT_ROOT}. Using system environment variables.")
+
+
+# Helper to resolve container paths when running on host
+def resolve_path(env_var: str, default_relative: str) -> Path:
+    val = os.getenv(env_var)
+    if val:
+        p = Path(val)
+        if p.exists():
+            return p.resolve()
+        # If path looks like container /app but we are on host
+        if str(p).startswith("/app/"):
+            relative_part = str(p)[5:]
+            host_path = PROJECT_ROOT / relative_part
+            if host_path.exists():
+                return host_path.resolve()
+        # Fallback to relative path if not absolute or doesn't exist
+        host_path = PROJECT_ROOT / p.relative_to(p.anchor)
+        if host_path.exists():
+            return host_path.resolve()
+    return (PROJECT_ROOT / default_relative).resolve()
+
+
+DATA_DIR = resolve_path("APP_DATA_DIR", "data")
+STORAGE_DIR = resolve_path("APP_STORAGE_DIR", "storage")
 
 # Configuration
-BACKUP_TOOL_DIR = Path(__file__).parent.resolve()
-PROJECT_ROOT = BACKUP_TOOL_DIR.parent
-DATA_DIR = Path(os.getenv("DATA_DIR", PROJECT_ROOT / "data"))
-STORAGE_DIR = Path(os.getenv("STORAGE_DIR", PROJECT_ROOT / "storage"))
-
+BACKUP_TOOL_DIR = PROJECT_ROOT / "backups"
 LOCAL_BACKUP_DIR = BACKUP_TOOL_DIR / "local"
 TEMP_DIR = BACKUP_TOOL_DIR / "tmp"
 
@@ -39,8 +60,25 @@ LOCAL_BACKUP_DIR.mkdir(exist_ok=True, parents=True)
 TEMP_DIR.mkdir(exist_ok=True, parents=True)
 
 # App Config
-DB_PATH = DATA_DIR / "search_ui.db"
+db_val = os.getenv("SQLITE_DB_PATH")
+if db_val:
+    p = Path(db_val)
+    if p.exists():
+        DB_PATH = p.resolve()
+    elif str(p).startswith("/app/"):
+        DB_PATH = (PROJECT_ROOT / str(p)[5:]).resolve()
+    else:
+        DB_PATH = (PROJECT_ROOT / p.relative_to(p.anchor)).resolve()
+else:
+    DB_PATH = DATA_DIR / "pulsar.db"
+
+# Detect if running inside Docker container
+is_container = Path("/.dockerenv").exists() or str(PROJECT_ROOT) == "/app"
+
 QDRANT_URL = os.getenv("QDRANT_URL", "http://127.0.0.1:6333")
+if not is_container and "://qdrant" in QDRANT_URL:
+    QDRANT_URL = QDRANT_URL.replace("://qdrant", "://127.0.0.1")
+
 COLLECTION_NAME = os.getenv("QDRANT_COLLECTION", "chunks_m3")
 TIMESTAMP = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
 BACKUP_PREFIX = f"pulsar_backup_{TIMESTAMP}"
@@ -91,15 +129,15 @@ def check_disk_space():
 
 
 def manage_app_container(action: str):
-    """Start or stop the app container using docker compose."""
+    """Start or stop the pulsar container using docker compose."""
     compose_file = os.getenv("COMPOSE_FILE", "docker-compose.yml")
-    cmd = ["docker", "compose", "-f", compose_file, action, "app"]
-    logger.info(f"🐳 Docker: {action}ing app container using {compose_file}...")
+    cmd = ["docker", "compose", "-f", compose_file, action, "pulsar"]
+    logger.info(f"🐳 Docker: {action}ing pulsar container using {compose_file}...")
     try:
         subprocess.run(cmd, cwd=PROJECT_ROOT, check=True, capture_output=True)
-        logger.info(f"✅ App container {action}ed successfully.")
+        logger.info(f"✅ Pulsar container {action}ed successfully.")
     except subprocess.CalledProcessError as e:
-        logger.warning(f"⚠️ Failed to {action} app container: {e.stderr.decode().strip()}")
+        logger.warning(f"⚠️ Failed to {action} pulsar container: {e.stderr.decode().strip()}")
 
 
 def cleanup_local_backups(keep_file: Path):
@@ -161,7 +199,7 @@ def upload_to_s3(file_path: Path):
 
 def backup_sqlite(dest_dir: Path):
     logger.info("📦 Backing up SQLite database...")
-    dest_path = dest_dir / "search_ui.db"
+    dest_path = dest_dir / DB_PATH.name
     if not DB_PATH.exists():
         logger.error(f"❌ Database not found at {DB_PATH}")
         raise FileNotFoundError(f"Database not found at {DB_PATH}")
@@ -266,10 +304,16 @@ def main():
         backup_qdrant(BACKUP_CONTENT_DIR)
         copy_files(BACKUP_CONTENT_DIR)
         archive_path = create_archive(BACKUP_CONTENT_DIR)
-        upload_to_s3(archive_path)
+
+        # Upload to S3 only if configured
+        s3_client = get_s3_client()
+        if s3_client:
+            upload_to_s3(archive_path)
+            cleanup_s3_backups()
+        else:
+            logger.info("☁️ S3 not configured. Skipping upload and S3 cleanup.")
 
         cleanup_local_backups(archive_path)
-        cleanup_s3_backups()
 
         logger.info("🧹 Cleaning up temporary files...")
         shutil.rmtree(TEMP_DIR)

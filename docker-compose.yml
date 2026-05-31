@@ -10,7 +10,7 @@ services:
     volumes:
       - qdrant_data:/qdrant/storage
 
-  app:
+  pulsar:
     build:
       context: .
       args:

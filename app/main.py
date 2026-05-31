@@ -4,7 +4,6 @@ import asyncio
 import json
 import logging
 import time
-import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
@@ -17,7 +16,7 @@ from fastapi.templating import Jinja2Templates
 from qdrant_client import models
 from starlette.middleware.sessions import SessionMiddleware
 
-from app.auth import get_session_token, is_valid_token, login_user, logout_user, require_access_token
+from app.auth import get_session_token, is_valid_token, login_user, logout_user, require_access_token, require_admin
 from app.config import (
     get_app_settings,
     get_deepgram_settings,
@@ -201,7 +200,15 @@ async def websocket_logs_get():
 
 
 @app.get("/speakers", response_class=HTMLResponse)
-async def speakers_page(request: Request, _: str = Depends(require_access_token)):
+async def speakers_page(request: Request):
+    current_token = get_session_token(request)
+    if not is_valid_token(current_token):
+        return RedirectResponse(url="/login")
+
+    settings = get_app_settings()
+    if current_token != settings.access_token:
+        return RedirectResponse(url="/")
+
     q_client = get_qdrant_client()
     try:
         res = q_client.scroll(collection_name="speaker_registry", limit=100)[0]
@@ -227,7 +234,7 @@ async def api_register_speaker(
     start_sec: float = Form(...),
     end_sec: float = Form(...),
     name: str = Form(...),
-    _: str = Depends(require_access_token),
+    _: str = Depends(require_admin),
 ):
     # Logic to save voice samples and embeddings is disabled to save space and avoid 405 errors
     logger.info(f"Manual speaker registration for '{name}' received but ignored (storage disabled).")
@@ -235,7 +242,7 @@ async def api_register_speaker(
 
 
 @app.delete("/api/speakers/{speaker_id}")
-async def api_delete_speaker(speaker_id: str, _: str = Depends(require_access_token)):
+async def api_delete_speaker(speaker_id: str, _: str = Depends(require_admin)):
     q_client = get_qdrant_client()
     settings = get_app_settings()
 
@@ -256,7 +263,7 @@ async def api_delete_speaker(speaker_id: str, _: str = Depends(require_access_to
 
 
 @app.post("/api/v1/worker/start")
-async def api_worker_start(_: str = Depends(require_access_token)):
+async def api_worker_start(_: str = Depends(require_admin)):
     worker = get_worker()
     if not worker.is_running:
         asyncio.create_task(worker.run())
@@ -265,7 +272,7 @@ async def api_worker_start(_: str = Depends(require_access_token)):
 
 
 @app.post("/api/v1/worker/stop")
-async def api_worker_stop(_: str = Depends(require_access_token)):
+async def api_worker_stop(_: str = Depends(require_admin)):
     worker = get_worker()
     if worker.is_running:
         worker.stop()
@@ -274,7 +281,7 @@ async def api_worker_stop(_: str = Depends(require_access_token)):
 
 
 @app.get("/api/v1/worker/status")
-async def api_worker_status(_: str = Depends(require_access_token)):
+async def api_worker_status(_: str = Depends(require_admin)):
     worker = get_worker()
     status = "stopped"
     if worker.is_stopping:
@@ -286,7 +293,7 @@ async def api_worker_status(_: str = Depends(require_access_token)):
 
 
 @app.get("/api/v1/worker/progress")
-async def api_worker_progress(_: str = Depends(require_access_token)):
+async def api_worker_progress(_: str = Depends(require_admin)):
     """Returns real-time progress for all stages and queue counts."""
     worker = get_worker()
     state = worker.get_progress_state()
@@ -384,7 +391,7 @@ async def api_worker_progress(_: str = Depends(require_access_token)):
 
 
 @app.post("/api/v1/tasks/{task_id}/restart")
-async def api_restart_task(task_id: int, _: str = Depends(require_access_token)):
+async def api_restart_task(task_id: int, _: str = Depends(require_admin)):
     """Restart a specific task (failed or skipped)."""
     settings = get_sqlite_settings()
     with db_connection(settings) as conn:
@@ -399,7 +406,7 @@ async def api_restart_task(task_id: int, _: str = Depends(require_access_token))
 
 
 @app.get("/api/v1/deepgram/balance")
-async def api_deepgram_balance(_: str = Depends(require_access_token)):
+async def api_deepgram_balance(_: str = Depends(require_admin)):
     """Fetch Deepgram balance info."""
     from app.transcription.deepgram import DeepgramEngine
 
@@ -413,7 +420,7 @@ async def api_add_ingest_task(
     file_id: str = Form(...),
     title: str = Form(None),
     diarize: bool = Form(True),
-    _: str = Depends(require_access_token),
+    _: str = Depends(require_admin),
 ):
     drive_client = GoogleDriveClient(get_google_drive_settings())
     try:
@@ -449,11 +456,16 @@ def indexed_page(request: Request):
     current_token = get_session_token(request)
     if not is_valid_token(current_token):
         return RedirectResponse(url="/login")
+
+    settings = get_app_settings()
+    if current_token != settings.access_token:
+        return RedirectResponse(url="/")
+
     return templates.TemplateResponse(request, "indexed.html", {})
 
 
 @app.post("/api/v1/indexed/videos/{video_id}/toggle_short")
-async def api_toggle_short(video_id: int, _: str = Depends(require_access_token)):
+async def api_toggle_short(video_id: int, _: str = Depends(require_admin)):
     """Toggles is_short status and re-queues for indexing."""
     pg_settings = get_sqlite_settings()
     q_settings = get_qdrant_settings()
@@ -515,7 +527,7 @@ async def api_toggle_short(video_id: int, _: str = Depends(require_access_token)
 
 
 @app.get("/api/v1/indexed/ls")
-async def api_indexed_ls(folder_id: str | None = None, _: str = Depends(require_access_token)):
+async def api_indexed_ls(folder_id: str | None = None, _: str = Depends(require_admin)):
     """Lists indexed folders and videos from local DB with metadata."""
     pg_settings = get_sqlite_settings()
     target_id = folder_id if folder_id and folder_id != "root" else None
@@ -536,7 +548,7 @@ async def api_indexed_ls(folder_id: str | None = None, _: str = Depends(require_
         # 2. Get videos in this folder with rich metadata
         video_sql = """
             SELECT
-                v.id, v.title, v.mime_type, v.duration_sec, v.updated_at, v.source_file_id, v.is_short,
+                v.id, v.title, v.mime_type, v.duration_sec, v.updated_at, v.source_file_id, v.is_short, v.is_4k,
                 t.language, t.confidence,
                 (SELECT COUNT(*) FROM chunks c WHERE c.video_id = v.id) as chunk_count
             FROM videos v
@@ -578,6 +590,7 @@ async def api_indexed_ls(folder_id: str | None = None, _: str = Depends(require_
                 "is_folder": False,
                 "mime_type": r["mime_type"],
                 "is_short": bool(r["is_short"]),
+                "is_4k": bool(r["is_4k"]),
                 "source_file_id": r["source_file_id"],
                 "duration_sec": r["duration_sec"],
                 "chunk_count": r["chunk_count"],
@@ -591,54 +604,44 @@ async def api_indexed_ls(folder_id: str | None = None, _: str = Depends(require_
 
 
 @app.post("/api/v1/indexed/mkdir")
-async def api_indexed_mkdir(
-    name: str = Form(...), parent_id: str | None = Form(None), _: str = Depends(require_access_token)
-):
-    """Create a new folder in the internal hierarchy."""
-    pg_settings = get_sqlite_settings()
-    new_id = f"custom_{uuid.uuid4().hex[:12]}"
-    real_parent = parent_id if parent_id and parent_id != "root" else None
-
-    with db_connection(pg_settings) as conn:
-        conn.execute("INSERT INTO folders (id, name, parent_id) VALUES (?, ?, ?)", (new_id, name, real_parent))
-    return {"status": "success", "id": new_id}
+async def api_indexed_mkdir(name: str = Form(...), parent_id: str | None = Form(None), _: str = Depends(require_admin)):
+    raise HTTPException(
+        status_code=status.HTTP_400_BAD_REQUEST,
+        detail="Ручное управление структурой папок отключено. Структура синхронизируется автоматически с Google Drive.",
+    )
 
 
 @app.post("/api/v1/indexed/move")
 async def api_indexed_move(
-    video_id: int = Form(...), folder_id: str | None = Form(None), _: str = Depends(require_access_token)
+    video_id: int = Form(...), folder_id: str | None = Form(None), _: str = Depends(require_admin)
 ):
-    """Move a video to a specific folder."""
-    pg_settings = get_sqlite_settings()
-    real_target = folder_id if folder_id and folder_id != "root" else None
-
-    with db_connection(pg_settings) as conn:
-        conn.execute("UPDATE videos SET parent_folder_id = ? WHERE id = ?", (real_target, video_id))
-    return {"status": "success"}
+    raise HTTPException(
+        status_code=status.HTTP_400_BAD_REQUEST,
+        detail="Ручное перемещение файлов отключено. Структура синхронизируется автоматически с Google Drive.",
+    )
 
 
 @app.post("/api/v1/indexed/folders/rename")
 async def api_indexed_rename_folder(
-    folder_id: str = Form(...), new_name: str = Form(...), _: str = Depends(require_access_token)
+    folder_id: str = Form(...), new_name: str = Form(...), _: str = Depends(require_admin)
 ):
-    """Rename a folder."""
-    pg_settings = get_sqlite_settings()
-    with db_connection(pg_settings) as conn:
-        conn.execute("UPDATE folders SET name = ? WHERE id = ?", (new_name, folder_id))
-    return {"status": "success"}
+    raise HTTPException(
+        status_code=status.HTTP_400_BAD_REQUEST,
+        detail="Ручное переименование папок отключено. Структура синхронизируется автоматически с Google Drive.",
+    )
 
 
 @app.delete("/api/v1/indexed/folders/{folder_id}")
-async def api_indexed_delete_folder(folder_id: str, _: str = Depends(require_access_token)):
-    """Delete a folder. Subfolders and videos will lose their parent reference."""
-    pg_settings = get_sqlite_settings()
-    with db_connection(pg_settings) as conn:
-        conn.execute("DELETE FROM folders WHERE id = ?", (folder_id,))
+async def api_indexed_delete_folder(folder_id: str, _: str = Depends(require_admin)):
+    raise HTTPException(
+        status_code=status.HTTP_400_BAD_REQUEST,
+        detail="Ручное удаление папок отключено. Структура синхронизируется автоматически с Google Drive.",
+    )
     return {"status": "success"}
 
 
 @app.post("/api/v1/indexed/sync")
-async def api_indexed_sync(_: str = Depends(require_access_token)):
+async def api_indexed_sync(_: str = Depends(require_admin)):
     """Trigger metadata synchronization for all indexed files."""
     from scripts.sync_titles import sync_indexed_metadata
 
@@ -928,6 +931,10 @@ def import_page(request: Request):
     current_token = get_session_token(request)
     if not is_valid_token(current_token):
         return RedirectResponse(url="/login")
+
+    settings = get_app_settings()
+    if current_token != settings.access_token:
+        return RedirectResponse(url="/")
     return templates.TemplateResponse(request, "import.html", {})
 
 
@@ -938,6 +945,10 @@ def status_page(request: Request):
     current_token = get_session_token(request)
     if not is_valid_token(current_token):
         return RedirectResponse(url="/login")
+
+    settings = get_app_settings()
+    if current_token != settings.access_token:
+        return RedirectResponse(url="/")
 
     with db_connection(pg_settings) as connection:
         statuses = _status_rows(connection)

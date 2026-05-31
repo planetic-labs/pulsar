@@ -22,6 +22,7 @@ def get_jwk_client() -> jwt.PyJWKClient | None:
 def is_jti_revoked(jti: str) -> bool:
     from app.config import get_sqlite_settings
     from app.db import db_connection
+
     try:
         with db_connection(get_sqlite_settings()) as conn:
             row = conn.execute("SELECT 1 FROM revoked_sessions WHERE jti = ?", (jti,)).fetchone()
@@ -33,6 +34,7 @@ def is_jti_revoked(jti: str) -> bool:
 def is_user_revoked(user_id: str) -> bool:
     from app.config import get_sqlite_settings
     from app.db import db_connection
+
     try:
         with db_connection(get_sqlite_settings()) as conn:
             row = conn.execute("SELECT 1 FROM revoked_users WHERE user_id = ?", (user_id,)).fetchone()
@@ -44,6 +46,7 @@ def is_user_revoked(user_id: str) -> bool:
 def revoke_session(jti: str) -> None:
     from app.config import get_sqlite_settings
     from app.db import db_connection
+
     with db_connection(get_sqlite_settings()) as conn:
         conn.execute("INSERT OR IGNORE INTO revoked_sessions (jti) VALUES (?)", (jti,))
 
@@ -51,6 +54,7 @@ def revoke_session(jti: str) -> None:
 def revoke_user(user_id: str) -> None:
     from app.config import get_sqlite_settings
     from app.db import db_connection
+
     with db_connection(get_sqlite_settings()) as conn:
         conn.execute("INSERT OR IGNORE INTO revoked_users (user_id) VALUES (?)", (user_id,))
 
@@ -83,12 +87,7 @@ def is_valid_token(token: str | None) -> bool:
         last_err = None
         for k in keys_to_try:
             try:
-                decoded_payload = jwt.decode(
-                    token,
-                    k.key,
-                    algorithms=["RS256"],
-                    options={"verify_exp": True}
-                )
+                decoded_payload = jwt.decode(token, k.key, algorithms=["RS256"], options={"verify_exp": True})
                 break
             except Exception as e:
                 last_err = e
@@ -105,6 +104,7 @@ def is_valid_token(token: str | None) -> bool:
         status_val = payload.get("status")
         if status_val != "active":
             import logging
+
             logging.error(f"JWT status check failed: expected 'active', got {status_val!r}. Payload: {payload}")
             return False
 
@@ -120,10 +120,12 @@ def is_valid_token(token: str | None) -> bool:
         return True
     except jwt.PyJWTError as e:
         import logging
+
         logging.warning(f"JWT validation failed: {e}")
         return False
     except Exception as e:
         import logging
+
         logging.error(f"JWT validation failed with unexpected error: {e}", exc_info=True)
         return False
 
@@ -174,12 +176,22 @@ def require_access_token(request: Request) -> str:
         try:
             payload = jwt.decode(token, options={"verify_signature": False})
             request.state.user_id = payload.get("sub")
-            request.state.roles = payload.get("roles", [])
+            request.state.roles = ["user"]
         except Exception:
             request.state.user_id = None
             request.state.roles = []
 
     return str(token)
+
+
+def require_admin(request: Request) -> str:
+    token = require_access_token(request)
+    if "admin" not in getattr(request.state, "roles", []):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access denied: Admin role required",
+        )
+    return token
 
 
 def login_user(response: Response, request: Request, token: str) -> bool:

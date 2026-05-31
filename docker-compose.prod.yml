@@ -10,7 +10,7 @@ services:
     volumes:
       - qdrant_data:/qdrant/storage
 
-  app:
+  pulsar:
     image: ghcr.io/planetic-labs/pulsar:latest
     user: "${UID:-1000}:${GID:-1000}"
     restart: always
