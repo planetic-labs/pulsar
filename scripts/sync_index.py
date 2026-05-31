@@ -176,15 +176,30 @@ async def main():
     active_task_file_ids = set()
     active_indexing_ids = set()
 
-    with db_connection(sqlite_settings) as conn:
-        # Get root folders from DB
-        rows = conn.execute("""
-            SELECT id, name FROM folders
-            WHERE parent_id IS NULL OR parent_id NOT IN (SELECT id FROM folders)
-        """).fetchall()
-        for row in rows:
-            root_folders.append({"id": row["id"], "name": row["name"]})
+    logger.info("Fetching root folders from Google Drive...")
+    try:
+        drive_roots = await drive.list_folder_contents("root", use_cache=False)
+        root_folders = [
+            {"id": item["id"], "name": item["name"]}
+            for item in drive_roots
+            if item.get("is_folder")
+        ]
+        logger.info(
+            f"Automatically loaded {len(root_folders)} root folders from Google Drive: "
+            f"{', '.join(rf['name'] for rf in root_folders)}"
+        )
+    except Exception as e:
+        logger.error(f"Failed to fetch root folders from Google Drive: {e}")
+        logger.info("Falling back to root folders stored in database...")
+        with db_connection(sqlite_settings) as conn:
+            rows = conn.execute("""
+                SELECT id, name FROM folders
+                WHERE parent_id IS NULL OR parent_id NOT IN (SELECT id FROM folders)
+            """).fetchall()
+            for row in rows:
+                root_folders.append({"id": row["id"], "name": row["name"]})
 
+    with db_connection(sqlite_settings) as conn:
         # Get all local videos from DB
         videos = conn.execute("""
             SELECT id, source_file_id, title, parent_folder_id, recorded_date, is_4k, processing_status, source_url

@@ -182,7 +182,9 @@ async def test_sync_main_flow(tmp_db, monkeypatch, mocker):
     # - New video duplicate: "new_video_duplicate" ("2026.05.01 Unchanged Video.mp4")
     # - New video to queue: "new_video_id" (title: "Brand New Video.mp4")
     async def mock_list_contents(folder_id, use_cache=False):
-        if folder_id == "root_folder_id":
+        if folder_id == "root":
+            return [{"id": "root_folder_id", "name": "Indexed Root", "is_folder": True}]
+        elif folder_id == "root_folder_id":
             return [
                 {
                     "id": "new_subfolder_id",
