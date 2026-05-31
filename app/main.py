@@ -405,27 +405,55 @@ async def api_worker_progress(_: str = Depends(require_admin)):
         sql_dc = "SELECT COUNT(*) as c FROM videos WHERE is_md5_duplicate = 1"
         stats["duplicate_md5_count"] = conn.execute(sql_dc).fetchone()["c"]
         if stats["duplicate_md5_count"] > 0:
-            sql_d = (
-                "SELECT id, title, source_file_id, source_url, md5_checksum "
-                "FROM videos WHERE is_md5_duplicate = 1 "
-                "ORDER BY updated_at DESC LIMIT 20"
-            )
+            sql_d = """
+                SELECT id, title, source_file_id, source_url, md5_checksum,
+                       size_bytes, duration_sec, processing_status, created_at
+                FROM videos WHERE is_md5_duplicate = 1
+                ORDER BY updated_at DESC LIMIT 20
+            """
             d_rows = conn.execute(sql_d).fetchall()
             for dr in d_rows:
                 # Find matching original video
                 original_title = "Неизвестный оригинал"
+                original_info = None
                 if dr["md5_checksum"]:
-                    sql_orig = "SELECT title FROM videos WHERE md5_checksum = ? AND is_md5_duplicate = 0 LIMIT 1"
+                    sql_orig = """
+                        SELECT id, title, source_file_id, source_url,
+                               size_bytes, duration_sec, processing_status, created_at
+                        FROM videos WHERE md5_checksum = ? AND is_md5_duplicate = 0 LIMIT 1
+                    """
                     orig_row = conn.execute(sql_orig, (dr["md5_checksum"],)).fetchone()
                     if orig_row:
                         original_title = orig_row["title"]
+                        created_val = orig_row["created_at"]
+                        original_info = {
+                            "id": orig_row["id"],
+                            "title": orig_row["title"],
+                            "file_id": orig_row["source_file_id"],
+                            "source_url": orig_row["source_url"],
+                            "size_bytes": orig_row["size_bytes"],
+                            "duration_sec": orig_row["duration_sec"],
+                            "processing_status": orig_row["processing_status"],
+                            "created_at": (
+                                created_val.isoformat() if hasattr(created_val, "isoformat") else str(created_val)
+                            ),
+                        }
+                created_val_dr = dr["created_at"]
                 stats["duplicate_md5_list"].append(
                     {
                         "id": dr["id"],
                         "title": dr["title"],
                         "file_id": dr["source_file_id"],
                         "source_url": dr["source_url"],
+                        "size_bytes": dr["size_bytes"],
+                        "duration_sec": dr["duration_sec"],
+                        "processing_status": dr["processing_status"],
+                        "created_at": (
+                            created_val_dr.isoformat() if hasattr(created_val_dr, "isoformat") else str(created_val_dr)
+                        ),
+                        "md5_checksum": dr["md5_checksum"],
                         "original_title": original_title,
+                        "original": original_info,
                     }
                 )
 
