@@ -551,9 +551,11 @@ async def api_add_ingest_task(
     _: str = Depends(require_admin),
 ):
     drive_client = GoogleDriveClient(get_google_drive_settings())
+    parent_folder_id = None
     try:
         file_meta = await drive_client.get_file(file_id)
         md5 = file_meta.md5_checksum
+        parent_folder_id = file_meta.parents[0] if file_meta.parents else None
     except Exception as e:
         logger.error(f"Failed to get file metadata for {file_id}: {e}")
         md5 = None
@@ -568,7 +570,19 @@ async def api_add_ingest_task(
 
         conn.execute(
             "INSERT INTO tasks (task_type, payload) VALUES (?, ?)",
-            ("stage_1_download", json.dumps({"file_id": file_id, "title": title, "diarize": diarize, "md5": md5})),
+            (
+                "stage_1_download",
+                json.dumps(
+                    {
+                        "file_id": file_id,
+                        "title": title or (file_meta.name if "file_meta" in locals() else f"File {file_id}"),
+                        "diarize": diarize,
+                        "md5": md5,
+                        "parent_folder_id": parent_folder_id,
+                    },
+                    ensure_ascii=False,
+                ),
+            ),
         )
 
     # Auto-start worker
