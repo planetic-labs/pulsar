@@ -22,7 +22,7 @@ dependencies = [
     "fastembed>=0.5.1",
     "google-auth>=2.52.0",
     "urllib3>=2.7.0",
-    "pyjwt[crypto]>=2.8.0",
+    "pyjwt[crypto]>=2.13.0",
     "boto3>=1.34.0"
 ]
 
