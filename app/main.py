@@ -600,6 +600,67 @@ async def api_toggle_short(video_id: int, _: str = Depends(require_admin)):
     return {"status": "ok", "is_short": new_is_short, "queued": True}
 
 
+@app.delete("/api/v1/indexed/videos/{video_id}")
+async def api_indexed_delete_video(video_id: int, _: str = Depends(require_admin)):
+    """Deletes a video, its files, and its chunks from DB and Qdrant."""
+    pg_settings = get_sqlite_settings()
+    q_settings = get_qdrant_settings()
+
+    from app.qdrant import get_qdrant_client
+
+    with db_connection(pg_settings) as conn:
+        video_row = conn.execute(
+            "SELECT local_video_path, local_audio_path FROM videos WHERE id = ?", (video_id,)
+        ).fetchone()
+        if not video_row:
+            raise HTTPException(status_code=404, detail="Video not found")
+
+        transcript_rows = conn.execute(
+            "SELECT raw_json_path, normalized_json_path FROM transcripts WHERE video_id = ?", (video_id,)
+        ).fetchall()
+
+        chunk_rows = conn.execute(
+            "SELECT id FROM chunks WHERE video_id = ?", (video_id,)
+        ).fetchall()
+
+    # Delete points from Qdrant if they exist
+    chunk_ids = [c["id"] for c in chunk_rows]
+    if chunk_ids:
+        try:
+            qdrant = get_qdrant_client()
+            qdrant.delete(
+                collection_name=q_settings.collection_name,
+                points_selector=models.PointIdsList(points=chunk_ids),
+            )
+        except Exception as e:
+            logger.error(f"Failed to delete Qdrant points for video {video_id}: {e}")
+
+    # Delete files from the filesystem
+    files_to_delete = []
+    if video_row["local_video_path"]:
+        files_to_delete.append(Path(video_row["local_video_path"]))
+    if video_row["local_audio_path"]:
+        files_to_delete.append(Path(video_row["local_audio_path"]))
+    for t_row in transcript_rows:
+        if t_row["raw_json_path"]:
+            files_to_delete.append(Path(t_row["raw_json_path"]))
+        if t_row["normalized_json_path"]:
+            files_to_delete.append(Path(t_row["normalized_json_path"]))
+
+    for f_path in files_to_delete:
+        try:
+            if f_path.exists():
+                f_path.unlink()
+        except Exception as e:
+            logger.error(f"Failed to delete file {f_path}: {e}")
+
+    # Delete the video row from SQLite
+    with db_connection(pg_settings) as conn:
+        conn.execute("DELETE FROM videos WHERE id = ?", (video_id,))
+
+    return {"status": "success"}
+
+
 @app.get("/api/v1/indexed/ls")
 async def api_indexed_ls(folder_id: str | None = None, _: str = Depends(require_admin)):
     """Lists indexed folders and videos from local DB with metadata."""
