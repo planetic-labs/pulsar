@@ -254,8 +254,6 @@ async def transcribe_stage(
         raw_path.write_text(json.dumps(raw_payload, ensure_ascii=False, indent=2), encoding="utf-8")
         norm_path.write_text(json.dumps(norm_payload, ensure_ascii=False, indent=2), encoding="utf-8")
 
-
-
         if state_callback:
             state_callback({"status_text": "Сохранение в базу...", "progress": 99, "speed": ""})
 

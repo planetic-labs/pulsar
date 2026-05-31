@@ -182,7 +182,7 @@ def check_integrity() -> list[str]:
     print("--- Выборочная проверка метаданных (Qdrant vs SQLite) ---")
     for p in random.sample(q_sample_points, min(len(q_sample_points), 20)):
         db_text = db_chunk_map.get(p.id)
-        q_text = p.payload.get("text")
+        q_text = p.payload.get("text") if p.payload is not None else None
         if db_text and q_text and db_text.strip() != q_text.strip():
             print(f"❌ Payload mismatch for point {p.id}!")
             metadata_errors += 1

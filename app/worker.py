@@ -162,7 +162,7 @@ class Worker:
                 with db_connection(get_sqlite_settings()) as conn:
                     existing = conn.execute(
                         "SELECT id, title, source_file_id FROM videos WHERE md5_checksum = ? AND source_file_id != ?",
-                        (md5, file_id)
+                        (md5, file_id),
                     ).fetchone()
 
                 if existing:
@@ -192,8 +192,8 @@ class Worker:
                                 title,
                                 "skipped_duplicate_md5",
                                 1,
-                                f"https://drive.google.com/file/d/{file_id}/view"
-                            )
+                                f"https://drive.google.com/file/d/{file_id}/view",
+                            ),
                         )
                         conn.execute(
                             "UPDATE tasks SET status = 'skipped_duplicate_md5', "

@@ -619,9 +619,7 @@ async def api_indexed_delete_video(video_id: int, _: str = Depends(require_admin
             "SELECT raw_json_path, normalized_json_path FROM transcripts WHERE video_id = ?", (video_id,)
         ).fetchall()
 
-        chunk_rows = conn.execute(
-            "SELECT id FROM chunks WHERE video_id = ?", (video_id,)
-        ).fetchall()
+        chunk_rows = conn.execute("SELECT id FROM chunks WHERE video_id = ?", (video_id,)).fetchall()
 
     # Delete points from Qdrant if they exist
     chunk_ids = [c["id"] for c in chunk_rows]
@@ -654,11 +652,13 @@ async def api_indexed_delete_video(video_id: int, _: str = Depends(require_admin
             if raw_path.exists():
                 try:
                     archive_dest = archive_dir / f"video_{video_id}_{raw_path.name}"
-                    shutil.copy2(raw_path, archive_dest)
-                    logger.info(f"Archived raw transcript to {archive_dest}")
+                    shutil.move(str(raw_path), str(archive_dest))
+                    logger.info(f"Moved raw transcript to {archive_dest}")
                 except Exception as e:
-                    logger.error(f"Failed to archive raw transcript {raw_path}: {e}")
-            files_to_delete.append(raw_path)
+                    logger.error(f"Failed to move raw transcript {raw_path} to {archive_dest}: {e}")
+                    files_to_delete.append(raw_path)
+            else:
+                files_to_delete.append(raw_path)
         if t_row["normalized_json_path"]:
             files_to_delete.append(Path(t_row["normalized_json_path"]))
 

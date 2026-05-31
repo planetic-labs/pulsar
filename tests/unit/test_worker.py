@@ -219,14 +219,14 @@ async def test_worker_md5_duplicate_check(tmp_db, monkeypatch, mocker):
             local_video_path="/tmp/o.mp4",
             local_audio_path="/tmp/o.mp3",
             processing_status="indexed_chunks_ready",
-            md5_checksum="duplicate-md5-hash"
+            md5_checksum="duplicate-md5-hash",
         )
 
         # Insert a pending stage_1_download task for a different file ID but same content MD5
         payload = {"file_id": "new_duplicate_file_id", "title": "Duplicate Video"}
         conn.execute(
             "INSERT INTO tasks (task_type, payload, status) VALUES ('stage_1_download', ?, 'pending')",
-            (json.dumps(payload),)
+            (json.dumps(payload),),
         )
 
     worker = Worker()

@@ -341,4 +341,3 @@ def test_api_indexed_delete_video(client, tmp_db, mocker, mock_qdrant, tmp_path,
     archived_file = tmp_path / "transcripts" / "archive" / f"video_{video_id}_{dummy_raw_json.name}"
     assert archived_file.exists()
     assert archived_file.read_text() == "raw json"
-
