@@ -19,7 +19,7 @@ async def test_send_telegram_notification(monkeypatch, mocker):
 
     missing_files = [
         {"file_id": "file_1", "title": "Missing Video 1", "source_url": "https://drive.google.com/1"},
-        {"file_id": "file_2", "title": "Missing Video 2 (4K)", "source_url": "https://drive.google.com/2"}
+        {"file_id": "file_2", "title": "Missing Video 2 (4K)", "source_url": "https://drive.google.com/2"},
     ]
 
     await send_telegram_notification(missing_files)
@@ -34,6 +34,7 @@ async def test_send_telegram_notification(monkeypatch, mocker):
     assert "Missing Video 1" in payload["text"]
     assert "Missing Video 2" in payload["text"]
 
+
 @pytest.mark.asyncio
 async def test_send_telegram_duplicate_alerts(monkeypatch, mocker):
     monkeypatch.setattr("scripts.sync_index.TELEGRAM_BOT_TOKEN", "123456:ABC")
@@ -43,9 +44,7 @@ async def test_send_telegram_duplicate_alerts(monkeypatch, mocker):
     mock_response.status_code = 200
     mock_post = mocker.patch("httpx.AsyncClient.post", new_callable=AsyncMock, return_value=mock_response)
 
-    duplicates = [
-        {"title": "Duplicate Video", "new_file_id": "new_fid", "existing_file_id": "existing_fid"}
-    ]
+    duplicates = [{"title": "Duplicate Video", "new_file_id": "new_fid", "existing_file_id": "existing_fid"}]
 
     await send_telegram_duplicate_alerts(duplicates)
 
@@ -55,6 +54,7 @@ async def test_send_telegram_duplicate_alerts(monkeypatch, mocker):
     assert "Duplicate Video" in payload["text"]
     assert "new_fid" in payload["text"]
     assert "existing_fid" in payload["text"]
+
 
 @pytest.mark.asyncio
 async def test_scan_folder_recursive():
@@ -69,15 +69,10 @@ async def test_scan_folder_recursive():
                     "name": "Video.mp4",
                     "is_folder": False,
                     "mime_type": "video/mp4",
-                    "md5_checksum": "abc"
+                    "md5_checksum": "abc",
                 },
-                {
-                    "id": "excluded_id",
-                    "name": "ГАЛЕРЕЯ СЕМЬИ.mp4",
-                    "is_folder": False,
-                    "mime_type": "video/mp4"
-                },
-                {"id": "text_id", "name": "Notes.txt", "is_folder": False, "mime_type": "text/plain"}
+                {"id": "excluded_id", "name": "ГАЛЕРЕЯ СЕМЬИ.mp4", "is_folder": False, "mime_type": "video/mp4"},
+                {"id": "text_id", "name": "Notes.txt", "is_folder": False, "mime_type": "text/plain"},
             ]
         return []
 
@@ -93,7 +88,7 @@ async def test_scan_folder_recursive():
         folder_name="Root",
         visited_folders=visited_folders,
         drive_files=drive_files,
-        exclude_keywords=("ГАЛЕРЕЯ",)
+        exclude_keywords=("ГАЛЕРЕЯ",),
     )
 
     assert {"id": "root_id", "name": "Root", "parent_id": None} in visited_folders
@@ -104,6 +99,7 @@ async def test_scan_folder_recursive():
     assert "video_id" in file_ids
     assert "excluded_id" not in file_ids
     assert len(drive_files) == 1
+
 
 @pytest.mark.asyncio
 async def test_sync_main_flow(tmp_db, monkeypatch, mocker):
@@ -120,12 +116,11 @@ async def test_sync_main_flow(tmp_db, monkeypatch, mocker):
     # Pre-populate internal database
     with db_connection(tmp_db) as conn:
         conn.execute(
-            "INSERT INTO folders (id, name, parent_id) VALUES (?, ?, ?)",
-            ("root_folder_id", "Indexed Root", None)
+            "INSERT INTO folders (id, name, parent_id) VALUES (?, ?, ?)", ("root_folder_id", "Indexed Root", None)
         )
         conn.execute(
             "INSERT INTO folders (id, name, parent_id) VALUES (?, ?, ?)",
-            ("old_folder_to_delete", "Old Folder", "root_folder_id")
+            ("old_folder_to_delete", "Old Folder", "root_folder_id"),
         )
 
         # Existing video that is updated (title changes, recorded_date changes, is_4k changes)
@@ -138,9 +133,15 @@ async def test_sync_main_flow(tmp_db, monkeypatch, mocker):
             VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
-                101, "video_to_update", "2020.01.01 Old Title.mp4",
-                "root_folder_id", "2020-01-01", 0, "transcribed", "google_drive"
-            )
+                101,
+                "video_to_update",
+                "2020.01.01 Old Title.mp4",
+                "root_folder_id",
+                "2020-01-01",
+                0,
+                "transcribed",
+                "google_drive",
+            ),
         )
         # Existing video that was removed
         conn.execute(
@@ -152,10 +153,14 @@ async def test_sync_main_flow(tmp_db, monkeypatch, mocker):
             VALUES (?, ?, ?, ?, ?, ?, ?)
             """,
             (
-                102, "video_removed", "2020.02.02 Removed Video.mp4",
-                "root_folder_id", "indexed_chunks_ready", "google_drive",
-                "https://drive.google.com/removed"
-            )
+                102,
+                "video_removed",
+                "2020.02.02 Removed Video.mp4",
+                "root_folder_id",
+                "indexed_chunks_ready",
+                "google_drive",
+                "https://drive.google.com/removed",
+            ),
         )
         # Existing video that remains unchanged (and will match a duplicate check for a new file)
         conn.execute(
@@ -167,13 +172,20 @@ async def test_sync_main_flow(tmp_db, monkeypatch, mocker):
             VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
-                103, "video_unchanged", "2026.05.01 Unchanged Video.mp4",
-                "root_folder_id", "2026-05-01", 0, "transcribed", "google_drive"
-            )
+                103,
+                "video_unchanged",
+                "2026.05.01 Unchanged Video.mp4",
+                "root_folder_id",
+                "2026-05-01",
+                0,
+                "transcribed",
+                "google_drive",
+            ),
         )
 
     # Mock GoogleDriveClient
     drive_mock = MagicMock()
+
     # Root folder contents:
     # - New subfolder: "new_subfolder_id"
     # - Updated video: "video_to_update" (new title: "2026.05.20 New Title 4K.mp4")
@@ -186,41 +198,32 @@ async def test_sync_main_flow(tmp_db, monkeypatch, mocker):
             return [{"id": "root_folder_id", "name": "Indexed Root", "is_folder": True}]
         elif folder_id == "root_folder_id":
             return [
-                {
-                    "id": "new_subfolder_id",
-                    "name": "New Subfolder",
-                    "is_folder": True
-                },
+                {"id": "new_subfolder_id", "name": "New Subfolder", "is_folder": True},
                 {
                     "id": "video_to_update",
                     "name": "2026.05.20 New Title 4K.mp4",
                     "is_folder": False,
-                    "mime_type": "video/mp4"
+                    "mime_type": "video/mp4",
                 },
                 {
                     "id": "video_unchanged",
                     "name": "2026.05.01 Unchanged Video.mp4",
                     "is_folder": False,
-                    "mime_type": "video/mp4"
+                    "mime_type": "video/mp4",
                 },
                 {
                     "id": "excluded_video",
                     "name": "2026.05.01 ГАЛЕРЕЯ.mp4",
                     "is_folder": False,
-                    "mime_type": "video/mp4"
+                    "mime_type": "video/mp4",
                 },
                 {
                     "id": "new_video_duplicate",
                     "name": "2026.05.01 Unchanged Video.mp4",
                     "is_folder": False,
-                    "mime_type": "video/mp4"
+                    "mime_type": "video/mp4",
                 },
-                {
-                    "id": "new_video_id",
-                    "name": "Brand New Video.mp4",
-                    "is_folder": False,
-                    "mime_type": "video/mp4"
-                }
+                {"id": "new_video_id", "name": "Brand New Video.mp4", "is_folder": False, "mime_type": "video/mp4"},
             ]
         elif folder_id == "new_subfolder_id":
             return []
@@ -303,8 +306,7 @@ async def test_sync_main_flow_gdrive_error(tmp_db, monkeypatch, mocker):
     # Pre-populate database with a folder and a video
     with db_connection(tmp_db) as conn:
         conn.execute(
-            "INSERT INTO folders (id, name, parent_id) VALUES (?, ?, ?)",
-            ("root_folder_id", "Indexed Root", None)
+            "INSERT INTO folders (id, name, parent_id) VALUES (?, ?, ?)", ("root_folder_id", "Indexed Root", None)
         )
         conn.execute(
             """
@@ -315,13 +317,20 @@ async def test_sync_main_flow_gdrive_error(tmp_db, monkeypatch, mocker):
             VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
-                103, "video_unchanged", "2026.05.01 Unchanged Video.mp4",
-                "root_folder_id", "2026-05-01", 0, "transcribed", "google_drive"
-            )
+                103,
+                "video_unchanged",
+                "2026.05.01 Unchanged Video.mp4",
+                "root_folder_id",
+                "2026-05-01",
+                0,
+                "transcribed",
+                "google_drive",
+            ),
         )
 
     # Mock GoogleDriveClient to throw exception
     drive_mock = MagicMock()
+
     async def mock_list_contents_error(folder_id, use_cache=False):
         raise RuntimeError("API Connection Error")
 
@@ -345,4 +354,3 @@ async def test_sync_main_flow_gdrive_error(tmp_db, monkeypatch, mocker):
         assert len(folders) == 1
         videos = conn.execute("SELECT id FROM videos").fetchall()
         assert len(videos) == 1
-
