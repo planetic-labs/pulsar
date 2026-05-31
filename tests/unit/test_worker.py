@@ -182,3 +182,72 @@ async def test_worker_stage_2_missing_file_recovery(tmp_db, monkeypatch, mocker)
         new_payload = json.loads(new_task["payload"])
         assert new_payload["file_id"] == "drive_file_123"
         assert new_payload["title"] == "Missing File Video"
+
+
+@pytest.mark.asyncio
+async def test_worker_md5_duplicate_check(tmp_db, monkeypatch, mocker):
+    monkeypatch.setattr("app.worker.get_sqlite_settings", lambda: tmp_db)
+
+    # Mock settings
+    mock_settings = MagicMock()
+    monkeypatch.setattr("app.worker.get_google_drive_settings", lambda: mock_settings)
+
+    # Mock GoogleDriveClient get_file
+    mock_drive = MagicMock()
+    mock_drive_file = MagicMock()
+    mock_drive_file.md5_checksum = "duplicate-md5-hash"
+    mock_drive.get_file = AsyncMock(return_value=mock_drive_file)
+    mocker.patch("app.worker.GoogleDriveClient", return_value=mock_drive)
+
+    # Mock download_and_extract_stage to ensure it is NOT called
+    mock_download = mocker.patch("app.worker.download_and_extract_stage", new_callable=AsyncMock)
+
+    # Prepare DB: Add existing video with the same MD5 checksum
+    from app.db import db_connection
+    from app.repository import upsert_video
+
+    with db_connection(tmp_db) as conn:
+        upsert_video(
+            conn,
+            source_type="google_drive",
+            source_file_id="original_file_id",
+            title="Original Video",
+            source_url="http://original",
+            mime_type="video/mp4",
+            size_bytes=1000,
+            duration_sec=60.0,
+            local_video_path="/tmp/o.mp4",
+            local_audio_path="/tmp/o.mp3",
+            processing_status="indexed_chunks_ready",
+            md5_checksum="duplicate-md5-hash"
+        )
+
+        # Insert a pending stage_1_download task for a different file ID but same content MD5
+        payload = {"file_id": "new_duplicate_file_id", "title": "Duplicate Video"}
+        conn.execute(
+            "INSERT INTO tasks (task_type, payload, status) VALUES ('stage_1_download', ?, 'pending')",
+            (json.dumps(payload),)
+        )
+
+    worker = Worker()
+
+    with db_connection(tmp_db) as conn:
+        task_id = conn.execute("SELECT id FROM tasks LIMIT 1").fetchone()["id"]
+
+    await worker._run_stage_1_download(task_id=task_id, payload=payload)
+
+    # Verify:
+    # 1. download_and_extract_stage was NOT called
+    mock_download.assert_not_called()
+
+    # 2. The task status is updated to 'skipped_duplicate_md5'
+    # 3. A new video entry exists in DB with is_md5_duplicate = 1 and status skipped_duplicate_md5
+    with db_connection(tmp_db) as conn:
+        task_row = conn.execute("SELECT status FROM tasks WHERE id = ?", (task_id,)).fetchone()
+        assert task_row["status"] == "skipped_duplicate_md5"
+
+        video_row = conn.execute("SELECT * FROM videos WHERE source_file_id = 'new_duplicate_file_id'").fetchone()
+        assert video_row is not None
+        assert video_row["is_md5_duplicate"] == 1
+        assert video_row["processing_status"] == "skipped_duplicate_md5"
+        assert video_row["md5_checksum"] == "duplicate-md5-hash"

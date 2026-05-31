@@ -81,6 +81,7 @@ def init_db(connection: sqlite3.Connection) -> None:
             is_4k BOOLEAN DEFAULT FALSE,
             is_missing BOOLEAN DEFAULT FALSE,
             is_excluded BOOLEAN DEFAULT FALSE,
+            is_md5_duplicate BOOLEAN DEFAULT FALSE,
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
             updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
             UNIQUE (source_type, source_file_id)
@@ -117,6 +118,10 @@ def init_db(connection: sqlite3.Connection) -> None:
     if "is_excluded" not in columns:
         logger.info("Migrating database: Adding is_excluded column to videos table.")
         connection.execute("ALTER TABLE videos ADD COLUMN is_excluded BOOLEAN DEFAULT FALSE")
+
+    if "is_md5_duplicate" not in columns:
+        logger.info("Migrating database: Adding is_md5_duplicate column to videos table.")
+        connection.execute("ALTER TABLE videos ADD COLUMN is_md5_duplicate BOOLEAN DEFAULT FALSE")
 
     # 2. Transcripts table (SIMPLIFIED: engine removed)
     connection.execute("""

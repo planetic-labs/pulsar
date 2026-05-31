@@ -11,11 +11,13 @@ from app.audio import SilentVideoError
 from app.config import (
     get_deepgram_settings,
     get_embedding_settings,
+    get_google_drive_settings,
     get_qdrant_settings,
     get_sqlite_settings,
 )
 from app.db import db_connection
 from app.gemini import UnifiedEmbeddingClient
+from app.google_drive import GoogleDriveClient
 from app.qdrant import get_qdrant_client
 from app.repository import update_video_status
 from app.transcription.deepgram import DeepgramEngine
@@ -143,9 +145,66 @@ class Worker:
             def update_state(data: dict):
                 self._state["stage_1_download"].update(data)
 
+            # 1. Fetch file metadata to get MD5 checksum before download
+            drive_settings = get_google_drive_settings()
+            drive_client = GoogleDriveClient(drive_settings)
+
+            try:
+                self._state["stage_1_download"].update({"status_text": "Проверка MD5"})
+                drive_file = await drive_client.get_file(file_id)
+                md5 = drive_file.md5_checksum
+            except Exception as e:
+                logger.error(f"Не удалось получить метаданные Google Drive для файла {file_id}: {e}")
+                md5 = None
+
+            if md5:
+                # Check if there is an existing video in DB with the same MD5 checksum
+                with db_connection(get_sqlite_settings()) as conn:
+                    existing = conn.execute(
+                        "SELECT id, title, source_file_id FROM videos WHERE md5_checksum = ? AND source_file_id != ?",
+                        (md5, file_id)
+                    ).fetchone()
+
+                if existing:
+                    logger.warning(
+                        f"Файл {title} ({file_id}) является дубликатом по MD5 файла "
+                        f"{existing['title']} ({existing['source_file_id']})! Скачивание пропущено."
+                    )
+
+                    with db_connection(get_sqlite_settings()) as conn:
+                        conn.execute(
+                            """
+                            INSERT INTO videos (
+                                source_type, source_file_id, parent_folder_id, md5_checksum, title,
+                                processing_status, is_md5_duplicate, source_url
+                            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                            ON CONFLICT (source_type, source_file_id) DO UPDATE SET
+                                md5_checksum = EXCLUDED.md5_checksum,
+                                title = EXCLUDED.title,
+                                processing_status = EXCLUDED.processing_status,
+                                is_md5_duplicate = EXCLUDED.is_md5_duplicate
+                            """,
+                            (
+                                "google_drive",
+                                file_id,
+                                payload.get("parent_folder_id"),
+                                md5,
+                                title,
+                                "skipped_duplicate_md5",
+                                1,
+                                f"https://drive.google.com/file/d/{file_id}/view"
+                            )
+                        )
+                        conn.execute(
+                            "UPDATE tasks SET status = 'skipped_duplicate_md5', "
+                            "updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                            (task_id,),
+                        )
+                    return
+
             try:
                 result = await download_and_extract_stage(
-                    file_id, status_callback=logger.info, in_queue=in_queue, state_callback=update_state
+                    file_id, status_callback=update_state, in_queue=in_queue, state_callback=update_state
                 )
 
                 # Use the MD5 from the initial ingest request if available,
