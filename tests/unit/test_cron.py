@@ -29,6 +29,7 @@ def test_cron_main_success(mocker):
         if any("check_integrity" in str(arg) for arg in args):
             mock_res.stdout = (
                 "INTEGRITY_ISSUES:{"
+                '"status": "completed", '
                 '"issues": [], '
                 '"deleted_raw_count": 0, '
                 '"deleted_norm_count": 0, '
@@ -61,6 +62,7 @@ def test_cron_main_with_integrity_issues(mocker):
         if any("check_integrity" in str(arg) for arg in args):
             mock_res.stdout = (
                 "INTEGRITY_ISSUES:{"
+                '"status": "completed", '
                 '"issues": ["DB mismatch", "Missing audio"], '
                 '"deleted_raw_count": 0, '
                 '"deleted_norm_count": 0, '
@@ -95,6 +97,7 @@ def test_cron_main_subprocess_failure(mocker):
         if any("check_integrity" in str(arg) for arg in args):
             mock_res.stdout = (
                 "INTEGRITY_ISSUES:{"
+                '"status": "completed", '
                 '"issues": [], '
                 '"deleted_raw_count": 0, '
                 '"deleted_norm_count": 0, '
@@ -115,3 +118,36 @@ def test_cron_main_subprocess_failure(mocker):
 
     assert mock_run.called
     assert not mock_notify.called
+
+
+def test_cron_main_worker_running(mocker):
+    def mock_run_impl(args, **kwargs):
+        mock_res = MagicMock()
+        mock_res.returncode = 0
+        if any("check_integrity" in str(arg) for arg in args):
+            mock_res.stdout = (
+                "INTEGRITY_ISSUES:{"
+                '"status": "worker_running", '
+                '"active_tasks_count": 5, '
+                '"issues": [], '
+                '"deleted_raw_count": 0, '
+                '"deleted_norm_count": 0, '
+                '"reindexed_videos_count": 0, '
+                '"reindexed_chunks_count": 0, '
+                '"deleted_qdrant_points_count": 0'
+                "}"
+            )
+        else:
+            mock_res.stdout = "Success/Version"
+        return mock_res
+
+    mock_run = mocker.patch("subprocess.run", side_effect=mock_run_impl)
+    mock_notify = mocker.patch("cron.run_all.send_telegram_notification")
+
+    cron_main()
+
+    assert mock_run.called
+    mock_notify.assert_called_once()
+    args, _ = mock_notify.call_args
+    assert "отложена" in args[0]
+    assert "в очереди: 5" in args[0]

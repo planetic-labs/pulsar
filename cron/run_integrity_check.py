@@ -105,6 +105,17 @@ def main():
                 result = json.loads(json_str)
                 break
 
+        status = result.get("status")
+        if status == "worker_running":
+            tasks_count = result.get("active_tasks_count", 0)
+            msg = (
+                "<b>ℹ️ Проверка целостности Pulsar отложена:</b> "
+                f"воркер сейчас занят обработкой задач (в очереди: {tasks_count})."
+            )
+            logger.info(f"Worker is active ({tasks_count} tasks in queue). Postponing integrity check.")
+            send_telegram_notification(msg)
+            return
+
         issues = result.get("issues", [])
         deleted_raw = result.get("deleted_raw_count", 0)
         deleted_norm = result.get("deleted_norm_count", 0)
