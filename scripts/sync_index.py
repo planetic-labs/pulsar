@@ -367,6 +367,7 @@ async def main():
                 # New file found, check if it is already in active download tasks to avoid duplicates
                 if file_id not in active_task_file_ids:
                     new_files_to_queue.append(df)
+                    active_task_file_ids.add(file_id)
 
     # 5. Queue new files for indexing
     if new_files_to_queue:
