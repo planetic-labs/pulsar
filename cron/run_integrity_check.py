@@ -97,25 +97,53 @@ def main():
             if not line.startswith("INTEGRITY_ISSUES:"):
                 logger.info(f"  [INTEGRITY] {line}")
 
-        # Parse issues
-        issues = []
+        # Parse result
+        result = {}
         for line in res.stdout.splitlines():
             if line.startswith("INTEGRITY_ISSUES:"):
                 json_str = line[len("INTEGRITY_ISSUES:") :]
-                issues = json.loads(json_str)
+                result = json.loads(json_str)
                 break
+
+        issues = result.get("issues", [])
+        deleted_raw = result.get("deleted_raw_count", 0)
+        deleted_norm = result.get("deleted_norm_count", 0)
+        reindexed_videos = result.get("reindexed_videos_count", 0)
+        reindexed_chunks = result.get("reindexed_chunks_count", 0)
+        deleted_qdrant_points = result.get("deleted_qdrant_points_count", 0)
+
+        # Build notification text
+        notification_lines = []
 
         if issues:
             logger.warning(f"❌ Integrity check completed with {len(issues)} issues found!")
-            lines = ["<b>⚠️ Обнаружены отклонения при проверке целостности Pulsar!</b>\n"]
+            notification_lines.append("<b>⚠️ Обнаружены отклонения при проверке целостности Pulsar!</b>\n")
             for idx, err in enumerate(issues, 1):
-                lines.append(f"{idx}. {err}")
-            send_telegram_notification("\n".join(lines))
+                notification_lines.append(f"{idx}. {err}")
+            notification_lines.append("")
         else:
-            logger.info("✅ Integrity check completed. No issues found.")
-            send_telegram_notification(
-                "<b>✅ Проверка целостности Pulsar завершена успешно.</b>\nОшибок не обнаружено!"
+            logger.info("✅ Integrity check completed. No critical issues found.")
+            notification_lines.append("<b>✅ Проверка целостности Pulsar завершена.</b>\n")
+
+        auto_corrected = []
+        if deleted_raw > 0:
+            auto_corrected.append(f"• Удалено сиротских RAW-файлов: {deleted_raw}")
+        if deleted_norm > 0:
+            auto_corrected.append(f"• Удалено сиротских NORMALIZED-файлов: {deleted_norm}")
+        if reindexed_videos > 0:
+            auto_corrected.append(
+                f"• Отправлено на повторную индексацию: {reindexed_videos} видео ({reindexed_chunks} чанков)"
             )
+        if deleted_qdrant_points > 0:
+            auto_corrected.append(f"• Удалено сиротских векторов из Qdrant: {deleted_qdrant_points}")
+
+        if auto_corrected:
+            notification_lines.append("<b>🔄 Автоматически исправлено:</b>")
+            notification_lines.extend(auto_corrected)
+        elif not issues:
+            notification_lines.append("Ошибок не обнаружено!")
+
+        send_telegram_notification("\n".join(notification_lines))
 
     except Exception as e:
         logger.error(f"❌ Integrity check execution failed with error: {e}", exc_info=True)

@@ -41,25 +41,18 @@ root_logger.addHandler(console_handler)
 logger = logging.getLogger("cron_run")
 
 
-def send_telegram_alert(errors: list[str]):
+def send_telegram_notification(text: str):
     token = os.getenv("TELEGRAM_BOT_TOKEN")
     chat_id = os.getenv("TELEGRAM_CHAT_ID")
     if not token or not chat_id:
-        logger.warning("Telegram Bot Token or Chat ID not configured. Skipping alert.")
+        logger.warning("Telegram Bot Token or Chat ID not configured. Skipping notification.")
         return
 
-    logger.info("Consolidating issues and sending Telegram alert...")
-
-    # Compose clean HTML message
-    lines = ["<b>⚠️ Обнаружены отклонения при проверке целостности Pulsar!</b>\n"]
-    for idx, err in enumerate(errors, 1):
-        lines.append(f"{idx}. {err}")
-    message = "\n".join(lines)
-
+    logger.info("Sending Telegram notification...")
     url = f"https://api.telegram.org/bot{token}/sendMessage"
     chunk_size = 4000
-    for i in range(0, len(message), chunk_size):
-        chunk = message[i : i + chunk_size]
+    for i in range(0, len(text), chunk_size):
+        chunk = text[i : i + chunk_size]
         payload = {
             "chat_id": chat_id,
             "text": chunk,
@@ -138,19 +131,53 @@ def main():
             if not line.startswith("INTEGRITY_ISSUES:"):
                 logger.info(f"  [INTEGRITY] {line}")
 
-        # Parse issues
-        issues = []
+        # Parse result
+        result = {}
         for line in res.stdout.splitlines():
             if line.startswith("INTEGRITY_ISSUES:"):
                 json_str = line[len("INTEGRITY_ISSUES:") :]
-                issues = json.loads(json_str)
+                result = json.loads(json_str)
                 break
+
+        issues = result.get("issues", [])
+        deleted_raw = result.get("deleted_raw_count", 0)
+        deleted_norm = result.get("deleted_norm_count", 0)
+        reindexed_videos = result.get("reindexed_videos_count", 0)
+        reindexed_chunks = result.get("reindexed_chunks_count", 0)
+        deleted_qdrant_points = result.get("deleted_qdrant_points_count", 0)
+
+        # Build notification text
+        notification_lines = []
 
         if issues:
             logger.warning(f"❌ Integrity check completed with {len(issues)} issues found!")
-            send_telegram_alert(issues)
+            notification_lines.append("<b>⚠️ Обнаружены отклонения при проверке целостности Pulsar!</b>\n")
+            for idx, err in enumerate(issues, 1):
+                notification_lines.append(f"{idx}. {err}")
+            notification_lines.append("")
         else:
-            logger.info("✅ Integrity check completed. No issues found.")
+            logger.info("✅ Integrity check completed. No critical issues found.")
+
+        auto_corrected = []
+        if deleted_raw > 0:
+            auto_corrected.append(f"• Удалено сиротских RAW-файлов: {deleted_raw}")
+        if deleted_norm > 0:
+            auto_corrected.append(f"• Удалено сиротских NORMALIZED-файлов: {deleted_norm}")
+        if reindexed_videos > 0:
+            auto_corrected.append(
+                f"• Отправлено на повторную индексацию: {reindexed_videos} видео ({reindexed_chunks} чанков)"
+            )
+        if deleted_qdrant_points > 0:
+            auto_corrected.append(f"• Удалено сиротских векторов из Qdrant: {deleted_qdrant_points}")
+
+        if auto_corrected:
+            if not issues:
+                notification_lines.append("<b>✅ Проверка целостности Pulsar завершена.</b>\n")
+            notification_lines.append("<b>🔄 Автоматически исправлено:</b>")
+            notification_lines.extend(auto_corrected)
+
+        if issues or auto_corrected:
+            send_telegram_notification("\n".join(notification_lines))
     except Exception as e:
         logger.error(f"❌ Integrity check execution failed with error: {e}", exc_info=True)
         if isinstance(e, subprocess.CalledProcessError):
