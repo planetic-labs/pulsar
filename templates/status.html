@@ -213,6 +213,24 @@
                     </div>
                 </div>
             </div>
+
+            <!-- Duplicate MD5 files -->
+            <div id="duplicate-md5-container" class="hidden animate-in fade-in slide-in-from-top-4 duration-500 mt-4">
+                <div class="bg-orange-50 border border-orange-200 rounded-2xl p-4 flex flex-col gap-3">
+                    <div class="flex items-center gap-2">
+                        <div class="w-8 h-8 rounded-xl bg-orange-100 flex items-center justify-center text-orange-600">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7v8a2 2 0 002 2h6M8 7V5a2 2 0 012-2h4.586a1 1 0 01.707.293l4.414 4.414a1 1 0 01.293.707V15a2 2 0 01-2 2h-2M8 7H6a2 2 0 00-2 2v10a2 2 0 012 2h8a2 2 0 002-2v-2"></path></svg>
+                        </div>
+                        <div>
+                            <h4 class="text-[10px] font-black text-orange-800 uppercase tracking-widest">Дубликаты по MD5</h4>
+                            <p class="text-[8px] text-orange-600 font-bold uppercase tracking-tight">Файлы с совпадающим содержимым на Google Drive</p>
+                        </div>
+                    </div>
+                    <div id="duplicate-md5-list" class="flex flex-col gap-1.5">
+                        <!-- List items will be injected here -->
+                    </div>
+                </div>
+            </div>
         </div>
 
         <!-- Deletion Confirmation Modal -->
@@ -601,6 +619,39 @@
                     `).join('');
                 } else {
                     excludedContainer.classList.add('hidden');
+                }
+            }
+
+            // 8. Update Duplicate MD5 Block
+            const duplicateContainer = document.getElementById('duplicate-md5-container');
+            const duplicateList = document.getElementById('duplicate-md5-list');
+            if (duplicateContainer && duplicateList && data.stats) {
+                if (data.stats.duplicate_md5_list && data.stats.duplicate_md5_list.length > 0) {
+                    duplicateContainer.classList.remove('hidden');
+                    duplicateList.innerHTML = data.stats.duplicate_md5_list.map(item => `
+                        <div class="flex items-center justify-between group">
+                            <span class="text-[9px] font-bold text-orange-900 truncate pr-4" title="${item.title}">
+                                ${item.title} <span class="font-normal opacity-70">(копия: ${item.original_title})</span>
+                            </span>
+                            <div class="h-px flex-1 bg-orange-200/50 mr-4"></div>
+                            <div class="flex items-center gap-2">
+                                ${item.source_url ? `
+                                    <a href="${item.source_url}" target="_blank" class="p-1 bg-blue-50 text-blue-600 rounded hover:bg-blue-100 transition-all shadow-sm shrink-0" title="Открыть диск">
+                                        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                                        </svg>
+                                    </a>
+                                ` : ''}
+                                <button onclick="confirmDeleteVideo(${item.id}, '${item.title.replace(/'/g, "\\'")}', '${item.file_id}')" class="p-1 bg-rose-50 text-rose-600 rounded hover:bg-rose-100 transition-all shadow-sm shrink-0" title="Удалить из индекса">
+                                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                    </svg>
+                                </button>
+                            </div>
+                        </div>
+                    `).join('');
+                } else {
+                    duplicateContainer.classList.add('hidden');
                 }
             }
         } catch (e) {

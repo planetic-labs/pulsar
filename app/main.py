@@ -399,6 +399,36 @@ async def api_worker_progress(_: str = Depends(require_admin)):
                     }
                 )
 
+        # Detail duplicate MD5 files
+        stats["duplicate_md5_list"] = []
+        stats["duplicate_md5_count"] = 0
+        sql_dc = "SELECT COUNT(*) as c FROM videos WHERE is_md5_duplicate = 1"
+        stats["duplicate_md5_count"] = conn.execute(sql_dc).fetchone()["c"]
+        if stats["duplicate_md5_count"] > 0:
+            sql_d = (
+                "SELECT id, title, source_file_id, source_url, md5_checksum "
+                "FROM videos WHERE is_md5_duplicate = 1 "
+                "ORDER BY updated_at DESC LIMIT 20"
+            )
+            d_rows = conn.execute(sql_d).fetchall()
+            for dr in d_rows:
+                # Find matching original video
+                original_title = "Неизвестный оригинал"
+                if dr["md5_checksum"]:
+                    sql_orig = "SELECT title FROM videos WHERE md5_checksum = ? AND is_md5_duplicate = 0 LIMIT 1"
+                    orig_row = conn.execute(sql_orig, (dr["md5_checksum"],)).fetchone()
+                    if orig_row:
+                        original_title = orig_row["title"]
+                stats["duplicate_md5_list"].append(
+                    {
+                        "id": dr["id"],
+                        "title": dr["title"],
+                        "file_id": dr["source_file_id"],
+                        "source_url": dr["source_url"],
+                        "original_title": original_title,
+                    }
+                )
+
         # Detail failed
         if stats["failed"] > 0:
             sql_e = """
