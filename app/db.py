@@ -78,6 +78,7 @@ def init_db(connection: sqlite3.Connection) -> None:
             local_video_path TEXT,
             local_audio_path TEXT,
             processing_status TEXT NOT NULL,
+            is_4k BOOLEAN DEFAULT FALSE,
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
             updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
             UNIQUE (source_type, source_file_id)
@@ -102,6 +103,10 @@ def init_db(connection: sqlite3.Connection) -> None:
     if "md5_checksum" not in columns:
         logger.info("Migrating database: Adding md5_checksum column to videos table.")
         connection.execute("ALTER TABLE videos ADD COLUMN md5_checksum TEXT")
+
+    if "is_4k" not in columns:
+        logger.info("Migrating database: Adding is_4k column to videos table.")
+        connection.execute("ALTER TABLE videos ADD COLUMN is_4k BOOLEAN DEFAULT FALSE")
 
     # 2. Transcripts table (SIMPLIFIED: engine removed)
     connection.execute("""

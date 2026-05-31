@@ -1,0 +1,8 @@
+# Pulsar Cron Jobs configuration example
+# Copy or append these lines to your crontab using command: crontab -e
+
+# Run backup daily at 3:00 AM
+0 3 * * * /home/devman/workspace/pulsar/cron/backup.sh >> /home/devman/workspace/pulsar/backups/local/backup.log 2>&1
+
+# Run search index synchronization every hour (at minute 0)
+0 * * * * /home/devman/workspace/pulsar/cron/sync.sh >> /home/devman/workspace/pulsar/data/sync.log 2>&1

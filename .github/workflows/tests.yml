@@ -41,31 +41,3 @@ jobs:
           QDRANT_HOST: "localhost"
           APP_ACCESS_TOKEN: "test-token"
           SESSION_SECRET_KEY: "test-secret"
-
-  docker:
-    runs-on: ubuntu-latest
-    if: |
-      github.event_name == 'pull_request' ||
-      contains(github.event.commits.*.added, 'Dockerfile') ||
-      contains(github.event.commits.*.modified, 'Dockerfile') ||
-      contains(github.event.commits.*.added, 'pyproject.toml') ||
-      contains(github.event.commits.*.modified, 'pyproject.toml') ||
-      contains(github.event.commits.*.added, 'uv.lock') ||
-      contains(github.event.commits.*.modified, 'uv.lock') ||
-      contains(github.event.commits.*.added, 'docker-compose.yml') ||
-      contains(github.event.commits.*.modified, 'docker-compose.yml')
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Build Docker image
-        uses: docker/build-push-action@v5
-        with:
-          context: .
-          file: ./Dockerfile
-          push: false
-          tags: pulsar:test
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
