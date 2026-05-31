@@ -1,44 +1,5 @@
 # 🎬 Pulsar
 
-<p align="left">
-  <a href="https://github.com/planetic-labs/pulsar/actions/workflows/docker-publish.yml">
-    <img src="https://github.com/planetic-labs/pulsar/actions/workflows/docker-publish.yml/badge.svg" alt="Build Status">
-  </a>
-  <img src="https://img.shields.io/badge/python-3.12+-blue.svg" alt="Python Version">
-  <a href="https://github.com/astral-sh/uv">
-    <img src="https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/uv/main/assets/badge/v0.json" alt="Built with uv">
-  </a>
-  <a href="https://github.com/astral-sh/ruff">
-    <img src="https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json" alt="Ruff">
-  </a>
-  <img src="https://img.shields.io/badge/types-Ty-blue" alt="Checked with Ty">
-  <a href="https://github.com/pre-commit/pre-commit">
-    <img src="https://img.shields.io/badge/pre--commit-enabled-brightgreen?logo=pre-commit" alt="Pre-commit">
-  </a>
-  <a href="https://deepgram.com/">
-    <img src="https://img.shields.io/badge/STT-Deepgram-black?logo=deepgram" alt="Deepgram">
-  </a>
-  <a href="https://qdrant.tech/">
-    <img src="https://img.shields.io/badge/VectorDB-Qdrant-red?logo=qdrant" alt="Qdrant">
-  </a>
-  <img src="https://img.shields.io/badge/PWA-ready-orange.svg" alt="PWA">
-  <a href="LICENSE">
-    <img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License: MIT">
-  </a>
-</p>
-
-<p align="left">
-  <img src="https://img.shields.io/github/last-commit/planetic-labs/pulsar" alt="Last Commit">
-  <img src="https://img.shields.io/github/languages/top/planetic-labs/pulsar" alt="Top Language">
-  <img src="https://img.shields.io/github/languages/code-size/planetic-labs/pulsar" alt="Code Size">
-  <img src="https://img.shields.io/badge/Search-Hybrid%20RAG-orange" alt="Hybrid RAG">
-  <img src="https://img.shields.io/badge/Languages-RU%20%7C%20EN-blue" alt="Languages">
-  <img src="https://img.shields.io/badge/Maintained-yes-brightgreen.svg" alt="Maintained">
-  <a href="https://github.com/planetic-labs/pulsar/stargazers">
-    <img src="https://img.shields.io/github/stars/planetic-labs/pulsar?style=social" alt="Stars">
-  </a>
-</p>
-
 Enterprise-grade RAG (Retrieval-Augmented Generation) system for deep semantic search through video archives using AI transcription. Optimized for high-speed processing and precise quote retrieval.
 
 [Russian Description / Описание на русском](#pulsar-ru)
