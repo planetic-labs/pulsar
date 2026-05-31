@@ -34,6 +34,7 @@ services:
         condition: service_started
     volumes:
       - .:/app
+      - /app/.venv
       - ./downloads:/app/downloads
       - ./data:/app/data
       - ./storage:/app/storage
