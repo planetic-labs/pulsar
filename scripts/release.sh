@@ -61,7 +61,19 @@ if [ $? -eq 0 ]; then
         echo "Deleting old release: $OLD_TAG"
         gh release delete "$OLD_TAG" --yes --cleanup-tag
     done
-    
+    # 5. Clean up old workflow runs (keep only runs created today)
+    TODAY_DATE=$(date -u +'%Y-%m-%d')
+    echo "🧹 Cleaning up workflow runs created before $TODAY_DATE..."
+    OLD_RUNS=$(gh run list --limit 1000 --created "<$TODAY_DATE" --json databaseId --jq '.[].databaseId')
+    if [ -n "$OLD_RUNS" ]; then
+        RUN_COUNT=$(echo "$OLD_RUNS" | wc -l)
+        echo "Found $RUN_COUNT older workflow runs. Deleting in parallel..."
+        echo "$OLD_RUNS" | xargs -r -P 10 -I {} gh run delete {}
+        echo "✅ Old workflow runs cleanup completed."
+    else
+        echo "No older workflow runs to clean up."
+    fi
+
     echo "🔍 Track build progress: gh run watch"
 else
     echo "❌ Failed to create release. Make sure you are logged in: gh auth login"
