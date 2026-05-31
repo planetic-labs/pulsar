@@ -27,6 +27,7 @@ services:
       - planetic-net
     environment:
       - HF_HOME=/app/models_cache
+      - APP_PORT=8032
     env_file: .env
     depends_on:
       qdrant:
