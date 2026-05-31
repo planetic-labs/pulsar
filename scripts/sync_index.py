@@ -212,7 +212,8 @@ async def main():
     with db_connection(sqlite_settings) as conn:
         # Get all local videos from DB
         videos = conn.execute("""
-            SELECT id, source_file_id, title, parent_folder_id, recorded_date, is_4k, processing_status, source_url
+            SELECT id, source_file_id, title, parent_folder_id, recorded_date,
+                   is_4k, processing_status, source_url, is_missing
             FROM videos WHERE source_type = 'google_drive'
         """).fetchall()
         for v in videos:
@@ -385,11 +386,18 @@ async def main():
 
     # 6. Check for missing files (present locally but missing on Google Drive)
     missing_files = []
-    for file_id, lv in local_videos.items():
-        # Only notify about successfully processed or indexing videos, ignore failed ones
-        if file_id not in drive_file_ids and lv["processing_status"] not in ("failed", "skipped_silent"):
-            missing_files.append({"file_id": file_id, "title": lv["title"], "source_url": lv["source_url"]})
-            logger.warning(f"File missing on Google Drive: {lv['title']} ({file_id})")
+    with db_connection(sqlite_settings) as conn:
+        for file_id, lv in local_videos.items():
+            # Only notify about successfully processed or indexing videos, ignore failed ones
+            if file_id not in drive_file_ids and lv["processing_status"] not in ("failed", "skipped_silent"):
+                missing_files.append({"file_id": file_id, "title": lv["title"], "source_url": lv["source_url"]})
+                logger.warning(f"File missing on Google Drive: {lv['title']} ({file_id})")
+                if not lv.get("is_missing"):
+                    conn.execute("UPDATE videos SET is_missing = 1 WHERE source_file_id = ?", (file_id,))
+            else:
+                if lv.get("is_missing"):
+                    logger.info(f"File restored on Google Drive: {lv['title']} ({file_id})")
+                    conn.execute("UPDATE videos SET is_missing = 0 WHERE source_file_id = ?", (file_id,))
 
     # 7. Send Telegram Notifications
     if missing_files:

@@ -177,6 +177,24 @@
                     </div>
                 </div>
             </div>
+
+            <!-- Missing on Google Drive -->
+            <div id="missing-on-drive-container" class="hidden animate-in fade-in slide-in-from-top-4 duration-500">
+                <div class="bg-rose-50 border border-rose-200 rounded-2xl p-4 flex flex-col gap-3">
+                    <div class="flex items-center gap-2">
+                        <div class="w-8 h-8 rounded-xl bg-rose-100 flex items-center justify-center text-rose-600">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg>
+                        </div>
+                        <div>
+                            <h4 class="text-[10px] font-black text-rose-800 uppercase tracking-widest">Пропали на Google Drive</h4>
+                            <p class="text-[8px] text-rose-600 font-bold uppercase tracking-tight">Файлы есть в индексе, но отсутствуют на Google Drive</p>
+                        </div>
+                    </div>
+                    <div id="missing-on-drive-list" class="flex flex-col gap-1.5">
+                        <!-- List items will be injected here -->
+                    </div>
+                </div>
+            </div>
         </div>
 
         <!-- Logs Column -->
@@ -463,6 +481,27 @@
                     `).join('');
                 } else {
                     noSpaceContainer.classList.add('hidden');
+                }
+            }
+
+            // 6. Update Missing on Google Drive Block
+            const missingContainer = document.getElementById('missing-on-drive-container');
+            const missingList = document.getElementById('missing-on-drive-list');
+            if (missingContainer && missingList && data.stats) {
+                if (data.stats.missing_on_drive_list && data.stats.missing_on_drive_list.length > 0) {
+                    missingContainer.classList.remove('hidden');
+                    missingList.innerHTML = data.stats.missing_on_drive_list.map(item => `
+                        <div class="flex items-center justify-between group">
+                            <span class="text-[9px] font-bold text-rose-900 truncate pr-4">${item.title}</span>
+                            <div class="h-px flex-1 bg-rose-200/50 mr-4"></div>
+                            <div class="flex items-center gap-2">
+                                ${item.source_url ? `<a href="${item.source_url}" target="_blank" class="text-[8px] font-black text-blue-500 hover:underline uppercase tracking-widest mr-2">Открыть диск</a>` : ''}
+                                <span class="text-[7px] font-black text-rose-600/50 uppercase tracking-tighter shrink-0">Удален с диска</span>
+                            </div>
+                        </div>
+                    `).join('');
+                } else {
+                    missingContainer.classList.add('hidden');
                 }
             }
         } catch (e) {

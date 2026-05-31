@@ -355,6 +355,26 @@ async def api_worker_progress(_: str = Depends(require_admin)):
                 except Exception:
                     pass
 
+        # Detail missing on Google Drive
+        stats["missing_on_drive_list"] = []
+        stats["missing_on_drive_count"] = 0
+        sql_mc = "SELECT COUNT(*) as c FROM videos WHERE is_missing = 1"
+        stats["missing_on_drive_count"] = conn.execute(sql_mc).fetchone()["c"]
+        if stats["missing_on_drive_count"] > 0:
+            sql_m = (
+                "SELECT id, title, source_file_id, source_url "
+                "FROM videos WHERE is_missing = 1 "
+                "ORDER BY updated_at DESC LIMIT 20"
+            )
+            m_rows = conn.execute(sql_m).fetchall()
+            for mr in m_rows:
+                stats["missing_on_drive_list"].append({
+                    "id": mr["id"],
+                    "title": mr["title"],
+                    "file_id": mr["source_file_id"],
+                    "source_url": mr["source_url"]
+                })
+
         # Detail failed
         if stats["failed"] > 0:
             sql_e = """
