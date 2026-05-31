@@ -36,6 +36,7 @@ RUN uv sync
 
 COPY app ./app
 COPY scripts ./scripts
+COPY cron ./cron
 
 # FastAPI port
 EXPOSE 8000

@@ -38,6 +38,7 @@ RUN uv sync --frozen --no-dev
 # Копируем исходный код и ресурсы
 COPY app ./app
 COPY scripts ./scripts
+COPY cron ./cron
 COPY templates ./templates
 COPY static ./static
 
