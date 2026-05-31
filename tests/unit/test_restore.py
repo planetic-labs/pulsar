@@ -28,4 +28,4 @@ def test_manage_app_container(mocker):
     args = mock_run.call_args[0][0]
     assert "docker" in args
     assert "stop" in args
-    assert "app" in args
+    assert "pulsar" in args

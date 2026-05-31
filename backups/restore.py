@@ -13,11 +13,29 @@ from botocore.exceptions import ClientError
 from dotenv import load_dotenv
 
 # Setup clean logging
-logging.basicConfig(level=logging.INFO, format="%(message)s")
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+LOGS_DIR = PROJECT_ROOT / "logs"
+LOGS_DIR.mkdir(exist_ok=True)
+log_file = LOGS_DIR / "restore.log"
+
+root_logger = logging.getLogger()
+root_logger.setLevel(logging.INFO)
+for h in root_logger.handlers[:]:
+    root_logger.removeHandler(h)
+
+# File handler
+file_handler = logging.FileHandler(log_file, encoding="utf-8")
+file_handler.setFormatter(logging.Formatter("%(asctime)s - %(levelname)s - %(message)s"))
+root_logger.addHandler(file_handler)
+
+# Console handler
+console_handler = logging.StreamHandler(sys.stdout)
+console_handler.setFormatter(logging.Formatter("%(message)s"))
+root_logger.addHandler(console_handler)
+
 logger = logging.getLogger("restore")
 
 # Load root .env file
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
 ENV_PATH = PROJECT_ROOT / ".env"
 if ENV_PATH.exists():
     load_dotenv(ENV_PATH)

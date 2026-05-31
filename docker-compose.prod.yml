@@ -31,6 +31,8 @@ services:
       - ./storage:/app/storage
       - ./models_cache:/app/models_cache
       - ./config:/app/config
+      - ./logs:/app/logs
+
 
 volumes:
   qdrant_data:
