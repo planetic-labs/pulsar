@@ -488,7 +488,7 @@ async def hybrid_search(
             id_to_lexical_score[p.id] = p.score
 
         # 3. Final sorting
-        candidates_list = []
+        candidates_list: list[dict[str, Any]] = []
         for pid, score in combined_scores.items():
             if pid in points_map:
                 # Determine match type based on which results contained the point
