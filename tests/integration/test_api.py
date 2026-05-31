@@ -252,3 +252,87 @@ def test_api_restart_no_space_tasks(client, tmp_db, mocker):
     with db_connection(tmp_db) as conn:
         task = conn.execute("SELECT status FROM tasks WHERE task_type = 'stage_1_download'").fetchone()
         assert task["status"] == "pending"
+
+
+def test_api_indexed_delete_video(client, tmp_db, mocker, mock_qdrant, tmp_path):
+    client.post("/login", data={"token": "test-token"})
+
+    # Create dummy local files
+    dummy_video = tmp_path / "video.mp4"
+    dummy_audio = tmp_path / "audio.ogg"
+    dummy_raw_json = tmp_path / "raw.json"
+    dummy_norm_json = tmp_path / "norm.json"
+
+    dummy_video.write_text("video content")
+    dummy_audio.write_text("audio content")
+    dummy_raw_json.write_text("raw json")
+    dummy_norm_json.write_text("norm json")
+
+    from app.db import db_connection
+
+    # Insert video, transcript, chunks, speakers
+    with db_connection(tmp_db) as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            INSERT INTO videos (
+                source_type, source_file_id, title, local_video_path, local_audio_path, processing_status
+            ) VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            ("google_drive", "drive_123", "Test Video", str(dummy_video), str(dummy_audio), "indexed_chunks_ready"),
+        )
+        video_id = cursor.lastrowid
+
+        cursor.execute(
+            """
+            INSERT INTO transcripts (video_id, language, raw_json_path, normalized_json_path)
+            VALUES (?, ?, ?, ?)
+            """,
+            (video_id, "ru", str(dummy_raw_json), str(dummy_norm_json)),
+        )
+        transcript_id = cursor.lastrowid
+
+        cursor.execute(
+            """
+            INSERT INTO chunks (video_id, transcript_id, chunk_index, start_sec, end_sec, text)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (video_id, transcript_id, 0, 0.0, 10.0, "hello world"),
+        )
+        chunk_id = cursor.lastrowid
+
+    # Mock get_qdrant_client to return our mock_qdrant client
+    mocker.patch("app.main.get_qdrant_client", return_value=mock_qdrant)
+
+    # Call delete API endpoint
+    response = client.delete(f"/api/v1/indexed/videos/{video_id}")
+    assert response.status_code == 200
+    assert response.json() == {"status": "success"}
+
+    # Verify database: check that video row, transcripts, and chunks are deleted
+    with db_connection(tmp_db) as conn:
+        video_row = conn.execute("SELECT * FROM videos WHERE id = ?", (video_id,)).fetchone()
+        assert video_row is None
+
+        transcript_row = conn.execute("SELECT * FROM transcripts WHERE video_id = ?", (video_id,)).fetchone()
+        assert transcript_row is None
+
+        chunk_row = conn.execute("SELECT * FROM chunks WHERE video_id = ?", (video_id,)).fetchone()
+        assert chunk_row is None
+
+    # Verify Qdrant points deletion was called
+    mock_qdrant.delete.assert_called_once_with(
+        collection_name=mocker.ANY,
+        points_selector=mocker.ANY,
+    )
+    # Check that points_selector includes chunk_id
+    call_args = mock_qdrant.delete.call_args[1]
+    selector = call_args["points_selector"]
+    assert selector.points == [chunk_id]
+
+    # Verify files are deleted from the filesystem
+    assert not dummy_video.exists()
+    assert not dummy_audio.exists()
+    assert not dummy_raw_json.exists()
+    assert not dummy_norm_json.exists()
+

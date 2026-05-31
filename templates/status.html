@@ -741,17 +741,26 @@
     async function executeDeleteVideo() {
         if (!videoIdToDelete) return;
 
-        // Stub deletion for video, display warning toast
-        console.log(`Stub deletion for video ID: ${videoIdToDelete}`);
-
-        const toast = document.createElement('div');
-        toast.className = "fixed bottom-8 left-8 z-[200] px-5 py-2.5 bg-[#3A3630] text-[#FAF9F6] rounded-xl text-[9px] font-black uppercase tracking-widest shadow-2xl animate-in slide-in-from-bottom-4 duration-200";
-        toast.textContent = `Заглушка: Файл #${videoIdToDelete} удален из индекса`;
-        document.body.appendChild(toast);
-        setTimeout(() => {
-            toast.classList.add('animate-out', 'fade-out', 'slide-out-to-bottom-4');
-            setTimeout(() => toast.remove(), 200);
-        }, 3000);
+        try {
+            const res = await fetch(`/api/v1/indexed/videos/${videoIdToDelete}`, { method: 'DELETE' });
+            if (res.ok) {
+                const toast = document.createElement('div');
+                toast.className = "fixed bottom-8 left-8 z-[200] px-5 py-2.5 bg-[#3A3630] text-[#FAF9F6] rounded-xl text-[9px] font-black uppercase tracking-widest shadow-2xl animate-in slide-in-from-bottom-4 duration-200";
+                toast.textContent = `Файл #${videoIdToDelete} полностью удален из индекса`;
+                document.body.appendChild(toast);
+                setTimeout(() => {
+                    toast.classList.add('animate-out', 'fade-out', 'slide-out-to-bottom-4');
+                    setTimeout(() => toast.remove(), 200);
+                }, 2000);
+                updateProgressUI();
+            } else {
+                const errData = await res.json();
+                alert(`Ошибка удаления: ${errData.detail || res.statusText}`);
+            }
+        } catch (e) {
+            console.error(e);
+            alert(`Ошибка при удалении видео: ${e.message}`);
+        }
 
         closeDeleteModal();
     }
