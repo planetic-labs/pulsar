@@ -1,3 +1,4 @@
+import json
 import logging
 import os
 import subprocess
@@ -74,6 +75,15 @@ def send_telegram_alert(errors: list[str]):
             break
 
 
+def get_docker_compose_cmd() -> list[str]:
+    # Check if docker-compose (v1) or docker compose (v2) is available
+    try:
+        subprocess.run(["docker-compose", "--version"], capture_output=True, check=True)
+        return ["docker-compose"]
+    except Exception:
+        return ["docker", "compose"]
+
+
 def main():
     logger.info("=========================================")
     logger.info("🚀 STARTING UNIFIED CRON WORKFLOW")
@@ -96,10 +106,11 @@ def main():
         # Note: we continue execution of other cron steps even if backup fails
 
     # 2. Execute Sync Index
-    logger.info("Step 2/3: Running index synchronization...")
+    logger.info("Step 2/3: Running index synchronization in container...")
     try:
-        sync_script = ROOT_DIR / "scripts" / "sync_index.py"
-        res = subprocess.run([sys.executable, str(sync_script)], capture_output=True, text=True, check=True)
+        compose_cmd = get_docker_compose_cmd()
+        cmd = compose_cmd + ["exec", "-T", "pulsar", "uv", "run", "python", "scripts/sync_index.py"]
+        res = subprocess.run(cmd, capture_output=True, text=True, check=True)
         logger.info("Sync stdout:")
         for line in res.stdout.splitlines():
             logger.info(f"  [SYNC] {line}")
@@ -110,11 +121,30 @@ def main():
         logger.error(f"Sync stderr:\n{e.stderr}")
 
     # 3. Execute Integrity Check
-    logger.info("Step 3/3: Running database and index integrity checks...")
+    logger.info("Step 3/3: Running database and index integrity checks in container...")
     try:
-        from scripts.check_integrity import check_integrity
+        compose_cmd = get_docker_compose_cmd()
+        py_cmd = (
+            "from scripts.check_integrity import check_integrity; "
+            "import json; "
+            "print('INTEGRITY_ISSUES:' + json.dumps(check_integrity()))"
+        )
+        cmd = compose_cmd + ["exec", "-T", "pulsar", "uv", "run", "python", "-c", py_cmd]
+        res = subprocess.run(cmd, capture_output=True, text=True, check=True)
 
-        issues = check_integrity()
+        # Log stdout/stderr lines except the JSON wrapper line
+        logger.info("Integrity check stdout:")
+        for line in res.stdout.splitlines():
+            if not line.startswith("INTEGRITY_ISSUES:"):
+                logger.info(f"  [INTEGRITY] {line}")
+
+        # Parse issues
+        issues = []
+        for line in res.stdout.splitlines():
+            if line.startswith("INTEGRITY_ISSUES:"):
+                json_str = line[len("INTEGRITY_ISSUES:"):]
+                issues = json.loads(json_str)
+                break
 
         if issues:
             logger.warning(f"❌ Integrity check completed with {len(issues)} issues found!")
@@ -123,6 +153,9 @@ def main():
             logger.info("✅ Integrity check completed. No issues found.")
     except Exception as e:
         logger.error(f"❌ Integrity check execution failed with error: {e}", exc_info=True)
+        if isinstance(e, subprocess.CalledProcessError):
+            logger.error(f"Integrity check stdout:\n{e.stdout}")
+            logger.error(f"Integrity check stderr:\n{e.stderr}")
 
     logger.info("=========================================")
     logger.info("🎉 UNIFIED CRON WORKFLOW COMPLETED")
