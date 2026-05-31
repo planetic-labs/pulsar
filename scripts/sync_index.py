@@ -18,8 +18,27 @@ from app.db import db_connection
 from app.google_drive import GoogleDriveClient
 from app.repository import extract_date_from_title, upsert_folder
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
+LOGS_DIR = ROOT_DIR / "logs"
+LOGS_DIR.mkdir(exist_ok=True)
+log_file = LOGS_DIR / "sync_index.log"
+
+root_logger = logging.getLogger()
+root_logger.setLevel(logging.INFO)
+for h in root_logger.handlers[:]:
+    root_logger.removeHandler(h)
+
+# File handler with full formatting
+file_handler = logging.FileHandler(log_file, encoding="utf-8")
+file_handler.setFormatter(logging.Formatter("%(asctime)s - %(levelname)s - %(message)s"))
+root_logger.addHandler(file_handler)
+
+# Console handler with same detailed formatting for cron tasks monitoring
+console_handler = logging.StreamHandler(sys.stdout)
+console_handler.setFormatter(logging.Formatter("%(asctime)s - %(levelname)s - %(message)s"))
+root_logger.addHandler(console_handler)
+
 logger = logging.getLogger("sync_index")
+
 
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
@@ -113,7 +132,7 @@ async def main():
     with db_connection(sqlite_settings) as conn:
         # Get root folders from DB
         rows = conn.execute("""
-            SELECT id, name FROM folders 
+            SELECT id, name FROM folders
             WHERE parent_id IS NULL OR parent_id NOT IN (SELECT id FROM folders)
         """).fetchall()
         for row in rows:
@@ -227,8 +246,9 @@ async def main():
                     logger.info(f"Updating local metadata for video {file_id}: '{lv['title']}' -> '{name}'")
                     conn.execute(
                         """
-                        UPDATE videos 
-                        SET title = ?, parent_folder_id = ?, recorded_date = ?, is_4k = ?, updated_at = CURRENT_TIMESTAMP
+                        UPDATE videos
+                        SET title = ?, parent_folder_id = ?, recorded_date = ?,
+                            is_4k = ?, updated_at = CURRENT_TIMESTAMP
                         WHERE source_file_id = ?
                         """,
                         (name, parent_id, recorded_date, int(is_4k), file_id),

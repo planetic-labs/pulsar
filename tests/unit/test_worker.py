@@ -182,4 +182,3 @@ async def test_worker_stage_2_missing_file_recovery(tmp_db, monkeypatch, mocker)
         new_payload = json.loads(new_task["payload"])
         assert new_payload["file_id"] == "drive_file_123"
         assert new_payload["title"] == "Missing File Video"
-
