@@ -204,7 +204,7 @@ class Worker:
 
             try:
                 result = await download_and_extract_stage(
-                    file_id, status_callback=update_state, in_queue=in_queue, state_callback=update_state
+                    file_id, status_callback=logger.info, in_queue=in_queue, state_callback=update_state
                 )
 
                 # Use the MD5 from the initial ingest request if available,
