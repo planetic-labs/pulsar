@@ -40,50 +40,52 @@ def check_integrity() -> list[str]:
         for t in transcripts:
             # Check RAW
             if t["raw_json_path"]:
-                raw_path = Path(t["raw_json_path"])
-                db_raw_files.add(raw_path.resolve())
-                if not raw_path.exists():
-                    msg = f"Video {t['video_id']}: Missing RAW at {raw_path}"
-                    missing_files.append(msg)
-                    issues.append(msg)
-                else:
-                    try:
-                        with open(raw_path, encoding="utf-8") as f:
-                            json.load(f)
-                    except Exception:
-                        msg = f"Video {t['video_id']}: Corrupted RAW JSON at {raw_path}"
-                        corrupted_json.append(msg)
+                raw_path = app_settings.resolve_path(t["raw_json_path"])
+                if raw_path:
+                    db_raw_files.add(raw_path.resolve())
+                    if not raw_path.exists():
+                        msg = f"Video {t['video_id']}: Missing RAW at {raw_path}"
+                        missing_files.append(msg)
                         issues.append(msg)
+                    else:
+                        try:
+                            with open(raw_path, encoding="utf-8") as f:
+                                json.load(f)
+                        except Exception:
+                            msg = f"Video {t['video_id']}: Corrupted RAW JSON at {raw_path}"
+                            corrupted_json.append(msg)
+                            issues.append(msg)
 
             # Check NORMALIZED + text comparison
             if t["normalized_json_path"]:
-                norm_path = Path(t["normalized_json_path"])
-                db_norm_files.add(norm_path.resolve())
-                if not norm_path.exists():
-                    msg = f"Video {t['video_id']}: Missing NORMALIZED at {norm_path}"
-                    missing_files.append(msg)
-                    issues.append(msg)
-                else:
-                    try:
-                        with open(norm_path, encoding="utf-8") as f:
-                            norm_data = json.load(f)
-
-                        # Check text of the first chunk
-                        sql_chunk = "SELECT text FROM chunks WHERE transcript_id = ? ORDER BY chunk_index LIMIT 1"
-                        first_chunk = conn.execute(sql_chunk, (t["id"],)).fetchone()
-
-                        if first_chunk and "utterances" in norm_data and len(norm_data["utterances"]) > 0:
-                            json_text = norm_data["utterances"][0].get("text", "")
-                            if json_text and not first_chunk["text"].startswith(json_text):
-                                if first_chunk["text"].strip().startswith(json_text.strip()):
-                                    continue
-                                msg = f"Video {t['video_id']}: Text mismatch between DB and JSON"
-                                text_mismatch_errors.append(msg)
-                                issues.append(msg)
-                    except Exception as e:
-                        msg = f"Video {t['video_id']}: Corrupted NORM JSON at {norm_path} ({e})"
-                        corrupted_json.append(msg)
+                norm_path = app_settings.resolve_path(t["normalized_json_path"])
+                if norm_path:
+                    db_norm_files.add(norm_path.resolve())
+                    if not norm_path.exists():
+                        msg = f"Video {t['video_id']}: Missing NORMALIZED at {norm_path}"
+                        missing_files.append(msg)
                         issues.append(msg)
+                    else:
+                        try:
+                            with open(norm_path, encoding="utf-8") as f:
+                                norm_data = json.load(f)
+
+                            # Check text of the first chunk
+                            sql_chunk = "SELECT text FROM chunks WHERE transcript_id = ? ORDER BY chunk_index LIMIT 1"
+                            first_chunk = conn.execute(sql_chunk, (t["id"],)).fetchone()
+
+                            if first_chunk and "utterances" in norm_data and len(norm_data["utterances"]) > 0:
+                                json_text = norm_data["utterances"][0].get("text", "")
+                                if json_text and not first_chunk["text"].startswith(json_text):
+                                    if first_chunk["text"].strip().startswith(json_text.strip()):
+                                        continue
+                                    msg = f"Video {t['video_id']}: Text mismatch between DB and JSON"
+                                    text_mismatch_errors.append(msg)
+                                    issues.append(msg)
+                        except Exception as e:
+                            msg = f"Video {t['video_id']}: Corrupted NORM JSON at {norm_path} ({e})"
+                            corrupted_json.append(msg)
+                            issues.append(msg)
 
     print(f"Записей в базе: {len(transcripts)}")
     if missing_files:

@@ -640,16 +640,20 @@ async def api_indexed_delete_video(video_id: int, _: str = Depends(require_admin
 
     files_to_delete = []
     if video_row["local_video_path"]:
-        files_to_delete.append(Path(video_row["local_video_path"]))
+        video_p = app_settings.resolve_path(video_row["local_video_path"])
+        if video_p:
+            files_to_delete.append(video_p)
     if video_row["local_audio_path"]:
-        files_to_delete.append(Path(video_row["local_audio_path"]))
+        audio_p = app_settings.resolve_path(video_row["local_audio_path"])
+        if audio_p:
+            files_to_delete.append(audio_p)
 
     import shutil
 
     for t_row in transcript_rows:
         if t_row["raw_json_path"]:
-            raw_path = Path(t_row["raw_json_path"])
-            if raw_path.exists():
+            raw_path = app_settings.resolve_path(t_row["raw_json_path"])
+            if raw_path and raw_path.exists():
                 try:
                     archive_dest = archive_dir / f"video_{video_id}_{raw_path.name}"
                     shutil.move(str(raw_path), str(archive_dest))
@@ -657,10 +661,12 @@ async def api_indexed_delete_video(video_id: int, _: str = Depends(require_admin
                 except Exception as e:
                     logger.error(f"Failed to move raw transcript {raw_path} to {archive_dest}: {e}")
                     files_to_delete.append(raw_path)
-            else:
+            elif raw_path:
                 files_to_delete.append(raw_path)
         if t_row["normalized_json_path"]:
-            files_to_delete.append(Path(t_row["normalized_json_path"]))
+            norm_p = app_settings.resolve_path(t_row["normalized_json_path"])
+            if norm_p:
+                files_to_delete.append(norm_p)
 
     for f_path in files_to_delete:
         try:

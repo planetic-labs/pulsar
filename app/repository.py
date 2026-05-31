@@ -41,6 +41,21 @@ def save_cached_embedding(
     )
 
 
+def to_relative_path(path: str | Path | None) -> str | None:
+    if not path:
+        return None
+    from app.config import get_app_settings
+
+    try:
+        app_settings = get_app_settings()
+        p = Path(path)
+        if p.is_absolute() and p.is_relative_to(app_settings.storage_dir):
+            return str(p.relative_to(app_settings.storage_dir))
+    except Exception:
+        pass
+    return str(path)
+
+
 def extract_date_from_title(title: str) -> str | None:
     """
     Extracts date from the BEGINNING of the title.
@@ -117,6 +132,8 @@ def upsert_video(
     is_4k: bool | None = None,
 ) -> int:
     source_id = source_file_id or ""
+    local_video_path = to_relative_path(local_video_path)
+    local_audio_path = to_relative_path(local_audio_path)
     # If recorded_date is not provided, try to extract it from title
     if recorded_date is None:
         recorded_date = extract_date_from_title(title)
@@ -185,6 +202,8 @@ def replace_transcript(
     # Always delete the previous transcript for this video
     connection.execute("DELETE FROM transcripts WHERE video_id = ?", (video_id,))
 
+    raw_rel = to_relative_path(raw_json_path)
+    norm_rel = to_relative_path(normalized_json_path)
     cursor = connection.execute(
         """
         INSERT INTO transcripts (
@@ -193,7 +212,7 @@ def replace_transcript(
         ) VALUES (?, ?, ?, ?, ?)
         RETURNING id
         """,
-        (video_id, language, confidence, str(raw_json_path), str(normalized_json_path)),
+        (video_id, language, confidence, raw_rel, norm_rel),
     )
     row = cursor.fetchone()
     return int(row["id"])
@@ -245,6 +264,7 @@ def update_video_status(
     processing_status: str,
     local_audio_path: str | None = None,
 ) -> None:
+    local_audio_path_rel = to_relative_path(local_audio_path)
     connection.execute(
         """
         UPDATE videos
@@ -253,7 +273,7 @@ def update_video_status(
             updated_at = CURRENT_TIMESTAMP
         WHERE id = ?
         """,
-        (processing_status, local_audio_path, video_id),
+        (processing_status, local_audio_path_rel, video_id),
     )
 
 
