@@ -118,6 +118,14 @@ class AppSettings:
     def voice_samples_dir(self) -> Path:
         return self.storage_dir / "voice_samples"
 
+    def resolve_path(self, path: str | Path | None) -> Path | None:
+        if not path:
+            return None
+        p = Path(path)
+        if p.is_absolute():
+            return p
+        return self.storage_dir / p
+
 
 def _env_bool(name: str, default: bool) -> bool:
     raw = os.getenv(name)

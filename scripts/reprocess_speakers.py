@@ -60,9 +60,12 @@ def reprocess_all_speakers():
 
     for video in videos:
         v_id = video["id"]
-        audio_path = Path(video["local_audio_path"])
+        from app.config import get_app_settings
 
-        if not audio_path.exists():
+        app_settings = get_app_settings()
+        audio_path = app_settings.resolve_path(video["local_audio_path"])
+
+        if audio_path is None or not audio_path.exists():
             logger.warning(f"Файл {audio_path} не найден на диске, пропускаю {video['title']}")
             continue
 

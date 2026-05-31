@@ -36,7 +36,13 @@ def test_brute_force(video_id: int):
             print(f"Видео {video_id} не найдено")
             return
 
-        audio_path = Path(video["local_audio_path"])
+        from app.config import get_app_settings
+
+        app_settings = get_app_settings()
+        audio_path = app_settings.resolve_path(video["local_audio_path"])
+        if audio_path is None:
+            print("Аудио-файл не указан")
+            return
         print(f"ТЕСТ BRUTE-FORCE: {video['title']} (ID: {video_id})")
 
         # 2. Получаем все чанки
