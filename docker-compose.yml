@@ -11,6 +11,8 @@ services:
       - qdrant_data:/qdrant/storage
 
   pulsar:
+    container_name: pulsar
+    image: pulsar
     build:
       context: .
       args:
