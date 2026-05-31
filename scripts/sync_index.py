@@ -407,7 +407,15 @@ async def main():
                     "INSERT INTO tasks (task_type, payload, status) VALUES (?, ?, ?)",
                     (
                         "stage_1_download",
-                        json.dumps({"file_id": file_id, "title": name, "diarize": True}, ensure_ascii=False),
+                        json.dumps(
+                            {
+                                "file_id": file_id,
+                                "title": name,
+                                "diarize": True,
+                                "parent_folder_id": file_info.get("parent_folder_id"),
+                            },
+                            ensure_ascii=False,
+                        ),
                         "pending",
                     ),
                 )

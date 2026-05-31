@@ -171,6 +171,16 @@ class Worker:
                         f"{existing['title']} ({existing['source_file_id']})! Скачивание пропущено."
                     )
 
+                    parent_folder_id = None
+                    if (
+                        hasattr(drive_file, "parents")
+                        and isinstance(drive_file.parents, (list, tuple))
+                        and drive_file.parents
+                    ):
+                        parent_folder_id = drive_file.parents[0]
+                    else:
+                        parent_folder_id = payload.get("parent_folder_id")
+
                     with db_connection(get_sqlite_settings()) as conn:
                         conn.execute(
                             """
@@ -179,15 +189,18 @@ class Worker:
                                 processing_status, is_md5_duplicate, source_url
                             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                             ON CONFLICT (source_type, source_file_id) DO UPDATE SET
+                                parent_folder_id = EXCLUDED.parent_folder_id,
                                 md5_checksum = EXCLUDED.md5_checksum,
                                 title = EXCLUDED.title,
                                 processing_status = EXCLUDED.processing_status,
-                                is_md5_duplicate = EXCLUDED.is_md5_duplicate
+                                is_md5_duplicate = EXCLUDED.is_md5_duplicate,
+                                source_url = EXCLUDED.source_url,
+                                updated_at = CURRENT_TIMESTAMP
                             """,
                             (
                                 "google_drive",
                                 file_id,
-                                payload.get("parent_folder_id"),
+                                parent_folder_id,
                                 md5,
                                 title,
                                 "skipped_duplicate_md5",
