@@ -105,11 +105,75 @@ def check_integrity() -> dict[str, Any]:
                             if first_chunk and "utterances" in norm_data and len(norm_data["utterances"]) > 0:
                                 json_text = norm_data["utterances"][0].get("text", "")
                                 if json_text and not first_chunk["text"].startswith(json_text):
-                                    if first_chunk["text"].strip().startswith(json_text.strip()):
-                                        continue
-                                    msg = f"Video {t['video_id']}: Text mismatch between DB and JSON"
-                                    text_mismatch_errors.append(msg)
+                                    if not first_chunk["text"].strip().startswith(json_text.strip()):
+                                        msg = f"Video {t['video_id']}: Text mismatch between DB and JSON"
+                                        text_mismatch_errors.append(msg)
+                                        issues.append(msg)
+
+                            # Check chunk count matching is_short format and config
+                            video_row = conn.execute(
+                                "SELECT title, is_short FROM videos WHERE id = ?", (t["video_id"],)
+                            ).fetchone()
+                            if video_row:
+                                is_short_val = bool(video_row["is_short"])
+                                raw_chunks = norm_data.get("utterances") or norm_data.get("chunks") or []
+                                from app.chunking import chunk_from_utterances
+
+                                expected_chunks = chunk_from_utterances(raw_chunks, single_chunk=is_short_val)
+                                expected_count = len(expected_chunks)
+
+                                actual_count = conn.execute(
+                                    "SELECT COUNT(*) as cnt FROM chunks WHERE transcript_id = ?", (t["id"],)
+                                ).fetchone()["cnt"]
+
+                                if actual_count != expected_count:
+                                    msg = (
+                                        f"Video '{video_row['title']}' (ID:{t['video_id']}): "
+                                        f"chunk count mismatch. DB has {actual_count}, expected {expected_count} "
+                                        f"(is_short={is_short_val})."
+                                    )
                                     issues.append(msg)
+                                    print(f"⚠️  {msg} Восстанавливаем чанки...")
+
+                                    # Auto-heal: delete from Qdrant, replace chunks in SQLite, and queue re-indexing
+                                    from app.repository import replace_chunks
+
+                                    old_chunk_ids = [
+                                        r["id"]
+                                        for r in conn.execute(
+                                            "SELECT id FROM chunks WHERE transcript_id = ?", (t["id"],)
+                                        ).fetchall()
+                                    ]
+                                    if old_chunk_ids:
+                                        try:
+                                            qdrant.delete(
+                                                collection_name=q_settings.collection_name,
+                                                points_selector=models.PointIdsList(points=old_chunk_ids),
+                                            )
+                                            deleted_qdrant_points_count += len(old_chunk_ids)
+                                        except Exception as q_err:
+                                            print(f"❌ Failed to delete chunks from Qdrant: {q_err}")
+
+                                    replace_chunks(
+                                        conn, video_id=t["video_id"], transcript_id=t["id"], chunks=expected_chunks
+                                    )
+
+                                    # Queue re-indexing task
+                                    reindex_payload = {"video_id": t["video_id"], "title": video_row["title"]}
+                                    conn.execute(
+                                        "INSERT INTO tasks (task_type, payload, status, priority) VALUES (?, ?, ?, ?)",
+                                        (
+                                            "stage_3_index",
+                                            json.dumps(reindex_payload, ensure_ascii=False),
+                                            "pending",
+                                            5,
+                                        ),
+                                    )
+                                    reindexed_videos_count += 1
+                                    print(
+                                        f"✅ Пересоздано чанков: {expected_count}, "
+                                        "видео поставлено в очередь на индексацию."
+                                    )
                         except Exception as e:
                             msg = f"Video {t['video_id']}: Corrupted NORM JSON at {norm_path} ({e})"
                             corrupted_json.append(msg)
