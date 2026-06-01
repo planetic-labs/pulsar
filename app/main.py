@@ -1054,7 +1054,7 @@ async def login_post(
         app_settings = get_app_settings()
         if not app_settings.ark_jwks_url:
             return templates.TemplateResponse(
-                request, "login.html", {"error": "Ark Messenger authentication is not configured"}
+                request, "login.html", {"error": "Email authentication is not configured"}
             )
 
         base_url = app_settings.ark_jwks_url.rsplit("/.well-known/jwks.json", 1)[0]
@@ -1105,7 +1105,7 @@ async def login_post(
             except Exception as e:
                 logger.error(f"Error calling Ark Messenger verify-code: {e}")
                 return templates.TemplateResponse(
-                    request, "login.html", {"error": "Не удалось связаться с сервером авторизации Ark Messenger"}
+                    request, "login.html", {"error": "Не удалось связаться с сервером авторизации"}
                 )
 
     return templates.TemplateResponse(request, "login.html", {"error": "Не указаны учетные данные"})
@@ -1116,7 +1116,7 @@ async def api_auth_identify(request: Request):
     app_settings = get_app_settings()
     if not app_settings.ark_jwks_url:
         raise HTTPException(
-            status_code=status.HTTP_501_NOT_IMPLEMENTED, detail="Ark Messenger authentication is not configured"
+            status_code=status.HTTP_501_NOT_IMPLEMENTED, detail="Email authentication is not configured"
         )
 
     base_url = app_settings.ark_jwks_url.rsplit("/.well-known/jwks.json", 1)[0]
@@ -1137,7 +1137,7 @@ async def api_auth_identify(request: Request):
             return Response(content=response.content, status_code=response.status_code, media_type="application/json")
         except Exception as e:
             logger.error(f"Error calling Ark Messenger identify: {e}")
-            raise HTTPException(status_code=502, detail="Error communicating with Ark Messenger server") from e
+            raise HTTPException(status_code=502, detail="Error communicating with authentication server") from e
 
 
 @app.get("/logout")

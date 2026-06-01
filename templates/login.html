@@ -58,7 +58,7 @@
             <div class="flex p-1 bg-warm-100 rounded-xl mb-8 border border-warm-200">
                 <button type="button" id="tab-ark" onclick="switchTab('ark')"
                         class="flex-1 py-2 text-xs lg:text-sm font-bold rounded-lg transition-all text-white bg-brand-500 shadow-sm">
-                    Ark Messenger
+                    Email
                 </button>
                 <button type="button" id="tab-fallback" onclick="switchTab('fallback')"
                         class="flex-1 py-2 text-xs lg:text-sm font-bold rounded-lg transition-all text-warm-500 hover:text-warm-700">
@@ -66,7 +66,7 @@
                 </button>
             </div>
 
-            <!-- Ark Messenger Form (Two-Step passwordless login) -->
+            <!-- Email Form (Two-Step passwordless login) -->
             <form id="form-ark" action="/login" method="post" class="space-y-6">
                 <!-- Error alert for ajax -->
                 <div id="ark-error" class="hidden p-4 rounded-2xl bg-rose-50 border border-rose-200 text-rose-600 text-xs font-semibold text-center flex items-center justify-center gap-2">
@@ -76,7 +76,7 @@
 
                 <!-- Step 1: Email Input -->
                 <div class="space-y-2">
-                    <label class="block text-xs font-bold text-warm-500 uppercase tracking-wider">Email (Логин в Ark)</label>
+                    <label class="block text-xs font-bold text-warm-500 uppercase tracking-wider">Email</label>
                     <input type="email" id="ark-email" name="email" value="{{ email or '' }}" placeholder="username@domain.com" required
                            class="w-full bg-[#FAF9F6] border border-[#E5E1D8] rounded-2xl py-3.5 px-5 text-[#3A3630] placeholder-warm-300 focus:outline-none focus:border-brand-400 focus:ring-1 focus:ring-brand-400 transition-all font-sans text-sm">
                 </div>
