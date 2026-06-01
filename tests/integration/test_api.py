@@ -527,3 +527,37 @@ def test_api_indexed_ls(client, tmp_db):
     # Check Orig Video
     assert videos[1]["name"] == "Orig Video"
     assert videos[1]["is_md5_duplicate"] is False
+
+
+def test_api_worker_duplicates_save(client, tmp_db):
+    client.post("/login", data={"token": "test-token"})
+
+    from app.db import db_connection
+
+    # Insert a duplicate video
+    with db_connection(tmp_db) as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            INSERT INTO videos (
+                source_type, source_file_id, title, is_md5_duplicate, is_md5_duplicate_saved,
+                processing_status
+            ) VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            ("google_drive", "file_dup_id", "Dup Video", 1, 0, "skipped_duplicate_md5"),
+        )
+        dup_id = cursor.lastrowid
+
+    # Call save endpoint
+    response = client.post(
+        "/api/v1/worker/duplicates/save",
+        data={"duplicate_id": dup_id},
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["status"] == "success"
+
+    # Verify is_md5_duplicate_saved is 1
+    with db_connection(tmp_db) as conn:
+        row = conn.execute("SELECT is_md5_duplicate_saved FROM videos WHERE id = ?", (dup_id,)).fetchone()
+        assert row["is_md5_duplicate_saved"] == 1
