@@ -630,3 +630,179 @@ def test_check_integrity_duplicates(tmp_db, mocker, monkeypatch):
     assert any("Duplicate video 'Dup Video'" in i for i in issues)
     assert any("Multiple original videos share the same MD5 checksum 'same-md5'" in i for i in issues)
     assert any("Orphan duplicate video 'Dup Video'" in i for i in issues)
+
+
+def test_api_indexed_toggle_short(client, tmp_db, tmp_path, mocker, mock_qdrant):
+    import json
+
+    client.post("/login", data={"token": "test-token"})
+
+    from app.db import db_connection
+
+    # Create dummy transcript file
+    trans_file = tmp_path / "transcript.json"
+    dummy_data = {
+        "utterances": [
+            {"start": 0.0, "end": 10.0, "text": "a" * 300},
+            {"start": 10.0, "end": 20.0, "text": "b" * 300},
+            {"start": 20.0, "end": 30.0, "text": "c" * 10},
+        ]
+    }
+    trans_file.write_text(json.dumps(dummy_data), encoding="utf-8")
+
+    # Insert a video and a transcript
+    with db_connection(tmp_db) as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            INSERT INTO videos (
+                source_type, source_file_id, title, is_md5_duplicate,
+                processing_status, is_short
+            ) VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            ("google_drive", "file_video_id", "Toggle Video", 0, "transcribed", 0),
+        )
+        video_id = cursor.lastrowid
+
+        cursor.execute(
+            """
+            INSERT INTO transcripts (video_id, language, normalized_json_path)
+            VALUES (?, ?, ?)
+            """,
+            (video_id, "ru", str(trans_file)),
+        )
+        trans_id = cursor.lastrowid
+
+        # Insert some initial chunks
+        cursor.execute(
+            """
+            INSERT INTO chunks (video_id, transcript_id, chunk_index, start_sec, end_sec, text)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (video_id, trans_id, 0, 0.0, 10.0, "initial chunk"),
+        )
+
+    # Call toggle_short (make it short)
+    response = client.post(f"/api/v1/indexed/videos/{video_id}/toggle_short")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["status"] == "ok"
+    assert data["is_short"] is True
+
+    # Verify DB state: is_short is True, and chunk is now a single chunk
+    with db_connection(tmp_db) as conn:
+        row = conn.execute("SELECT is_short FROM videos WHERE id = ?", (video_id,)).fetchone()
+        assert row["is_short"] == 1
+
+        chunks = conn.execute(
+            "SELECT chunk_index, start_sec, end_sec, text FROM chunks WHERE video_id = ?", (video_id,)
+        ).fetchall()
+        assert len(chunks) == 1
+        assert chunks[0]["chunk_index"] == 0
+        assert chunks[0]["start_sec"] == 0.0
+        assert chunks[0]["end_sec"] == 30.0
+        assert "a" * 300 in chunks[0]["text"]
+
+        # Verify task was added
+        task = conn.execute("SELECT task_type, payload FROM tasks ORDER BY id DESC LIMIT 1").fetchone()
+        assert task["task_type"] == "stage_3_index"
+        payload = json.loads(task["payload"])
+        assert payload["video_id"] == video_id
+
+    # Call toggle_short again (make it normal/long)
+    response = client.post(f"/api/v1/indexed/videos/{video_id}/toggle_short")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["status"] == "ok"
+    assert data["is_short"] is False
+
+    # Verify DB state: is_short is False, and chunks are split again (2 chunks)
+    with db_connection(tmp_db) as conn:
+        row = conn.execute("SELECT is_short FROM videos WHERE id = ?", (video_id,)).fetchone()
+        assert row["is_short"] == 0
+
+        chunks = conn.execute(
+            "SELECT chunk_index, start_sec, end_sec, text FROM chunks WHERE video_id = ?", (video_id,)
+        ).fetchall()
+        assert len(chunks) == 2
+        assert chunks[0]["chunk_index"] == 0
+        assert chunks[1]["chunk_index"] == 1
+
+
+def test_check_integrity_chunk_mismatch(tmp_db, mocker, monkeypatch, tmp_path):
+    import json
+
+    from scripts.check_integrity import check_integrity
+
+    # Mock settings and Qdrant client to avoid side effects
+    monkeypatch.setattr("scripts.check_integrity.get_sqlite_settings", lambda: tmp_db)
+    mock_qdrant = mocker.patch("scripts.check_integrity.get_qdrant_client")
+    mock_qdrant.return_value.scroll.return_value = ([], None)
+    mocker.patch("scripts.check_integrity.get_qdrant_settings")
+
+    from app.db import db_connection
+
+    # Create dummy transcript file that requires 2 chunks if is_short is False
+    trans_file = tmp_path / "integrity_transcript.json"
+    dummy_data = {
+        "utterances": [
+            {"start": 0.0, "end": 10.0, "text": "a" * 300},
+            {"start": 10.0, "end": 20.0, "text": "b" * 300},
+            {"start": 20.0, "end": 30.0, "text": "c" * 10},
+        ]
+    }
+    trans_file.write_text(json.dumps(dummy_data), encoding="utf-8")
+
+    # Insert a video and a transcript
+    with db_connection(tmp_db) as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            INSERT INTO videos (
+                source_type, source_file_id, title, is_md5_duplicate,
+                processing_status, is_short
+            ) VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            ("google_drive", "file_video_id", "Integrity Video", 0, "completed", 0),
+        )
+        video_id = cursor.lastrowid
+
+        cursor.execute(
+            """
+            INSERT INTO transcripts (video_id, language, normalized_json_path)
+            VALUES (?, ?, ?)
+            """,
+            (video_id, "ru", str(trans_file)),
+        )
+        trans_id = cursor.lastrowid
+
+        # Insert only 1 chunk in SQLite (causes a mismatch since 2 chunks are expected)
+        cursor.execute(
+            """
+            INSERT INTO chunks (video_id, transcript_id, chunk_index, start_sec, end_sec, text)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (video_id, trans_id, 0, 0.0, 10.0, "initial chunk"),
+        )
+
+    # Run check_integrity
+    res = check_integrity()
+
+    # Check issues list
+    issues = res["issues"]
+    assert any("chunk count mismatch. DB has 1, expected 2" in i for i in issues)
+
+    # Verify SQLite was auto-healed (now has 2 chunks)
+    with db_connection(tmp_db) as conn:
+        chunks = conn.execute(
+            "SELECT chunk_index, start_sec, end_sec FROM chunks WHERE video_id = ?", (video_id,)
+        ).fetchall()
+        assert len(chunks) == 2
+        assert chunks[0]["chunk_index"] == 0
+        assert chunks[1]["chunk_index"] == 1
+
+        # Verify task was added
+        task = conn.execute("SELECT task_type, payload FROM tasks ORDER BY id DESC LIMIT 1").fetchone()
+        assert task["task_type"] == "stage_3_index"
+        payload = json.loads(task["payload"])
+        assert payload["video_id"] == video_id
