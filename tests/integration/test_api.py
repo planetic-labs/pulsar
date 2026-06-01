@@ -561,3 +561,72 @@ def test_api_worker_duplicates_save(client, tmp_db):
     with db_connection(tmp_db) as conn:
         row = conn.execute("SELECT is_md5_duplicate_saved FROM videos WHERE id = ?", (dup_id,)).fetchone()
         assert row["is_md5_duplicate_saved"] == 1
+
+
+def test_check_integrity_duplicates(tmp_db, mocker, monkeypatch):
+    from scripts.check_integrity import check_integrity
+
+    # Mock settings and Qdrant client to avoid side effects
+    monkeypatch.setattr("scripts.check_integrity.get_sqlite_settings", lambda: tmp_db)
+    mock_qdrant = mocker.patch("scripts.check_integrity.get_qdrant_client")
+    mock_qdrant.return_value.scroll.return_value = ([], None)
+    mocker.patch("scripts.check_integrity.get_qdrant_settings")
+
+    from app.db import db_connection
+
+    # Insert a duplicate video that has a chunk (this is a logic error!)
+    with db_connection(tmp_db) as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            INSERT INTO videos (
+                source_type, source_file_id, title, is_md5_duplicate, md5_checksum,
+                processing_status
+            ) VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            ("google_drive", "file_dup_id", "Dup Video", 1, "test-md5", "skipped_duplicate_md5"),
+        )
+        dup_id = cursor.lastrowid
+
+        # Insert a transcript
+        cursor.execute(
+            "INSERT INTO transcripts (video_id, language) VALUES (?, ?)",
+            (dup_id, "ru"),
+        )
+        trans_id = cursor.lastrowid
+
+        # Insert a chunk for this duplicate (creates an issue)
+        cursor.execute(
+            "INSERT INTO chunks (video_id, transcript_id, chunk_index, start_sec, end_sec, text) "
+            "VALUES (?, ?, 0, 0.0, 10.0, 'corrupted chunk')",
+            (dup_id, trans_id),
+        )
+
+        # Also insert two originals with the same MD5 (creates another issue)
+        cursor.execute(
+            """
+            INSERT INTO videos (
+                source_type, source_file_id, title, is_md5_duplicate, md5_checksum,
+                processing_status
+            ) VALUES (?, ?, ?, 0, ?, 'completed')
+            """,
+            ("google_drive", "file_orig1_id", "Orig 1", "same-md5"),
+        )
+        cursor.execute(
+            """
+            INSERT INTO videos (
+                source_type, source_file_id, title, is_md5_duplicate, md5_checksum,
+                processing_status
+            ) VALUES (?, ?, ?, 0, ?, 'completed')
+            """,
+            ("google_drive", "file_orig2_id", "Orig 2", "same-md5"),
+        )
+
+    # Run check_integrity
+    res = check_integrity()
+
+    # Check issues list
+    issues = res["issues"]
+    assert any("Duplicate video 'Dup Video'" in i for i in issues)
+    assert any("Multiple original videos share the same MD5 checksum 'same-md5'" in i for i in issues)
+    assert any("Orphan duplicate video 'Dup Video'" in i for i in issues)
