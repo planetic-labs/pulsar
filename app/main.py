@@ -871,6 +871,7 @@ async def api_indexed_ls(folder_id: str | None = None, _: str = Depends(require_
         video_sql = """
             SELECT
                 v.id, v.title, v.mime_type, v.duration_sec, v.updated_at, v.source_file_id, v.is_short, v.is_4k,
+                v.is_md5_duplicate,
                 t.language, t.confidence,
                 (SELECT COUNT(*) FROM chunks c WHERE c.video_id = v.id) as chunk_count
             FROM videos v
@@ -913,6 +914,7 @@ async def api_indexed_ls(folder_id: str | None = None, _: str = Depends(require_
                 "mime_type": r["mime_type"],
                 "is_short": bool(r["is_short"]),
                 "is_4k": bool(r["is_4k"]),
+                "is_md5_duplicate": bool(r["is_md5_duplicate"]),
                 "source_file_id": r["source_file_id"],
                 "duration_sec": r["duration_sec"],
                 "chunk_count": r["chunk_count"],
