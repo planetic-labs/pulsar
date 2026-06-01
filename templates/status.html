@@ -343,6 +343,10 @@
                                 <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" /></svg>
                                 Сделать основным
                             </button>
+                            <button id="dup-modal-save-btn" onclick="executeSaveDuplicate()" class="w-full flex items-center justify-center gap-1.5 px-3 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-[9px] font-black uppercase tracking-widest transition-all shadow-sm">
+                                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" /></svg>
+                                Сохранить
+                            </button>
                         </div>
                     </div>
                 </div>
@@ -992,6 +996,55 @@
         } finally {
             swapBtn.disabled = false;
             swapBtn.innerText = originalText;
+        }
+    }
+
+    async function executeSaveDuplicate() {
+        if (!currentDuplicateId) return;
+
+        if (!confirm("Вы уверены, что хотите сохранить эту копию как дубликат и скрыть из мониторинга? Она больше не будет показываться как требующая внимания.")) {
+            return;
+        }
+
+        const saveBtn = document.getElementById('dup-modal-save-btn');
+        saveBtn.disabled = true;
+        const originalText = saveBtn.innerText;
+        saveBtn.innerText = "Выполняется...";
+
+        try {
+            const formData = new FormData();
+            formData.append('duplicate_id', currentDuplicateId);
+
+            const res = await fetch('/api/v1/worker/duplicates/save', {
+                method: 'POST',
+                body: formData
+            });
+
+            if (res.ok) {
+                const data = await res.json();
+                closeDuplicateModal();
+
+                // Show success toast
+                const toast = document.createElement('div');
+                toast.className = "fixed bottom-8 left-8 z-[200] px-5 py-2.5 bg-[#3A3630] text-[#FAF9F6] rounded-xl text-[9px] font-black uppercase tracking-widest shadow-2xl animate-in slide-in-from-bottom-4 duration-200";
+                toast.textContent = data.message || "Дубликат успешно сохранен";
+                document.body.appendChild(toast);
+                setTimeout(() => {
+                    toast.classList.add('animate-out', 'fade-out', 'slide-out-to-bottom-4');
+                    setTimeout(() => toast.remove(), 200);
+                }, 3000);
+
+                updateProgressUI();
+            } else {
+                const errData = await res.json();
+                alert(`Ошибка сохранения дубликата: ${errData.detail || res.statusText}`);
+            }
+        } catch (e) {
+            console.error(e);
+            alert(`Ошибка при сохранении дубликата: ${e.message}`);
+        } finally {
+            saveBtn.disabled = false;
+            saveBtn.innerText = originalText;
         }
     }
 

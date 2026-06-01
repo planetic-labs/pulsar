@@ -402,7 +402,7 @@ async def api_worker_progress(_: str = Depends(require_admin)):
         # Detail duplicate MD5 files
         stats["duplicate_md5_list"] = []
         stats["duplicate_md5_count"] = 0
-        sql_dc = "SELECT COUNT(*) as c FROM videos WHERE is_md5_duplicate = 1"
+        sql_dc = "SELECT COUNT(*) as c FROM videos WHERE is_md5_duplicate = 1 AND is_md5_duplicate_saved = 0"
         stats["duplicate_md5_count"] = conn.execute(sql_dc).fetchone()["c"]
 
         def get_folder_path(connection, folder_id: str | None) -> str:
@@ -432,7 +432,7 @@ async def api_worker_progress(_: str = Depends(require_admin)):
             sql_d = """
                 SELECT id, title, source_file_id, source_url, md5_checksum,
                        size_bytes, duration_sec, processing_status, created_at, parent_folder_id
-                FROM videos WHERE is_md5_duplicate = 1
+                FROM videos WHERE is_md5_duplicate = 1 AND is_md5_duplicate_saved = 0
                 ORDER BY updated_at DESC LIMIT 20
             """
             d_rows = conn.execute(sql_d).fetchall()
@@ -846,6 +846,21 @@ async def api_worker_duplicates_swap(
         "status": "success",
         "message": "Роли успешно изменены. Новый оригинал поставлен в очередь на переиндексацию.",
     }
+
+
+@app.post("/api/v1/worker/duplicates/save")
+async def api_worker_duplicates_save(
+    duplicate_id: int = Form(...),
+    _: str = Depends(require_admin),
+):
+    """Marks a duplicate video as saved/acknowledged so it disappears from the duplicates list."""
+    pg_settings = get_sqlite_settings()
+    with db_connection(pg_settings) as conn:
+        row = conn.execute("SELECT id FROM videos WHERE id = ?", (duplicate_id,)).fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Файл не найден")
+        conn.execute("UPDATE videos SET is_md5_duplicate_saved = 1 WHERE id = ?", (duplicate_id,))
+    return {"status": "success", "message": "Роль дубликата сохранена, он скрыт из списка мониторинга"}
 
 
 @app.get("/api/v1/indexed/ls")

@@ -336,8 +336,10 @@ async def main():
     new_files_to_queue = []
     duplicate_alerts = []
 
-    # Map existing titles to their source_file_id to check for duplicates
-    title_to_file_id = {v["title"]: v["source_file_id"] for v in local_videos.values() if v["title"]}
+    # Map existing titles to their source_file_id to check for duplicates (exclude MD5 duplicates)
+    title_to_file_id = {
+        v["title"]: v["source_file_id"] for v in local_videos.values() if v["title"] and not v.get("is_md5_duplicate")
+    }
 
     with db_connection(sqlite_settings) as conn:
         for df in drive_files:
@@ -347,7 +349,11 @@ async def main():
 
             # Check if this filename is already indexed under another file_id
             existing_fid = title_to_file_id.get(name)
-            if existing_fid and existing_fid != file_id:
+            is_md5_dup = False
+            if file_id in local_videos and local_videos[file_id].get("is_md5_duplicate"):
+                is_md5_dup = True
+
+            if existing_fid and existing_fid != file_id and not is_md5_dup:
                 duplicate_alerts.append({"title": name, "new_file_id": file_id, "existing_file_id": existing_fid})
 
             # Compute metadata dates and 4K flag
