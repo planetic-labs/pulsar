@@ -350,6 +350,57 @@ def check_integrity() -> dict[str, Any]:
         else:
             print("✅ Дубликатов видео не обнаружено.")
 
+        # 4. Check that duplicate videos have no chunks or transcripts
+        sql_dup_issues = """
+            SELECT id, title FROM videos
+            WHERE is_md5_duplicate = 1 AND (
+                id IN (SELECT DISTINCT video_id FROM chunks) OR
+                id IN (SELECT DISTINCT video_id FROM transcripts)
+            )
+        """
+        dup_issues = conn.execute(sql_dup_issues).fetchall()
+        if dup_issues:
+            for di in dup_issues:
+                msg = f"Duplicate video '{di['title']}' (ID:{di['id']}) has chunks or transcripts in DB!"
+                print(f"❌ {msg}")
+                issues.append(msg)
+        else:
+            print("✅ Дубликаты не содержат лишних чанков или транскриптов.")
+
+        # 5. Check for multiple originals with the same MD5
+        sql_md5_dupes = """
+            SELECT md5_checksum, COUNT(*) as cnt FROM videos
+            WHERE is_md5_duplicate = 0 AND md5_checksum IS NOT NULL AND md5_checksum != ''
+            GROUP BY md5_checksum HAVING cnt > 1
+        """
+        md5_dupes = conn.execute(sql_md5_dupes).fetchall()
+        if md5_dupes:
+            for md in md5_dupes:
+                msg = f"Multiple original videos share the same MD5 checksum '{md['md5_checksum']}': {md['cnt']} files"
+                print(f"❌ {msg}")
+                issues.append(msg)
+        else:
+            print("✅ Контрольные суммы оригиналов уникальны.")
+
+        # 6. Check for duplicate videos without a corresponding original video
+        sql_orphan_dups = """
+            SELECT id, title, md5_checksum FROM videos
+            WHERE is_md5_duplicate = 1 AND md5_checksum NOT IN (
+                SELECT DISTINCT md5_checksum FROM videos WHERE is_md5_duplicate = 0
+            )
+        """
+        orphan_dups = conn.execute(sql_orphan_dups).fetchall()
+        if orphan_dups:
+            for od in orphan_dups:
+                msg = (
+                    f"Orphan duplicate video '{od['title']}' (ID:{od['id']}): "
+                    f"original video with MD5 '{od['md5_checksum']}' is missing!"
+                )
+                print(f"❌ {msg}")
+                issues.append(msg)
+        else:
+            print("✅ Все дубликаты привязаны к существующим оригиналам.")
+
     print("\n=== [4] ГЛУБОКАЯ ПРОВЕРКА ЦЕЛОСТНОСТИ CHUNKS ===")
 
     with db_connection(sqlite_settings) as conn:
