@@ -445,3 +445,85 @@ def test_api_worker_duplicates_swap(client, tmp_db, mocker, mock_qdrant):
 
     # Verify Qdrant points deletion for old original ID A
     mock_qdrant.delete.assert_called_once()
+
+
+def test_api_indexed_ls(client, tmp_db):
+    client.post("/login", data={"token": "test-token"})
+
+    from app.db import db_connection
+
+    with db_connection(tmp_db) as conn:
+        cursor = conn.cursor()
+        # 1. Create a parent folder
+        cursor.execute(
+            "INSERT INTO folders (id, name, parent_id) VALUES (?, ?, ?)",
+            ("folder_1", "Test Folder", None),
+        )
+        # 2. Original video inside that folder
+        cursor.execute(
+            """
+            INSERT INTO videos (
+                source_type, source_file_id, title, is_md5_duplicate, md5_checksum,
+                size_bytes, duration_sec, processing_status, parent_folder_id
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "google_drive",
+                "file_orig_id",
+                "Orig Video",
+                0,
+                "some-md5",
+                500,
+                30.0,
+                "indexed_chunks_ready",
+                "folder_1",
+            ),
+        )
+        # 3. Duplicate video inside that folder
+        cursor.execute(
+            """
+            INSERT INTO videos (
+                source_type, source_file_id, title, is_md5_duplicate, md5_checksum,
+                processing_status, parent_folder_id
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "google_drive",
+                "file_dup_id",
+                "Dup Video",
+                1,
+                "some-md5",
+                "skipped_duplicate_md5",
+                "folder_1",
+            ),
+        )
+
+    # List root
+    response = client.get("/api/v1/indexed/ls")
+    assert response.status_code == 200
+    data = response.json()
+    assert "items" in data
+    # Should list folder_1
+    folders = [item for item in data["items"] if item["is_folder"]]
+    assert len(folders) == 1
+    assert folders[0]["id"] == "folder_1"
+    assert folders[0]["name"] == "Test Folder"
+
+    # List folder_1
+    response = client.get("/api/v1/indexed/ls?folder_id=folder_1")
+    assert response.status_code == 200
+    data = response.json()
+    assert "items" in data
+
+    videos = [item for item in data["items"] if not item["is_folder"]]
+    assert len(videos) == 2
+    # Sort by name
+    videos.sort(key=lambda x: x["name"])
+
+    # Check Dup Video
+    assert videos[0]["name"] == "Dup Video"
+    assert videos[0]["is_md5_duplicate"] is True
+
+    # Check Orig Video
+    assert videos[1]["name"] == "Orig Video"
+    assert videos[1]["is_md5_duplicate"] is False
