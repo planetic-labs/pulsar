@@ -222,7 +222,7 @@
                             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7v8a2 2 0 002 2h6M8 7V5a2 2 0 012-2h4.586a1 1 0 01.707.293l4.414 4.414a1 1 0 01.293.707V15a2 2 0 01-2 2h-2M8 7H6a2 2 0 00-2 2v10a2 2 0 012 2h8a2 2 0 002-2v-2"></path></svg>
                         </div>
                         <div>
-                            <h4 class="text-[10px] font-black text-orange-800 uppercase tracking-widest">Дубликаты по MD5</h4>
+                            <h4 class="text-[10px] font-black text-orange-800 uppercase tracking-widest">Дубликаты по MD5 (<span id="duplicate-md5-count">0</span>)</h4>
                             <p class="text-[8px] text-orange-600 font-bold uppercase tracking-tight">Файлы с совпадающим содержимым на Google Drive</p>
                         </div>
                     </div>
@@ -710,7 +710,11 @@
             // 8. Update Duplicate MD5 Block
             const duplicateContainer = document.getElementById('duplicate-md5-container');
             const duplicateList = document.getElementById('duplicate-md5-list');
+            const duplicateCount = document.getElementById('duplicate-md5-count');
             if (duplicateContainer && duplicateList && data.stats) {
+                if (duplicateCount) {
+                    duplicateCount.innerText = data.stats.duplicate_md5_count || 0;
+                }
                 if (data.stats.duplicate_md5_list && data.stats.duplicate_md5_list.length > 0) {
                     duplicateContainer.classList.remove('hidden');
                     duplicateList.innerHTML = data.stats.duplicate_md5_list.map(item => {
