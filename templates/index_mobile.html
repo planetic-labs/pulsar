@@ -105,13 +105,14 @@
                         <div class="relative dropdown-container shrink-0">
                             <button type="button" onclick="toggleDropdown('type-drop-mob')" class="flex items-center gap-2 px-3 py-1.5 bg-white border border-[#F2F0EB] rounded-xl text-[9px] font-black uppercase tracking-wider text-[#4A453E] shadow-sm">
                                 <svg class="w-3.5 h-3.5 text-warm-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 10h16M4 14h16M4 18h16"></path></svg>
-                                <span>{% if video_type == 'all' %}все{% elif video_type == 'short' %}короткие{% else %}длинные{% endif %}</span>
+                                <span>{% if video_type == 'all' %}все{% elif video_type == 'short' %}короткие{% elif video_type == '4k' %}4K{% else %}длинные{% endif %}</span>
                                 <svg class="w-3 h-3 text-warm-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M19 9l-7 7-7-7"></path></svg>
                             </button>
                             <div id="type-drop-mob" class="hidden absolute top-full left-0 mt-1 w-48 bg-white border border-[#F2F0EB] rounded-2xl shadow-xl z-[100] overflow-hidden">
                                 <button type="button" onclick="setFilter('video_type', 'all')" class="w-full text-left px-4 py-3 text-[10px] font-black uppercase tracking-wider hover:bg-warm-50 {% if video_type == 'all' %}text-teal-600 bg-teal-50/30{% else %}text-warm-500{% endif %}">все видео</button>
                                 <button type="button" onclick="setFilter('video_type', 'short')" class="w-full text-left px-4 py-3 text-[10px] font-black uppercase tracking-wider hover:bg-warm-50 {% if video_type == 'short' %}text-teal-600 bg-teal-50/30{% else %}text-warm-500{% endif %}">короткие (до 30м)</button>
                                 <button type="button" onclick="setFilter('video_type', 'long')" class="w-full text-left px-4 py-3 text-[10px] font-black uppercase tracking-wider hover:bg-warm-50 {% if video_type == 'long' %}text-teal-600 bg-teal-50/30{% else %}text-warm-500{% endif %}">длинные</button>
+                                <button type="button" onclick="setFilter('video_type', '4k')" class="w-full text-left px-4 py-3 text-[10px] font-black uppercase tracking-wider hover:bg-warm-50 {% if video_type == '4k' %}text-teal-600 bg-teal-50/30{% else %}text-warm-500{% endif %}">4K видео</button>
                             </div>
                         </div>
 
