@@ -34,6 +34,7 @@ class SearchResult:
     match_type: str
     recorded_date: str | None = None
     is_short: bool = False
+    is_4k: bool = False
     raw_text: str = ""
     version: int = 42
     lexical_score: float = 0.0
@@ -278,6 +279,8 @@ async def hybrid_search(
         type_filter = models.FieldCondition(key="is_short", match=models.MatchValue(value=True))
     elif video_type == "long":
         type_filter = models.FieldCondition(key="is_short", match=models.MatchValue(value=False))
+    elif video_type == "4k":
+        type_filter = models.FieldCondition(key="is_4k", match=models.MatchValue(value=True))
 
     if date_from or date_to:
         # User requirement: ignore date filters for short videos
@@ -661,6 +664,7 @@ async def hybrid_search(
                 match_type=m_type,
                 recorded_date=payload.get("recorded_date"),
                 is_short=bool(payload.get("is_short", False)),
+                is_4k=bool(payload.get("is_4k", False)),
                 raw_text=full_text,
                 lexical_score=lexical_score,
                 semantic_score=semantic_score,

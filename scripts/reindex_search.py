@@ -56,7 +56,7 @@ async def rebuild_semantic_index(full_reindex: bool = False):
             SELECT
                 c.id as chunk_id, c.video_id, c.transcript_id, c.chunk_index,
                 c.start_sec, c.end_sec, c.text, c.speaker_tags,
-                v.title, v.source_file_id, v.source_url
+                v.title, v.source_file_id, v.source_url, v.is_short, v.is_4k
             FROM chunks c
             JOIN videos v ON v.id = c.video_id
             ORDER BY c.id ASC
@@ -113,6 +113,8 @@ async def rebuild_semantic_index(full_reindex: bool = False):
                                 "title": row["title"],
                                 "source_file_id": row["source_file_id"],
                                 "source_url": row["source_url"],
+                                "is_short": bool(row["is_short"]),
+                                "is_4k": bool(row["is_4k"]),
                                 "is_primary": True,
                             },
                         )
