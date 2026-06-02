@@ -6,7 +6,12 @@ import pytest
 
 @pytest.fixture
 def user_token():
-    return jwt.encode({"sub": "user-123", "status": "active"}, "secret", algorithm="HS256")
+    # Use a 32-byte key to prevent InsecureKeyLengthWarning from PyJWT
+    return jwt.encode(
+        {"sub": "user-123", "status": "active"},
+        "super_secret_session_token_key_for_testing_32_bytes",
+        algorithm="HS256",
+    )
 
 
 def test_admin_access_pages(client):
