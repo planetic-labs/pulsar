@@ -160,8 +160,74 @@ def get_session_token(request: Request) -> str | None:
     return None
 
 
+def perform_token_refresh(refresh_token: str) -> dict | None:
+    import logging
+
+    import httpx
+
+    settings = get_app_settings()
+    if not settings.ark_jwks_url:
+        return None
+
+    base_url = settings.ark_jwks_url.rsplit("/.well-known/jwks.json", 1)[0]
+    refresh_url = f"{base_url}/api/v1/auth/refresh"
+
+    try:
+        with httpx.Client() as client:
+            res = client.post(refresh_url, json={"refresh_token": refresh_token}, timeout=10.0)
+            if res.status_code == 200:
+                return res.json()
+            elif res.status_code in (400, 401, 403):
+                logging.warning(f"Failed to refresh token (invalid token), status code: {res.status_code}, response: {res.text}")
+                return None
+            else:
+                logging.error(f"Failed to refresh token (server error), status code: {res.status_code}, response: {res.text}")
+                res.raise_for_status()
+    except httpx.HTTPStatusError as e:
+        raise e
+    except httpx.RequestError as e:
+        logging.error(f"Network error calling Ark Messenger refresh-token: {e}")
+        raise e
+    except Exception as e:
+        logging.error(f"Unexpected error calling Ark Messenger refresh-token: {e}", exc_info=True)
+        raise e
+
+
 def require_access_token(request: Request) -> str:
+    import httpx
     token = get_session_token(request)
+
+    if not token or not is_valid_token(token):
+        refresh_token = request.session.get("refresh_token")
+        if refresh_token:
+            try:
+                new_tokens = perform_token_refresh(refresh_token)
+                if new_tokens:
+                    new_access_token = new_tokens.get("access_token")
+                    new_refresh_token = new_tokens.get("refresh_token")
+                    if new_access_token and is_valid_token(new_access_token):
+                        request.session["access_token"] = new_access_token
+                        if new_refresh_token:
+                            request.session["refresh_token"] = new_refresh_token
+                        token = new_access_token
+                    else:
+                        request.session.pop("refresh_token", None)
+                        request.session.pop("access_token", None)
+                else:
+                    request.session.pop("refresh_token", None)
+                    request.session.pop("access_token", None)
+            except (httpx.HTTPError, httpx.RequestError) as e:
+                # Do NOT clear the session on network or 5xx backend errors to prevent auto-logout.
+                # Simply raise a temporary unavailable error to allow retry on next request.
+                raise HTTPException(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    detail="Authentication service is temporarily unavailable. Please retry.",
+                ) from e
+            except Exception as e:
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail="Unexpected error during token refresh.",
+                ) from e
 
     if not token or not is_valid_token(token):
         raise HTTPException(
@@ -202,10 +268,12 @@ def require_admin(request: Request) -> str:
     return token
 
 
-def login_user(response: Response, request: Request, token: str) -> bool:
+def login_user(response: Response, request: Request, token: str, refresh_token: str | None = None) -> bool:
     if is_valid_token(token):
         # Keep validated access token server-side; never write user-supplied token directly to cookie.
         request.session["access_token"] = token
+        if refresh_token:
+            request.session["refresh_token"] = refresh_token
 
         # Use a server-generated opaque value for cookie/session persistence.
         session_token = secrets.token_urlsafe(32)

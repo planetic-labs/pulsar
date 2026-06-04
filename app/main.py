@@ -1068,7 +1068,8 @@ async def login_post(
                     next_step = data.get("next")
                     if next_step == "home":
                         access_token = data.get("access_token")
-                        if access_token and login_user(response, request, access_token):
+                        refresh_token = data.get("refresh_token")
+                        if access_token and login_user(response, request, access_token, refresh_token=refresh_token):
                             return RedirectResponse(url="/", status_code=303)
                         else:
                             return templates.TemplateResponse(

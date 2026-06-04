@@ -37,6 +37,9 @@ RUN uv sync
 COPY app ./app
 COPY scripts ./scripts
 COPY cron ./cron
+COPY templates ./templates
+COPY static ./static
 
 # FastAPI port
 EXPOSE 8000
+
