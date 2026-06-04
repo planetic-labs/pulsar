@@ -20,7 +20,7 @@ services:
         - GROUP_ID=${GID:-1000}
     user: "${UID:-1000}:${GID:-1000}"
     restart: always
-    command: ["uv", "run", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8032", "--reload"]
+    command: ["uv", "run", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8032", "--reload", "--proxy-headers", "--forwarded-allow-ips=*"]
     ports:
       - "127.0.0.1:8032:8032"
     networks:
@@ -33,12 +33,18 @@ services:
       qdrant:
         condition: service_started
     volumes:
-      - .:/app
-      - /app/.venv
+      - ./app:/app/app
+      - ./logs:/app/logs
+      - ./config:/app/config
       - ./downloads:/app/downloads
       - ./data:/app/data
       - ./storage:/app/storage
       - ./models_cache:/app/models_cache
+      - ./tests:/app/tests
+      - ./scripts:/app/scripts
+      - ./templates:/app/templates
+      - ./static:/app/static
+
 
 volumes:
   qdrant_data:
@@ -46,3 +52,4 @@ volumes:
 networks:
   planetic-net:
     external: true
+
