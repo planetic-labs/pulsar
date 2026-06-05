@@ -201,8 +201,9 @@ async def websocket_logs_get():
 
 @app.get("/speakers", response_class=HTMLResponse)
 async def speakers_page(request: Request):
-    current_token = get_session_token(request)
-    if not is_valid_token(current_token):
+    try:
+        current_token = require_access_token(request)
+    except HTTPException:
         return RedirectResponse(url="/login")
 
     settings = get_app_settings()
@@ -595,8 +596,9 @@ async def api_add_ingest_task(
 
 @app.get("/indexed", response_class=HTMLResponse)
 def indexed_page(request: Request):
-    current_token = get_session_token(request)
-    if not is_valid_token(current_token):
+    try:
+        current_token = require_access_token(request)
+    except HTTPException:
         return RedirectResponse(url="/login")
 
     settings = get_app_settings()
@@ -1221,8 +1223,9 @@ async def index_page(
         login_user(response, request, str(token_param))
         return response
 
-    current_token = get_session_token(request)
-    if not is_valid_token(current_token):
+    try:
+        current_token = require_access_token(request)
+    except HTTPException:
         return RedirectResponse(url="/login")
 
     results = []
@@ -1268,8 +1271,9 @@ async def index_page(
 
 @app.get("/import", response_class=HTMLResponse)
 def import_page(request: Request):
-    current_token = get_session_token(request)
-    if not is_valid_token(current_token):
+    try:
+        current_token = require_access_token(request)
+    except HTTPException:
         return RedirectResponse(url="/login")
 
     settings = get_app_settings()
@@ -1282,8 +1286,9 @@ def import_page(request: Request):
 def status_page(request: Request):
     pg_settings = get_sqlite_settings()
 
-    current_token = get_session_token(request)
-    if not is_valid_token(current_token):
+    try:
+        current_token = require_access_token(request)
+    except HTTPException:
         return RedirectResponse(url="/login")
 
     settings = get_app_settings()
@@ -1333,8 +1338,9 @@ def status_page(request: Request):
 
 @app.get("/feedback", response_class=HTMLResponse)
 def feedback_page(request: Request):
-    current_token = get_session_token(request)
-    if not is_valid_token(current_token):
+    try:
+        current_token = require_access_token(request)
+    except HTTPException:
         return RedirectResponse(url="/login")
     return templates.TemplateResponse(request, "feedback.html", {"stats": get_global_stats()})
 
@@ -1780,9 +1786,7 @@ async def api_drive_ls(folder_id: str | None = None, refresh: bool = False, _: s
 
 @app.get("/videos/{video_id}/file")
 async def video_file(video_id: int, request: Request, token: str | None = None) -> Response:
-    current_token = get_session_token(request) or token
-    if not is_valid_token(current_token):
-        raise HTTPException(status_code=401)
+    current_token = require_access_token(request)
 
     pg_settings = get_sqlite_settings()
     with db_connection(pg_settings) as connection:
