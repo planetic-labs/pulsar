@@ -291,8 +291,11 @@ def test_perform_token_refresh_server_error(monkeypatch):
         text = "Internal Server Error"
 
         def raise_for_status(self):
+            import typing
+
             import httpx
-            raise httpx.HTTPStatusError("500", request=MagicMock(), response=self)
+
+            raise httpx.HTTPStatusError("500", request=MagicMock(), response=typing.cast(httpx.Response, self))
 
     mock_post = MagicMock(return_value=MockResponse())
     monkeypatch.setattr("httpx.Client.post", mock_post)
@@ -308,6 +311,7 @@ def test_perform_token_refresh_server_error(monkeypatch):
 
 def test_require_access_token_network_error_retains_session(monkeypatch):
     import httpx
+
     settings = MagicMock()
     settings.access_token = "static-token"
     settings.ark_jwks_url = "https://mock-ark.com/.well-known/jwks.json"
@@ -319,6 +323,7 @@ def test_require_access_token_network_error_retains_session(monkeypatch):
     # Mock perform_token_refresh to raise RequestError
     def mock_refresh_fail(*args, **kwargs):
         raise httpx.RequestError("Connection failed")
+
     monkeypatch.setattr("app.auth.perform_token_refresh", mock_refresh_fail)
 
     request = MagicMock()
