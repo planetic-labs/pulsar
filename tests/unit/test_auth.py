@@ -289,7 +289,7 @@ def test_perform_token_refresh_server_error(monkeypatch):
     class MockResponse:
         status_code = 500
         text = "Internal Server Error"
-        
+
         def raise_for_status(self):
             import httpx
             raise httpx.HTTPStatusError("500", request=MagicMock(), response=self)
@@ -297,9 +297,10 @@ def test_perform_token_refresh_server_error(monkeypatch):
     mock_post = MagicMock(return_value=MockResponse())
     monkeypatch.setattr("httpx.Client.post", mock_post)
 
-    from app.auth import perform_token_refresh
-    import pytest
     import httpx
+    import pytest
+
+    from app.auth import perform_token_refresh
 
     with pytest.raises(httpx.HTTPStatusError):
         perform_token_refresh("old-refresh")
@@ -324,13 +325,14 @@ def test_require_access_token_network_error_retains_session(monkeypatch):
     request.query_params = {}
     request.session = {"access_token": "expired-access", "refresh_token": "old-refresh"}
 
-    from fastapi import HTTPException
     import pytest
+    from fastapi import HTTPException
+
     from app.auth import require_access_token
 
     with pytest.raises(HTTPException) as exc_info:
         require_access_token(request)
-        
+
     assert exc_info.value.status_code == 503
     # Check that session was NOT cleared!
     assert request.session["access_token"] == "expired-access"
