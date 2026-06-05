@@ -178,10 +178,14 @@ def perform_token_refresh(refresh_token: str) -> dict | None:
             if res.status_code == 200:
                 return res.json()
             elif res.status_code in (400, 401, 403):
-                logging.warning(f"Failed to refresh token (invalid token), status code: {res.status_code}, response: {res.text}")
+                logging.warning(
+                    f"Failed to refresh token (invalid token), status code: {res.status_code}, response: {res.text}"
+                )
                 return None
             else:
-                logging.error(f"Failed to refresh token (server error), status code: {res.status_code}, response: {res.text}")
+                logging.error(
+                    f"Failed to refresh token (server error), status code: {res.status_code}, response: {res.text}"
+                )
                 res.raise_for_status()
     except httpx.HTTPStatusError as e:
         raise e
@@ -195,6 +199,7 @@ def perform_token_refresh(refresh_token: str) -> dict | None:
 
 def require_access_token(request: Request) -> str:
     import httpx
+
     token = get_session_token(request)
 
     if not token or not is_valid_token(token):

@@ -1339,7 +1339,7 @@ def status_page(request: Request):
 @app.get("/feedback", response_class=HTMLResponse)
 def feedback_page(request: Request):
     try:
-        current_token = require_access_token(request)
+        require_access_token(request)
     except HTTPException:
         return RedirectResponse(url="/login")
     return templates.TemplateResponse(request, "feedback.html", {"stats": get_global_stats()})
@@ -1786,7 +1786,7 @@ async def api_drive_ls(folder_id: str | None = None, refresh: bool = False, _: s
 
 @app.get("/videos/{video_id}/file")
 async def video_file(video_id: int, request: Request, token: str | None = None) -> Response:
-    current_token = require_access_token(request)
+    require_access_token(request)
 
     pg_settings = get_sqlite_settings()
     with db_connection(pg_settings) as connection:
