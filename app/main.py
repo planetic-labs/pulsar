@@ -16,7 +16,7 @@ from fastapi.templating import Jinja2Templates
 from qdrant_client import models
 from starlette.middleware.sessions import SessionMiddleware
 
-from app.auth import get_session_token, is_valid_token, login_user, logout_user, require_access_token, require_admin
+from app.auth import is_valid_token, login_user, logout_user, require_access_token, require_admin
 from app.config import (
     get_app_settings,
     get_deepgram_settings,
