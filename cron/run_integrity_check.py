@@ -84,9 +84,9 @@ def main():
     try:
         compose_cmd = get_docker_compose_cmd()
         py_cmd = (
-            "from scripts.check_integrity import check_integrity; "
+            "from scripts.verify_integrity import verify_integrity; "
             "import json; "
-            "print('INTEGRITY_ISSUES:' + json.dumps(check_integrity()))"
+            "print('INTEGRITY_ISSUES:' + json.dumps(verify_integrity()))"
         )
         cmd = compose_cmd + ["exec", "-T", "pulsar", "uv", "run", "python", "-c", py_cmd]
         res = subprocess.run(cmd, capture_output=True, text=True, check=True)

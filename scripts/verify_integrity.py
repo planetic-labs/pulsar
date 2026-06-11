@@ -18,7 +18,7 @@ logging.basicConfig(level=logging.INFO, format="%(message)s")
 logger = logging.getLogger("integrity_check")
 
 
-def check_integrity() -> dict[str, Any]:
+def verify_integrity() -> dict[str, Any]:
     app_settings = get_app_settings()
     sqlite_settings = get_sqlite_settings()
     q_settings = get_manticore_settings()
@@ -500,4 +500,4 @@ def check_integrity() -> dict[str, Any]:
 
 
 if __name__ == "__main__":
-    check_integrity()
+    verify_integrity()
