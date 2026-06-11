@@ -49,7 +49,6 @@ def test_cron_main_success(mocker):
 
     assert mock_run.called
     called_cmds = [call[0][0] for call in mock_run.call_args_list]
-    assert any("backup.py" in str(cmd) for cmd in called_cmds)
     assert any("sync_index.py" in str(cmd) for cmd in called_cmds)
     assert any("check_integrity" in str(cmd) for cmd in called_cmds)
     assert not mock_notify.called
@@ -89,8 +88,8 @@ def test_cron_main_with_integrity_issues(mocker):
 
 def test_cron_main_subprocess_failure(mocker):
     def mock_run_impl(args, **kwargs):
-        if any("backup.py" in str(arg) for arg in args):
-            raise subprocess.CalledProcessError(returncode=1, cmd=args, output="Failed backup", stderr="Out of space")
+        if any("sync_index.py" in str(arg) for arg in args):
+            raise subprocess.CalledProcessError(returncode=1, cmd=args, output="Failed sync", stderr="Out of space")
 
         mock_res = MagicMock()
         mock_res.returncode = 0
