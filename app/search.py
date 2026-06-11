@@ -106,7 +106,7 @@ def _build_quote_regex(phrase: str) -> str:
     return r"[\s\S]{0,60}?".join(regex_parts)
 
 
-def _build_manticore_phrase_query(query: str, slop: int = 10) -> str | None:
+def _build_manticore_phrase_query(query: str, slop: int = 5) -> str | None:
     """Build a Manticore Search proximity query syntax like '"word1 word2"~10'."""
     words = re.findall(r"[а-яА-ЯёЁa-zA-Z0-9]+", query.lower())
     if not words:
@@ -255,7 +255,7 @@ async def hybrid_search(
 
     if search_mode == "quote" and clean_query:
         # --- FAST INDEXED PHRASE SEARCH (Manticore) ---
-        phrase_query = _build_manticore_phrase_query(clean_query, slop=10)
+        phrase_query = _build_manticore_phrase_query(clean_query, slop=5)
         if not phrase_query:
             return []
 
