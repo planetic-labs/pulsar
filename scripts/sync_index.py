@@ -257,16 +257,11 @@ async def main():
 
         # Get active indexing tasks to avoid duplicate re-indexing queuing
         indexing_tasks = conn.execute(
-            "SELECT payload FROM tasks WHERE task_type = 'stage_3_index' AND status IN ('pending', 'running')"
+            "SELECT video_id FROM tasks "
+            "WHERE task_type = 'stage_3_index' AND status IN ('pending', 'running') AND video_id IS NOT NULL"
         ).fetchall()
         for t in indexing_tasks:
-            try:
-                payload = json.loads(t["payload"])
-                vid = payload.get("video_id")
-                if vid:
-                    active_indexing_ids.add(vid)
-            except Exception:
-                pass
+            active_indexing_ids.add(t["video_id"])
 
     if not root_folders:
         logger.warning("No root folders configured for indexing in the database. Exiting.")
@@ -387,8 +382,10 @@ async def main():
                     if lv["processing_status"] in ("indexed_chunks_ready", "transcribed", "indexing"):
                         if lv["id"] not in active_indexing_ids:
                             conn.execute(
-                                "INSERT INTO tasks (task_type, payload, status, priority) VALUES (?, ?, ?, ?)",
+                                "INSERT INTO tasks (video_id, task_type, payload, status, priority) "
+                                "VALUES (?, ?, ?, ?, ?)",
                                 (
+                                    lv["id"],
                                     "stage_3_index",
                                     json.dumps({"video_id": lv["id"], "title": name}, ensure_ascii=False),
                                     "pending",

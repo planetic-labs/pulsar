@@ -28,7 +28,7 @@ from app.db import db_connection, init_db
 from app.embeddings import UnifiedEmbeddingClient
 from app.google_drive import GoogleDriveClient
 from app.manticore import get_manticore_client, init_manticore
-from app.schemas import FeedbackRequest, VideoStatusItem
+from app.schemas import VideoStatusItem
 from app.search import hybrid_search
 from app.worker import broadcaster, get_worker, set_main_loop
 
@@ -398,94 +398,14 @@ async def api_worker_progress(_: str = Depends(require_admin)):
                     }
                 )
 
-        # Detail duplicate MD5 files
+        # Detail duplicate MD5 files (removed from UI, kept empty lists for API compatibility)
         stats["duplicate_md5_list"] = []
         stats["duplicate_md5_count"] = 0
-        sql_dc = "SELECT COUNT(*) as c FROM videos WHERE is_original = 0"
-        stats["duplicate_md5_count"] = conn.execute(sql_dc).fetchone()["c"]
-
-        def get_folder_path(connection, folder_id: str | None) -> str:
-            # Recursively build human-readable folder path
-            if not folder_id:
-                return "Корневой каталог"
-            path_parts = []
-            curr = folder_id
-            visited = set()
-            while curr:
-                if curr in visited:
-                    break
-                visited.add(curr)
-                row = connection.execute("SELECT name, parent_id FROM folders WHERE id = ?", (curr,)).fetchone()
-                if row:
-                    path_parts.append(row["name"])
-                    curr = str(row["parent_id"]) if row["parent_id"] else None
-                else:
-                    path_parts.append(f"Неизвестная папка ({curr})")
-                    break
-            if not path_parts:
-                return "Корневой каталог"
-            path_parts.reverse()
-            return " / ".join(path_parts)
-
-        if stats["duplicate_md5_count"] > 0:
-            sql_d = """
-                SELECT id, title, source_file_id, source_url, md5_checksum,
-                       size_bytes, duration_sec, status AS processing_status, created_at, parent_folder_id, original_id
-                FROM videos WHERE original_id IS NOT NULL
-                ORDER BY updated_at DESC LIMIT 20
-            """
-            d_rows = conn.execute(sql_d).fetchall()
-            for dr in d_rows:
-                # Find matching original video
-                original_title = "Неизвестный оригинал"
-                original_info = None
-                if dr["original_id"]:
-                    sql_orig = """
-                        SELECT id, title, source_file_id, source_url,
-                               size_bytes, duration_sec, status AS processing_status, created_at, parent_folder_id
-                        FROM videos WHERE id = ? LIMIT 1
-                    """
-                    orig_row = conn.execute(sql_orig, (dr["original_id"],)).fetchone()
-                    if orig_row:
-                        original_title = orig_row["title"]
-                        created_val = orig_row["created_at"]
-                        original_info = {
-                            "id": orig_row["id"],
-                            "title": orig_row["title"],
-                            "file_id": orig_row["source_file_id"],
-                            "source_url": orig_row["source_url"],
-                            "size_bytes": orig_row["size_bytes"],
-                            "duration_sec": orig_row["duration_sec"],
-                            "processing_status": orig_row["processing_status"],
-                            "created_at": (
-                                created_val.isoformat() if hasattr(created_val, "isoformat") else str(created_val)
-                            ),
-                            "folder_path": get_folder_path(conn, orig_row["parent_folder_id"]),
-                        }
-                created_val_dr = dr["created_at"]
-                stats["duplicate_md5_list"].append(
-                    {
-                        "id": dr["id"],
-                        "title": dr["title"],
-                        "file_id": dr["source_file_id"],
-                        "source_url": dr["source_url"],
-                        "size_bytes": dr["size_bytes"],
-                        "duration_sec": dr["duration_sec"],
-                        "processing_status": dr["processing_status"],
-                        "created_at": (
-                            created_val_dr.isoformat() if hasattr(created_val_dr, "isoformat") else str(created_val_dr)
-                        ),
-                        "md5_checksum": dr["md5_checksum"],
-                        "original_title": original_title,
-                        "original": original_info,
-                        "folder_path": get_folder_path(conn, dr["parent_folder_id"]),
-                    }
-                )
 
         # Detail failed
         if stats["failed"] > 0:
             sql_e = """
-                SELECT id, task_type, error_message, payload
+                SELECT id, task_type, error_message, payload, retries, max_retries
                 FROM tasks WHERE status = 'failed'
                 ORDER BY updated_at DESC LIMIT 5
             """
@@ -499,7 +419,14 @@ async def api_worker_progress(_: str = Depends(require_admin)):
                     pass
 
                 stats["recent_errors"].append(
-                    {"id": er["id"], "title": title, "type": er["task_type"], "error": er["error_message"]}
+                    {
+                        "id": er["id"],
+                        "title": title,
+                        "type": er["task_type"],
+                        "error": er["error_message"],
+                        "retries": er["retries"] or 0,
+                        "max_retries": er["max_retries"] or 3,
+                    }
                 )
 
     # Get balance from cache
@@ -561,11 +488,44 @@ async def api_add_ingest_task(
 
     settings = get_sqlite_settings()
     with db_connection(settings) as conn:
+        # Check if this file_id is already registered
+        existing_by_id = conn.execute("SELECT id FROM videos WHERE source_file_id = ?", (file_id,)).fetchone()
+        if existing_by_id:
+            return {"status": "already_indexed", "video_id": existing_by_id["id"]}
+
         if md5:
-            # Check for content duplicates
-            existing = conn.execute("SELECT id FROM videos WHERE md5_checksum = ?", (md5,)).fetchone()
-            if existing:
-                return {"status": "already_indexed", "video_id": existing["id"]}
+            # Check for content duplicates (original video with this MD5)
+            existing_orig = conn.execute(
+                "SELECT id FROM videos WHERE md5_checksum = ? AND original_id IS NULL", (md5,)
+            ).fetchone()
+            if existing_orig:
+                # Automate: insert as duplicate directly
+                conn.execute(
+                    """
+                    INSERT INTO videos (
+                        source_file_id, parent_folder_id, md5_checksum, title,
+                        status, original_id, source_url
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT (source_file_id) DO UPDATE SET
+                        parent_folder_id = EXCLUDED.parent_folder_id,
+                        md5_checksum = EXCLUDED.md5_checksum,
+                        title = EXCLUDED.title,
+                        status = EXCLUDED.status,
+                        original_id = EXCLUDED.original_id,
+                        source_url = EXCLUDED.source_url,
+                        updated_at = CURRENT_TIMESTAMP
+                    """,
+                    (
+                        file_id,
+                        parent_folder_id,
+                        md5,
+                        title or (file_meta.name if "file_meta" in locals() else f"File {file_id}"),
+                        "skipped_duplicate_md5",
+                        existing_orig["id"],
+                        f"https://drive.google.com/file/d/{file_id}/view",
+                    ),
+                )
+                return {"status": "skipped_duplicate_md5", "video_id": existing_orig["id"]}
 
         conn.execute(
             "INSERT INTO tasks (task_type, payload) VALUES (?, ?)",
@@ -655,8 +615,8 @@ async def api_toggle_short(video_id: int, _: str = Depends(require_admin)):
 
                 # 6. Re-queue for Stage 3 indexing
                 conn.execute(
-                    "INSERT INTO tasks (task_type, payload) VALUES (?, ?)",
-                    ("stage_3_index", json.dumps({"video_id": video_id})),
+                    "INSERT INTO tasks (video_id, task_type, payload) VALUES (?, ?, ?)",
+                    (video_id, "stage_3_index", json.dumps({"video_id": video_id})),
                 )
 
                 # Auto-start worker if needed
@@ -859,8 +819,9 @@ async def api_worker_duplicates_swap(
         # 4. Queue a re-indexing task for the new original to rebuild vectors in Manticore with new metadata
         new_payload = {"video_id": duplicate_id, "title": dup_row["title"]}
         conn.execute(
-            "INSERT INTO tasks (task_type, payload, status, priority) VALUES ('stage_3_index', ?, 'pending', 5)",
-            (json.dumps(new_payload, ensure_ascii=False),),
+            "INSERT INTO tasks (video_id, task_type, payload, status, priority) "
+            "VALUES (?, 'stage_3_index', ?, 'pending', 5)",
+            (duplicate_id, json.dumps(new_payload, ensure_ascii=False)),
         )
 
     # 5. Delete old points of original_id from Manticore
@@ -1369,55 +1330,6 @@ def status_page(request: Request):
     )
 
 
-@app.get("/feedback", response_class=HTMLResponse)
-def feedback_page(request: Request):
-    try:
-        require_access_token(request)
-    except HTTPException:
-        return RedirectResponse(url="/login")
-    return templates.TemplateResponse(request, "feedback.html", {"stats": get_global_stats()})
-
-
-...
-
-
-@app.post("/api/v1/feedback")
-async def api_submit_feedback(req: FeedbackRequest, _: str = Depends(require_access_token)):
-    app_settings = get_app_settings()
-    if not app_settings.github_pat:
-        raise HTTPException(status_code=500, detail="GitHub PAT не настроен в .env")
-
-    url = f"https://api.github.com/repos/{app_settings.github_repo}/issues"
-    headers = {
-        "Authorization": f"Bearer {app_settings.github_pat}",
-        "Accept": "application/vnd.github.v3+json",
-        "User-Agent": "Pulsar-AI",
-    }
-
-    body_md = f"**Описание:**\n{req.description}\n\n---\n*Отправлено через Pulsar AI Feedback Form*"
-
-    payload = {"title": req.title, "body": body_md, "labels": ["feedback"]}
-
-    async with httpx.AsyncClient() as client:
-        try:
-            response = await client.post(url, headers=headers, json=payload, timeout=20.0)
-            if response.status_code == 201:
-                return {"status": "success", "issue_url": response.json().get("html_url")}
-            else:
-                logger.error(f"GitHub API Error ({response.status_code}): {response.text}")
-                try:
-                    err_data = response.json()
-                    detail = err_data.get("message", response.text)
-                except Exception:
-                    detail = response.text
-                raise HTTPException(status_code=response.status_code, detail=f"Ошибка GitHub API: {detail}")
-        except HTTPException:
-            raise
-        except Exception as e:
-            logger.error(f"Failed to submit feedback to GitHub: {e}")
-            raise HTTPException(status_code=500, detail=f"Ошибка сети или API: {str(e)}") from e
-
-
 @app.get("/api/v1/tasks/active")
 async def api_get_active_tasks(_: str = Depends(require_access_token)):
     """Returns currently running tasks for UI updates."""
@@ -1522,14 +1434,14 @@ async def api_reindex_all(clear_manticore: bool = False, _: str = Depends(requir
             sql_check = """
                 SELECT 1 FROM tasks
                 WHERE task_type = 'stage_3_index' AND status IN ('pending', 'running')
-                AND payload LIKE ?
+                AND video_id = ?
             """
-            exists = conn.execute(sql_check, (f'%"video_id": {vid}%',)).fetchone()
+            exists = conn.execute(sql_check, (vid,)).fetchone()
 
             if not exists:
                 conn.execute(
-                    "INSERT INTO tasks (task_type, payload, status, priority) VALUES (?, ?, ?, ?)",
-                    ("stage_3_index", payload, "pending", 10),  # Higher priority for reindex
+                    "INSERT INTO tasks (video_id, task_type, payload, status, priority) VALUES (?, ?, ?, ?, ?)",
+                    (vid, "stage_3_index", payload, "pending", 10),  # Higher priority for reindex
                 )
                 count += 1
 

@@ -214,23 +214,7 @@
                 </div>
             </div>
 
-            <!-- Duplicate MD5 files -->
-            <div id="duplicate-md5-container" class="hidden animate-in fade-in slide-in-from-top-4 duration-500 mt-4">
-                <div class="bg-orange-50 border border-orange-200 rounded-2xl p-4 flex flex-col gap-3">
-                    <div class="flex items-center gap-2">
-                        <div class="w-8 h-8 rounded-xl bg-orange-100 flex items-center justify-center text-orange-600">
-                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7v8a2 2 0 002 2h6M8 7V5a2 2 0 012-2h4.586a1 1 0 01.707.293l4.414 4.414a1 1 0 01.293.707V15a2 2 0 01-2 2h-2M8 7H6a2 2 0 00-2 2v10a2 2 0 012 2h8a2 2 0 002-2v-2"></path></svg>
-                        </div>
-                        <div>
-                            <h4 class="text-[10px] font-black text-orange-800 uppercase tracking-widest">Дубликаты по MD5 (<span id="duplicate-md5-count">0</span>)</h4>
-                            <p class="text-[8px] text-orange-600 font-bold uppercase tracking-tight">Файлы с совпадающим содержимым на Google Drive</p>
-                        </div>
-                    </div>
-                    <div id="duplicate-md5-list" class="flex flex-col gap-1.5">
-                        <!-- List items will be injected here -->
-                    </div>
-                </div>
-            </div>
+
         </div>
 
         <!-- Deletion Confirmation Modal -->
@@ -273,90 +257,7 @@
             </div>
         </div>
 
-        <!-- Duplicate Details Modal -->
-        <div id="duplicate-info-modal" class="fixed inset-0 z-[150] flex items-center justify-center hidden">
-            <!-- Backdrop -->
-            <div onclick="closeDuplicateModal()" class="absolute inset-0 bg-[#1A1814]/40 backdrop-blur-sm"></div>
 
-            <!-- Modal Content -->
-            <div class="relative bg-white border border-[#E5E1D8] rounded-3xl p-6 max-w-2xl w-full mx-4 shadow-2xl animate-in fade-in zoom-in-95 duration-200 flex flex-col gap-4">
-                <div class="flex items-center gap-3">
-                    <div class="w-10 h-10 rounded-2xl bg-orange-50 flex items-center justify-center text-orange-600 shadow-sm shrink-0">
-                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-                        </svg>
-                    </div>
-                    <div>
-                        <h3 class="text-base font-black text-[#3A3630] tracking-tight">Информация о дубликатах</h3>
-                        <p class="text-xs text-warm-400 font-bold uppercase tracking-wider mt-0.5">Совпадение по MD5 хешу</p>
-                    </div>
-                </div>
-
-                <!-- MD5 Hash info -->
-                <div class="bg-warm-50/50 border border-warm-100 rounded-2xl p-3 flex flex-col gap-1 text-center">
-                    <span class="text-[9px] font-black text-warm-400 uppercase tracking-widest">MD5 Хеш содержимого</span>
-                    <p id="dup-modal-hash" class="text-xs font-mono font-bold text-orange-700 select-all"></p>
-                </div>
-
-                <!-- Files Comparison Grid -->
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <!-- Original File Card -->
-                    <div class="border border-emerald-100 bg-emerald-50/20 rounded-2xl p-4 flex flex-col gap-2">
-                        <span class="text-[9px] font-black text-emerald-600 uppercase tracking-widest">Оригинальный файл (в индексе)</span>
-                        <h4 id="dup-modal-orig-title" class="text-xs font-bold text-[#3A3630] leading-relaxed break-words line-clamp-3"></h4>
-                        <div class="h-px bg-emerald-100/50 my-1"></div>
-                        <div class="text-[10px] text-warm-500 flex flex-col gap-1">
-                            <p class="break-words"><b>Путь:</b> <span id="dup-modal-orig-path" class="font-semibold text-warm-700"></span></p>
-                            <p><b>Размер:</b> <span id="dup-modal-orig-size"></span></p>
-                            <p><b>Длительность:</b> <span id="dup-modal-orig-duration"></span></p>
-                            <p><b>Статус:</b> <span id="dup-modal-orig-status" class="px-1.5 py-0.5 rounded text-[9px] font-bold"></span></p>
-                            <p><b>Добавлен:</b> <span id="dup-modal-orig-created"></span></p>
-                            <p class="truncate font-mono text-[9px] mt-1" title="Google Drive ID"><b>ID:</b> <span id="dup-modal-orig-id"></span></p>
-                        </div>
-                        <div class="mt-auto pt-3">
-                            <a id="dup-modal-orig-link" href="#" target="_blank" class="w-full flex items-center justify-center gap-1.5 px-3 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-[9px] font-black uppercase tracking-widest transition-all shadow-sm">
-                                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" /></svg>
-                                Открыть на диске
-                            </a>
-                        </div>
-                    </div>
-
-                    <!-- Duplicate File Card -->
-                    <div class="border border-orange-100 bg-orange-50/20 rounded-2xl p-4 flex flex-col gap-2">
-                        <span class="text-[9px] font-black text-orange-600 uppercase tracking-widest">Копия (пропущена)</span>
-                        <h4 id="dup-modal-copy-title" class="text-xs font-bold text-[#3A3630] leading-relaxed break-words line-clamp-3"></h4>
-                        <div class="h-px bg-orange-100/50 my-1"></div>
-                        <div class="text-[10px] text-warm-500 flex flex-col gap-1">
-                            <p class="break-words"><b>Путь:</b> <span id="dup-modal-copy-path" class="font-semibold text-warm-700"></span></p>
-                            <p><b>Размер:</b> <span id="dup-modal-copy-size"></span></p>
-                            <p><b>Длительность:</b> <span id="dup-modal-copy-duration"></span></p>
-                            <p><b>Статус:</b> <span id="dup-modal-copy-status" class="px-1.5 py-0.5 rounded text-[9px] font-bold"></span></p>
-                            <p><b>Добавлен:</b> <span id="dup-modal-copy-created"></span></p>
-                            <p class="truncate font-mono text-[9px] mt-1" title="Google Drive ID"><b>ID:</b> <span id="dup-modal-copy-id"></span></p>
-                        </div>
-                        <div class="mt-auto pt-3 flex flex-col gap-2">
-                            <a id="dup-modal-copy-link" href="#" target="_blank" class="w-full flex items-center justify-center gap-1.5 px-3 py-2 bg-orange-600 hover:bg-orange-700 text-white rounded-xl text-[9px] font-black uppercase tracking-widest transition-all shadow-sm">
-                                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" /></svg>
-                                Открыть на диске
-                            </a>
-                            <button id="dup-modal-swap-btn" onclick="executeSwapRoles()" class="w-full flex items-center justify-center gap-1.5 px-3 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-xl text-[9px] font-black uppercase tracking-widest transition-all shadow-sm">
-                                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" /></svg>
-                                Сделать основным
-                            </button>
-                        </div>
-                    </div>
-                </div>
-
-                <div class="flex items-center justify-end gap-3 mt-2">
-                    <button id="dup-modal-save-btn" onclick="executeSaveDuplicate()" class="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-[9px] font-black uppercase tracking-widest transition-all shadow-sm">
-                        Сохранить
-                    </button>
-                    <button onclick="closeDuplicateModal()" class="px-5 py-2.5 bg-warm-50 hover:bg-warm-100 border border-[#E5E1D8] text-warm-600 rounded-xl text-[9px] font-black uppercase tracking-widest transition-all shadow-sm">
-                        Закрыть
-                    </button>
-                </div>
-            </div>
-        </div>
 
         <!-- Logs Column -->
         <div class="lg:h-0 lg:min-h-full flex flex-col">
@@ -532,7 +433,7 @@
                 if (state.active) {
                     card.classList.remove('opacity-40');
                     title.innerText = state.title;
-                    status.innerText = state.status_text;
+                    status.innerText = stageId === 'stage_3_index' ? `${state.status_text} (MOCK)` : state.status_text;
                     bar.style.width = `${state.progress}%`;
                     
                     if ((stageId === 'stage_1_download' || stageId === 'stage_2_transcribe') && state.speed) {
@@ -585,7 +486,7 @@
                             <div class="bg-white border border-rose-100 rounded-xl p-3 flex flex-col gap-1 group relative shadow-sm">
                                 <div class="flex items-center justify-between mb-1">
                                     <span class="text-[9px] font-black text-rose-600 uppercase tracking-tight truncate max-w-[150px]">${err.title}</span>
-                                    <span class="text-[7px] font-black text-rose-300 uppercase tracking-widest">${err.type}</span>
+                                    <span class="text-[7px] font-black text-rose-400 uppercase tracking-widest">${err.type} (попытка ${err.retries}/${err.max_retries})</span>
                                 </div>
                                 <p class="text-[8px] text-rose-700/60 leading-relaxed font-medium line-clamp-2">${err.error}</p>
                                 <button onclick="copyToClipboard('${err.error.replace(/'/g, "\\'").replace(/\n/g, " ")}')" class="absolute top-2 right-2 p-1 bg-rose-50 border border-rose-100 rounded shadow-sm opacity-0 group-hover:opacity-100 transition-opacity">
@@ -707,45 +608,7 @@
                 }
             }
 
-            // 8. Update Duplicate MD5 Block
-            const duplicateContainer = document.getElementById('duplicate-md5-container');
-            const duplicateList = document.getElementById('duplicate-md5-list');
-            const duplicateCount = document.getElementById('duplicate-md5-count');
-            if (duplicateContainer && duplicateList && data.stats) {
-                if (duplicateCount) {
-                    duplicateCount.innerText = data.stats.duplicate_md5_count || 0;
-                }
-                if (data.stats.duplicate_md5_list && data.stats.duplicate_md5_list.length > 0) {
-                    duplicateContainer.classList.remove('hidden');
-                    duplicateList.innerHTML = data.stats.duplicate_md5_list.map(item => {
-                        const itemEscaped = encodeURIComponent(JSON.stringify(item));
-                        return `
-                            <div class="flex items-center justify-between group">
-                                <span class="text-[9px] font-bold text-orange-900 truncate pr-4" title="${item.title}">
-                                    ${item.title} <span class="font-normal opacity-70">(копия: ${item.original_title})</span>
-                                </span>
-                                <div class="h-px flex-1 bg-orange-200/50 mr-4"></div>
-                                <div class="flex items-center gap-2">
-                                    ${item.source_url ? `
-                                        <a href="${item.source_url}" target="_blank" class="p-1 bg-blue-50 text-blue-600 rounded hover:bg-blue-100 transition-all shadow-sm shrink-0" title="Открыть диск">
-                                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
-                                            </svg>
-                                        </a>
-                                    ` : ''}
-                                    <button onclick="showDuplicateModal('${itemEscaped}')" class="p-1 bg-amber-50 text-amber-600 rounded hover:bg-amber-100 transition-all shadow-sm shrink-0" title="Детальная информация о дубликатах">
-                                        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                                        </svg>
-                                    </button>
-                                </div>
-                            </div>
-                        `;
-                    }).join('');
-                } else {
-                    duplicateContainer.classList.add('hidden');
-                }
-            }
+
         } catch (e) {
             console.error("Failed to update progress UI:", e);
         }
@@ -814,8 +677,6 @@
     }
 
     let videoIdToDelete = null;
-    let currentOriginalId = null;
-    let currentDuplicateId = null;
 
     function confirmDeleteVideo(videoId, fileTitle, fileId) {
         videoIdToDelete = videoId;
@@ -831,226 +692,6 @@
         modal.classList.add('hidden');
         videoIdToDelete = null;
     }
-
-    function showDuplicateModal(itemJsonStr) {
-        try {
-            const item = JSON.parse(decodeURIComponent(itemJsonStr));
-            currentDuplicateId = item.id;
-            
-            const formatSize = (bytes) => {
-                if (!bytes) return "неизвестно";
-                const mbs = bytes / (1024 * 1024);
-                return `${mbs.toFixed(1)} МБ (${bytes.toLocaleString()} байт)`;
-            };
-
-            const formatDuration = (seconds) => {
-                if (!seconds) return "неизвестно";
-                const mins = Math.floor(seconds / 60);
-                const secs = Math.floor(seconds % 60);
-                return `${mins} мин ${secs} сек (${seconds.toFixed(1)} сек)`;
-            };
-
-            const formatDate = (dateStr) => {
-                if (!dateStr) return "неизвестно";
-                try {
-                    return new Date(dateStr).toLocaleString('ru-RU');
-                } catch(e) {
-                    return dateStr;
-                }
-            };
-
-            const translateStatus = (status) => {
-                const map = {
-                    'pending': 'В очереди',
-                    'downloading': 'Скачивание',
-                    'transcribing': 'Транскрипция',
-                    'indexing': 'Индексация',
-                    'completed': 'Успешно завершено',
-                    'failed': 'Ошибка',
-                    'skipped_duplicate_md5': 'Дубликат (пропущен)'
-                };
-                return map[status] || status;
-            };
-
-            const getStatusClass = (status) => {
-                if (status === 'completed') return 'bg-emerald-100 text-emerald-800';
-                if (status === 'failed') return 'bg-rose-100 text-rose-800';
-                return 'bg-amber-100 text-amber-800';
-            };
-
-            document.getElementById('dup-modal-hash').innerText = item.md5_checksum || "неизвестно";
-
-            document.getElementById('dup-modal-copy-title').innerText = item.title;
-            document.getElementById('dup-modal-copy-path').innerText = item.folder_path || "Корневой каталог";
-            document.getElementById('dup-modal-copy-size').innerText = formatSize(item.size_bytes);
-            document.getElementById('dup-modal-copy-duration').innerText = formatDuration(item.duration_sec);
-            document.getElementById('dup-modal-copy-status').className = `px-1.5 py-0.5 rounded text-[9px] font-bold ${getStatusClass(item.processing_status)}`;
-            document.getElementById('dup-modal-copy-status').innerText = translateStatus(item.processing_status);
-            document.getElementById('dup-modal-copy-created').innerText = formatDate(item.created_at);
-            document.getElementById('dup-modal-copy-id').innerText = item.file_id || "неизвестно";
-            
-            const copyLink = document.getElementById('dup-modal-copy-link');
-            if (item.source_url) {
-                copyLink.href = item.source_url;
-                copyLink.classList.remove('hidden');
-            } else {
-                copyLink.classList.add('hidden');
-            }
-
-            const orig = item.original;
-            const swapBtn = document.getElementById('dup-modal-swap-btn');
-            if (orig) {
-                currentOriginalId = orig.id;
-                swapBtn.classList.remove('hidden');
-                
-                document.getElementById('dup-modal-orig-title').innerText = orig.title;
-                document.getElementById('dup-modal-orig-path').innerText = orig.folder_path || "Корневой каталог";
-                document.getElementById('dup-modal-orig-size').innerText = formatSize(orig.size_bytes);
-                document.getElementById('dup-modal-orig-duration').innerText = formatDuration(orig.duration_sec);
-                
-                const origStatusEl = document.getElementById('dup-modal-orig-status');
-                origStatusEl.innerText = translateStatus(orig.processing_status);
-                origStatusEl.className = `px-1.5 py-0.5 rounded text-[9px] font-bold ${getStatusClass(orig.processing_status)}`;
-                
-                document.getElementById('dup-modal-orig-created').innerText = formatDate(orig.created_at);
-                document.getElementById('dup-modal-orig-id').innerText = orig.file_id || "неизвестно";
-                
-                const origLink = document.getElementById('dup-modal-orig-link');
-                if (orig.source_url) {
-                    origLink.href = orig.source_url;
-                    origLink.classList.remove('hidden');
-                } else {
-                    origLink.classList.add('hidden');
-                }
-            } else {
-                currentOriginalId = null;
-                swapBtn.classList.add('hidden');
-                
-                document.getElementById('dup-modal-orig-title').innerText = item.original_title || "Неизвестный оригинал";
-                document.getElementById('dup-modal-orig-path').innerText = "неизвестно";
-                document.getElementById('dup-modal-orig-size').innerText = "неизвестно";
-                document.getElementById('dup-modal-orig-duration').innerText = "неизвестно";
-                
-                const origStatusEl = document.getElementById('dup-modal-orig-status');
-                origStatusEl.innerText = "неизвестно";
-                origStatusEl.className = "px-1.5 py-0.5 rounded text-[9px] font-bold bg-warm-100 text-warm-800";
-                
-                document.getElementById('dup-modal-orig-created').innerText = "неизвестно";
-                document.getElementById('dup-modal-orig-id').innerText = "неизвестно";
-                document.getElementById('dup-modal-orig-link').classList.add('hidden');
-            }
-
-            document.getElementById('duplicate-info-modal').classList.remove('hidden');
-        } catch(e) {
-            console.error("Failed to show duplicate modal:", e);
-        }
-    }
-
-    function closeDuplicateModal() {
-        document.getElementById('duplicate-info-modal').classList.add('hidden');
-        currentOriginalId = null;
-        currentDuplicateId = null;
-    }
-
-    async function executeSwapRoles() {
-        if (!currentOriginalId || !currentDuplicateId) return;
-
-        if (!confirm("Вы уверены, что хотите сделать этот дубликат основным? Все тексты и разметка будут перенесены на него, а старый оригинал станет пропущенным дубликатом.")) {
-            return;
-        }
-
-        const swapBtn = document.getElementById('dup-modal-swap-btn');
-        swapBtn.disabled = true;
-        const originalText = swapBtn.innerText;
-        swapBtn.innerText = "Выполняется...";
-
-        try {
-            const formData = new FormData();
-            formData.append('original_id', currentOriginalId);
-            formData.append('duplicate_id', currentDuplicateId);
-
-            const res = await fetch('/api/v1/worker/duplicates/swap', {
-                method: 'POST',
-                body: formData
-            });
-
-            if (res.ok) {
-                const data = await res.json();
-                closeDuplicateModal();
-                
-                // Show success toast
-                const toast = document.createElement('div');
-                toast.className = "fixed bottom-8 left-8 z-[200] px-5 py-2.5 bg-[#3A3630] text-[#FAF9F6] rounded-xl text-[9px] font-black uppercase tracking-widest shadow-2xl animate-in slide-in-from-bottom-4 duration-200";
-                toast.textContent = data.message || "Роли успешно изменены";
-                document.body.appendChild(toast);
-                setTimeout(() => {
-                    toast.classList.add('animate-out', 'fade-out', 'slide-out-to-bottom-4');
-                    setTimeout(() => toast.remove(), 200);
-                }, 3000);
-
-                updateProgressUI();
-            } else {
-                const errData = await res.json();
-                alert(`Ошибка изменения ролей: ${errData.detail || res.statusText}`);
-            }
-        } catch (e) {
-            console.error(e);
-            alert(`Ошибка при смене ролей дубликатов: ${e.message}`);
-        } finally {
-            swapBtn.disabled = false;
-            swapBtn.innerText = originalText;
-        }
-    }
-
-    async function executeSaveDuplicate() {
-        if (!currentDuplicateId) return;
-
-        if (!confirm("Вы уверены, что хотите сохранить эту копию как дубликат и скрыть из мониторинга? Она больше не будет показываться как требующая внимания.")) {
-            return;
-        }
-
-        const saveBtn = document.getElementById('dup-modal-save-btn');
-        saveBtn.disabled = true;
-        const originalText = saveBtn.innerText;
-        saveBtn.innerText = "Выполняется...";
-
-        try {
-            const formData = new FormData();
-            formData.append('duplicate_id', currentDuplicateId);
-
-            const res = await fetch('/api/v1/worker/duplicates/save', {
-                method: 'POST',
-                body: formData
-            });
-
-            if (res.ok) {
-                const data = await res.json();
-                closeDuplicateModal();
-
-                // Show success toast
-                const toast = document.createElement('div');
-                toast.className = "fixed bottom-8 left-8 z-[200] px-5 py-2.5 bg-[#3A3630] text-[#FAF9F6] rounded-xl text-[9px] font-black uppercase tracking-widest shadow-2xl animate-in slide-in-from-bottom-4 duration-200";
-                toast.textContent = data.message || "Дубликат успешно сохранен";
-                document.body.appendChild(toast);
-                setTimeout(() => {
-                    toast.classList.add('animate-out', 'fade-out', 'slide-out-to-bottom-4');
-                    setTimeout(() => toast.remove(), 200);
-                }, 3000);
-
-                updateProgressUI();
-            } else {
-                const errData = await res.json();
-                alert(`Ошибка сохранения дубликата: ${errData.detail || res.statusText}`);
-            }
-        } catch (e) {
-            console.error(e);
-            alert(`Ошибка при сохранении дубликата: ${e.message}`);
-        } finally {
-            saveBtn.disabled = false;
-            saveBtn.innerText = originalText;
-        }
-    }
-
     async function executeDeleteVideo() {
         if (!videoIdToDelete) return;
 

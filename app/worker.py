@@ -126,6 +126,44 @@ class Worker:
             logger.error(f"Ошибка при проверке очереди: {e}")
             return True  # В случае ошибки лучше считать, что задачи есть
 
+    def _handle_task_failure(self, conn: Any, task_id: int, error_trace: str):
+        """Обработка сбоя выполнения задачи с поддержкой повторных попыток (retries)."""
+        row = conn.execute("SELECT retries, max_retries, task_type FROM tasks WHERE id = ?", (task_id,)).fetchone()
+        if not row:
+            return
+
+        retries = row["retries"] or 0
+        max_retries = row["max_retries"] or 3
+        task_type = row["task_type"]
+
+        new_retries = retries + 1
+        if new_retries < max_retries:
+            logger.warning(
+                f"Задача {task_id} ({task_type}) завершилась с ошибкой. Попытка {new_retries}/{max_retries}. "
+                f"Запланирован повторный запуск."
+            )
+            conn.execute(
+                """
+                UPDATE tasks
+                SET status = 'pending', retries = ?, error_message = ?,
+                    created_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+                WHERE id = ?
+                """,
+                (new_retries, f"Попытка {new_retries} не удалась:\n{error_trace}", task_id),
+            )
+        else:
+            logger.error(
+                f"Задача {task_id} ({task_type}) превысила лимит попыток ({max_retries}). Переведена в статус failed."
+            )
+            conn.execute(
+                """
+                UPDATE tasks
+                SET status = 'failed', retries = ?, error_message = ?, updated_at = CURRENT_TIMESTAMP
+                WHERE id = ?
+                """,
+                (new_retries, error_trace, task_id),
+            )
+
     async def _run_stage_1_download(self, task_id: int, payload: dict):
         async with self.download_sem:
             file_id = payload["file_id"]
@@ -159,7 +197,8 @@ class Worker:
                 # Check if there is an existing video in DB with the same MD5 checksum
                 with db_connection(get_sqlite_settings()) as conn:
                     existing = conn.execute(
-                        "SELECT id, title, source_file_id FROM videos WHERE md5_checksum = ? AND source_file_id != ?",
+                        "SELECT id, title, source_file_id FROM videos "
+                        "WHERE md5_checksum = ? AND original_id IS NULL AND source_file_id != ?",
                         (md5, file_id),
                     ).fetchone()
 
@@ -180,7 +219,7 @@ class Worker:
                         parent_folder_id = payload.get("parent_folder_id")
 
                     with db_connection(get_sqlite_settings()) as conn:
-                        conn.execute(
+                        cursor = conn.execute(
                             """
                             INSERT INTO videos (
                                 source_file_id, parent_folder_id, md5_checksum, title,
@@ -194,6 +233,7 @@ class Worker:
                                 original_id = EXCLUDED.original_id,
                                 source_url = EXCLUDED.source_url,
                                 updated_at = CURRENT_TIMESTAMP
+                            RETURNING id
                             """,
                             (
                                 file_id,
@@ -205,10 +245,11 @@ class Worker:
                                 f"https://drive.google.com/file/d/{file_id}/view",
                             ),
                         )
+                        inserted_vid = cursor.fetchone()["id"]
                         conn.execute(
-                            "UPDATE tasks SET status = 'skipped_duplicate_md5', "
+                            "UPDATE tasks SET video_id = ?, status = 'skipped_duplicate_md5', "
                             "updated_at = CURRENT_TIMESTAMP WHERE id = ?",
-                            (task_id,),
+                            (inserted_vid, task_id),
                         )
                     return
 
@@ -263,13 +304,9 @@ class Worker:
                 sql = "UPDATE tasks SET status = 'skipped_silent', updated_at = CURRENT_TIMESTAMP WHERE id = ?"
                 with db_connection(get_sqlite_settings()) as conn:
                     conn.execute(sql, (task_id,))
-            except Exception as e:
-                logger.error(f"Ошибка в задаче {task_id} (stage_1_download): {traceback.format_exc()}")
-                sql = (
-                    "UPDATE tasks SET status = 'failed', error_message = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?"
-                )
-                with db_connection(get_sqlite_settings()) as conn:
-                    conn.execute(sql, (str(e), task_id))
+            except Exception:
+                # Ошибка пробрасывается выше в _consume_stage для обработки в _handle_task_failure
+                raise
             finally:
                 self._state["stage_1_download"].update(
                     {"active": False, "title": "", "progress": 0, "speed": "", "status_text": "Ожидание"}
@@ -320,11 +357,12 @@ class Worker:
                 new_payload = {"video_id": result["video_id"], "title": title}
                 sql = """
                     UPDATE tasks
-                    SET task_type = 'stage_3_index', payload = ?, status = 'pending', updated_at = CURRENT_TIMESTAMP
+                    SET video_id = ?, task_type = 'stage_3_index', payload = ?, status = 'pending',
+                        updated_at = CURRENT_TIMESTAMP
                     WHERE id = ?
                 """
                 with db_connection(get_sqlite_settings()) as conn:
-                    conn.execute(sql, (json.dumps(new_payload), task_id))
+                    conn.execute(sql, (result["video_id"], json.dumps(new_payload), task_id))
                 logger.info(f"Текст для {title} сохранен.")
             finally:
                 self._state["stage_2_transcribe"].update(
@@ -367,14 +405,10 @@ class Worker:
 
                 texts = [c["text"] for c in chunks]
 
-                def on_embed_progress(current, total):
-                    # Эмбеддинги занимают диапазон 10% - 70% от общего прогресса этапа
-                    progress = 10 + int((current / total) * 60)
-                    self._state["stage_3_index"].update(
-                        {"progress": progress, "status_text": f"Генерация ({current}/{total})"}
-                    )
-
-                embeddings_data = await embed_client.embed_batch_async(texts, progress_callback=on_embed_progress)
+                # ВРЕМЕННАЯ ЗАГЛУШКА: не запускаем реальный эмбеддинг
+                logger.info(f"[MOCK] Пропуск реального эмбеддинга для {title}")
+                dim = embed_client.settings.dimension or 1024
+                embeddings_data = [([0.0] * dim, None) for _ in texts]
 
                 self._state["stage_3_index"].update({"progress": 75, "status_text": "Загрузка в Manticore"})
                 points = []
@@ -456,13 +490,8 @@ class Worker:
                     except Exception:
                         error_trace = traceback.format_exc()
                         logger.error(f"Ошибка в задаче {tid} ({ttype}): {error_trace}")
-                        sql_err = """
-                            UPDATE tasks
-                            SET status = 'failed', error_message = ?, updated_at = CURRENT_TIMESTAMP
-                            WHERE id = ?
-                        """
                         with db_connection(get_sqlite_settings()) as conn:
-                            conn.execute(sql_err, (error_trace, tid))
+                            self._handle_task_failure(conn, tid, error_trace)
                 else:
                     # Если в этой очереди задач нет, проверяем, есть ли они ВООБЩЕ в системе
                     if not await self._has_pending_tasks():

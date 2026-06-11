@@ -42,8 +42,3 @@ class VideoStatusItem(BaseModel):
     updated_at: datetime
     created_at: datetime | None = None
     primary_engine: str | None = None
-
-
-class FeedbackRequest(BaseModel):
-    title: str
-    description: str

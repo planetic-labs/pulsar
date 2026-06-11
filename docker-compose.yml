@@ -10,9 +10,9 @@ services:
     volumes:
       - manticore_data:/var/lib/manticore
 
-  pulsat-qwin:
-    container_name: pulsat-qwin
-    image: pulsat-qwin
+  pulsar:
+    container_name: pulsar
+    image: pulsar
     build:
       context: .
       args:

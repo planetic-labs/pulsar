@@ -81,18 +81,11 @@ def queue_missing():
     # Queue indexing tasks
     count = 0
     with db_connection(sqlite_settings) as conn:
-        # Read all active stage_3_index tasks
         active_tasks = conn.execute(
-            "SELECT payload FROM tasks WHERE task_type = 'stage_3_index' AND status IN ('pending', 'running')"
+            "SELECT video_id FROM tasks "
+            "WHERE task_type = 'stage_3_index' AND status IN ('pending', 'running') AND video_id IS NOT NULL"
         ).fetchall()
-        active_video_ids = set()
-        for t in active_tasks:
-            try:
-                p = json.loads(t["payload"])
-                if "video_id" in p:
-                    active_video_ids.add(p["video_id"])
-            except Exception:
-                pass
+        active_video_ids = {t["video_id"] for t in active_tasks}
 
         for video_id, title in video_map.items():
             if video_id in active_video_ids:
@@ -102,10 +95,10 @@ def queue_missing():
             payload = {"video_id": video_id, "title": title}
             conn.execute(
                 """
-                INSERT INTO tasks (task_type, payload, status, priority)
-                VALUES (?, ?, ?, ?)
+                INSERT INTO tasks (video_id, task_type, payload, status, priority)
+                VALUES (?, ?, ?, ?, ?)
             """,
-                ("stage_3_index", json.dumps(payload, ensure_ascii=False), "pending", 5),
+                (video_id, "stage_3_index", json.dumps(payload, ensure_ascii=False), "pending", 5),
             )
             logger.info(f"Queued indexing task for video '{title}' (ID:{video_id})")
             count += 1
