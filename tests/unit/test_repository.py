@@ -72,7 +72,6 @@ def test_replace_chunks(mock_db_conn):
     rows = mock_db_conn.execute("SELECT * FROM chunks WHERE video_id=?", (video_id,)).fetchall()
     assert len(rows) == 2
     assert rows[0]["text"] == "Chunk 1"
-    assert rows[1]["speaker_tags"] == "B"
 
 
 def test_update_video_status(mock_db_conn):

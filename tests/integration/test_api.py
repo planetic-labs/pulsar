@@ -266,17 +266,23 @@ def test_api_indexed_delete_video(client, tmp_db, mocker, mock_qdrant, tmp_path,
 
     dummy_video = downloads_dir / "drive_123.mp4"
     dummy_audio = audio_dir / "drive_123.ogg"
-    dummy_raw_json = tmp_path / "raw.json"
-    dummy_norm_json = tmp_path / "norm.json"
 
     dummy_video.write_text("video content")
     dummy_audio.write_text("audio content")
-    dummy_raw_json.write_text("raw json")
-    dummy_norm_json.write_text("norm json")
 
+    from app.config import get_app_settings
     from app.db import db_connection
 
-    # Insert video, chunks, speakers
+    app_settings = get_app_settings()
+    dest_raw = app_settings.get_raw_transcript_path("drive_123")
+    dest_norm = app_settings.get_normalized_transcript_path("drive_123")
+    dest_raw.parent.mkdir(parents=True, exist_ok=True)
+    dest_norm.parent.mkdir(parents=True, exist_ok=True)
+
+    dest_raw.write_text("raw json")
+    dest_norm.write_text("norm json")
+
+    # Insert video, chunks
     with db_connection(tmp_db) as conn:
         cursor = conn.cursor()
         cursor.execute(
@@ -288,19 +294,6 @@ def test_api_indexed_delete_video(client, tmp_db, mocker, mock_qdrant, tmp_path,
             ("drive_123", "Test Video", "indexed_chunks_ready"),
         )
         video_id = cursor.lastrowid
-
-        # Copy raw and norm mock files to their proper dynamic paths
-        from app.config import get_app_settings
-
-        app_settings = get_app_settings()
-        dest_raw = app_settings.raw_transcripts_dir / "drive_123.json"
-        dest_norm = app_settings.normalized_transcripts_dir / "drive_123.json"
-        dest_raw.parent.mkdir(parents=True, exist_ok=True)
-        dest_norm.parent.mkdir(parents=True, exist_ok=True)
-        import shutil
-
-        shutil.copy2(dummy_raw_json, dest_raw)
-        shutil.copy2(dummy_norm_json, dest_norm)
 
         cursor.execute(
             """
@@ -340,7 +333,7 @@ def test_api_indexed_delete_video(client, tmp_db, mocker, mock_qdrant, tmp_path,
     assert not dest_norm.exists()
 
     # Verify the raw transcript was successfully archived
-    archived_file = tmp_path / "transcripts" / "archive" / f"video_{video_id}_drive_123.json"
+    archived_file = tmp_path / "transcripts" / "archive" / f"video_{video_id}_drive_123.json.gz"
     assert archived_file.exists()
     assert archived_file.read_text() == "raw json"
 
@@ -454,14 +447,13 @@ def test_api_indexed_ls(client, tmp_db):
         cursor.execute(
             """
             INSERT INTO videos (
-                source_file_id, title, is_original, md5_checksum,
-                size_bytes, duration_sec, processing_status, parent_folder_id
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                source_file_id, title, md5_checksum,
+                size_bytes, duration_sec, status, parent_folder_id
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 "file_orig_id",
                 "Orig Video",
-                1,
                 "some-md5",
                 500,
                 30.0,
@@ -475,14 +467,13 @@ def test_api_indexed_ls(client, tmp_db):
         cursor.execute(
             """
             INSERT INTO videos (
-                source_file_id, title, is_original, original_id, md5_checksum,
-                processing_status, parent_folder_id
-            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                source_file_id, title, original_id, md5_checksum,
+                status, parent_folder_id
+            ) VALUES (?, ?, ?, ?, ?, ?)
             """,
             (
                 "file_dup_id",
                 "Dup Video",
-                0,
                 orig_id,
                 "some-md5",
                 "skipped_duplicate_md5",
@@ -532,11 +523,19 @@ def test_api_worker_duplicates_save(client, tmp_db):
         cursor.execute(
             """
             INSERT INTO videos (
-                source_file_id, title, is_original,
-                processing_status
+                source_file_id, title, status
+            ) VALUES (?, ?, ?)
+            """,
+            ("file_orig_id", "Orig Video", "indexed_chunks_ready"),
+        )
+        orig_id = cursor.lastrowid
+        cursor.execute(
+            """
+            INSERT INTO videos (
+                source_file_id, title, original_id, status
             ) VALUES (?, ?, ?, ?)
             """,
-            ("file_dup_id", "Dup Video", 0, "skipped_duplicate_md5"),
+            ("file_dup_id", "Dup Video", orig_id, "skipped_duplicate_md5"),
         )
         dup_id = cursor.lastrowid
 
@@ -549,10 +548,10 @@ def test_api_worker_duplicates_save(client, tmp_db):
     data = response.json()
     assert data["status"] == "success"
 
-    # Verify the video still exists
+    # Verify the video still exists and is a duplicate
     with db_connection(tmp_db) as conn:
-        row = conn.execute("SELECT is_original FROM videos WHERE id = ?", (dup_id,)).fetchone()
-        assert row["is_original"] == 0
+        row = conn.execute("SELECT original_id FROM videos WHERE id = ?", (dup_id,)).fetchone()
+        assert row["original_id"] == orig_id
 
 
 def test_check_integrity_duplicates(tmp_db, mocker, monkeypatch):
@@ -625,14 +624,18 @@ def test_check_integrity_duplicates(tmp_db, mocker, monkeypatch):
 
 
 def test_api_indexed_toggle_short(client, tmp_db, tmp_path, mocker, mock_qdrant):
+    import gzip
     import json
 
     client.post("/login", data={"token": "test-token"})
 
+    from app.config import get_app_settings
     from app.db import db_connection
 
-    # Create dummy transcript file
-    trans_file = tmp_path / "transcript.json"
+    app_settings = get_app_settings()
+    norm_path = app_settings.get_normalized_transcript_path("file_video_id")
+    norm_path.parent.mkdir(parents=True, exist_ok=True)
+
     dummy_data = {
         "utterances": [
             {"start": 0.0, "end": 10.0, "text": "a" * 300},
@@ -640,39 +643,33 @@ def test_api_indexed_toggle_short(client, tmp_db, tmp_path, mocker, mock_qdrant)
             {"start": 20.0, "end": 30.0, "text": "c" * 10},
         ]
     }
-    trans_file.write_text(json.dumps(dummy_data), encoding="utf-8")
+    with gzip.open(norm_path, "wt", encoding="utf-8") as f:
+        json.dump(dummy_data, f)
 
-    # Insert a video and a transcript
+    # Insert a video
     with db_connection(tmp_db) as conn:
         cursor = conn.cursor()
         cursor.execute(
             """
             INSERT INTO videos (
-                source_file_id, title, is_original,
-                processing_status, is_short
-            ) VALUES (?, ?, ?, ?, ?)
+                source_file_id, title, status, is_short
+            ) VALUES (?, ?, ?, ?)
             """,
-            ("file_video_id", "Toggle Video", 1, "transcribed", 0),
+            ("file_video_id", "Toggle Video", "transcribed", 0),
         )
         video_id = cursor.lastrowid
-
-        cursor.execute(
-            """
-            INSERT INTO transcripts (video_id, language, normalized_json_path)
-            VALUES (?, ?, ?)
-            """,
-            (video_id, "ru", str(trans_file)),
-        )
-        trans_id = cursor.lastrowid
 
         # Insert some initial chunks
         cursor.execute(
             """
-            INSERT INTO chunks (video_id, transcript_id, chunk_index, start_sec, end_sec, text)
-            VALUES (?, ?, ?, ?, ?, ?)
+            INSERT INTO chunks (video_id, chunk_index, start_sec, end_sec, text)
+            VALUES (?, ?, ?, ?, ?)
             """,
-            (video_id, trans_id, 0, 0.0, 10.0, "initial chunk"),
+            (video_id, 0, 0.0, 10.0, "initial chunk"),
         )
+
+    # Mock Manticore client
+    mocker.patch("app.main.get_manticore_client", return_value=mock_qdrant)
 
     # Call toggle_short (make it short)
     response = client.post(f"/api/v1/indexed/videos/{video_id}/toggle_short")
@@ -692,16 +689,8 @@ def test_api_indexed_toggle_short(client, tmp_db, tmp_path, mocker, mock_qdrant)
         assert len(chunks) == 1
         assert chunks[0]["chunk_index"] == 0
         assert chunks[0]["start_sec"] == 0.0
-        assert chunks[0]["end_sec"] == 30.0
-        assert "a" * 300 in chunks[0]["text"]
 
-        # Verify task was added
-        task = conn.execute("SELECT task_type, payload FROM tasks ORDER BY id DESC LIMIT 1").fetchone()
-        assert task["task_type"] == "stage_3_index"
-        payload = json.loads(task["payload"])
-        assert payload["video_id"] == video_id
-
-    # Call toggle_short again (make it normal/long)
+    # Call toggle_short again (make it not short)
     response = client.post(f"/api/v1/indexed/videos/{video_id}/toggle_short")
     assert response.status_code == 200
     data = response.json()

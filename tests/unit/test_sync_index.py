@@ -131,7 +131,7 @@ async def test_sync_main_flow(tmp_db, monkeypatch, mocker):
             """
             INSERT INTO videos (
                 id, source_file_id, title, parent_folder_id,
-                recorded_date, is_4k, processing_status
+                recorded_date, is_4k, status
             )
             VALUES (?, ?, ?, ?, ?, ?, ?)
             """,
@@ -150,7 +150,7 @@ async def test_sync_main_flow(tmp_db, monkeypatch, mocker):
             """
             INSERT INTO videos (
                 id, source_file_id, title, parent_folder_id,
-                processing_status, source_url
+                status, source_url
             )
             VALUES (?, ?, ?, ?, ?, ?)
             """,
@@ -168,7 +168,7 @@ async def test_sync_main_flow(tmp_db, monkeypatch, mocker):
             """
             INSERT INTO videos (
                 id, source_file_id, title, parent_folder_id,
-                recorded_date, is_4k, processing_status
+                recorded_date, is_4k, status
             )
             VALUES (?, ?, ?, ?, ?, ?, ?)
             """,
@@ -312,7 +312,7 @@ async def test_sync_main_flow_gdrive_error(tmp_db, monkeypatch, mocker):
             """
             INSERT INTO videos (
                 id, source_file_id, title, parent_folder_id,
-                recorded_date, is_4k, processing_status
+                recorded_date, is_4k, status
             )
             VALUES (?, ?, ?, ?, ?, ?, ?)
             """,

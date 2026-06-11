@@ -95,7 +95,7 @@ def test_user_can_access_video_chunks(client, user_token, monkeypatch, tmp_db):
         conn.execute(
             """
             INSERT INTO videos (
-                id, title, mime_type, source_file_id, processing_status
+                id, title, mime_type, source_file_id, status
             ) VALUES (42, 'Test Video', 'video/mp4', 'file42', 'indexed_chunks_ready')
             """
         )

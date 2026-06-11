@@ -9,10 +9,6 @@ def test_init_manticore_creates_tables(mocker):
     mock_q_settings.table_name = "test_chunks"
     mocker.patch("app.manticore.get_manticore_settings", return_value=mock_q_settings)
 
-    mock_e_settings = MagicMock()
-    mock_e_settings.dimension = 1024
-    mocker.patch("app.manticore.get_embedding_settings", return_value=mock_e_settings)
-
     # Mock client
     mock_client = MagicMock()
     mocker.patch("app.manticore.get_manticore_client", return_value=mock_client)
@@ -21,5 +17,3 @@ def test_init_manticore_creates_tables(mocker):
 
     # Check if _execute_ddl was called to create test_chunks table
     assert any("test_chunks" in call.args[0] for call in mock_client._execute_ddl.call_args_list)
-    # Check if _execute_ddl was called to create speaker_registry table
-    assert any("speaker_registry" in call.args[0] for call in mock_client._execute_ddl.call_args_list)

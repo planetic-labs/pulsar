@@ -184,14 +184,13 @@ class Worker:
                             """
                             INSERT INTO videos (
                                 source_file_id, parent_folder_id, md5_checksum, title,
-                                processing_status, is_original, original_id, source_url
-                            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                                status, original_id, source_url
+                            ) VALUES (?, ?, ?, ?, ?, ?, ?)
                             ON CONFLICT (source_file_id) DO UPDATE SET
                                 parent_folder_id = EXCLUDED.parent_folder_id,
                                 md5_checksum = EXCLUDED.md5_checksum,
                                 title = EXCLUDED.title,
-                                processing_status = EXCLUDED.processing_status,
-                                is_original = EXCLUDED.is_original,
+                                status = EXCLUDED.status,
                                 original_id = EXCLUDED.original_id,
                                 source_url = EXCLUDED.source_url,
                                 updated_at = CURRENT_TIMESTAMP
@@ -202,7 +201,6 @@ class Worker:
                                 md5,
                                 title,
                                 "skipped_duplicate_md5",
-                                0,
                                 existing["id"],
                                 f"https://drive.google.com/file/d/{file_id}/view",
                             ),
@@ -414,7 +412,7 @@ class Worker:
                     )
 
                 with db_connection(settings) as conn:
-                    update_video_status(conn, video_id=video_id, processing_status="indexed_chunks_ready")
+                    update_video_status(conn, video_id=video_id, status="indexed_chunks_ready")
                     sql_f = "UPDATE tasks SET status = 'completed', updated_at = CURRENT_TIMESTAMP WHERE id = ?"
                     conn.execute(sql_f, (task_id,))
                 logger.info(f"{v_row['title']} доступен для поиска.")

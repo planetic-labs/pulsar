@@ -6,20 +6,19 @@ def test_chunk_from_utterances_empty():
 
 
 def test_chunk_from_utterances_single():
-    utterances = [{"start": 0, "end": 10, "text": "Hello world", "speaker": 0}]
+    utterances = [{"start": 0, "end": 10, "text": "Hello world"}]
     chunks = chunk_from_utterances(utterances, max_chars=100)
     assert len(chunks) == 1
     assert chunks[0]["text"] == "Hello world"
     assert chunks[0]["start_sec"] == 0
     assert chunks[0]["end_sec"] == 10
-    assert chunks[0]["speaker"] == "0"
 
 
 def test_chunk_from_utterances_grouping():
     utterances = [
-        {"start": 0, "end": 5, "text": "Short", "speaker": 1},
-        {"start": 6, "end": 10, "text": "Text", "speaker": 1},
-        {"start": 11, "end": 15, "text": "Combined", "speaker": 2},
+        {"start": 0, "end": 5, "text": "Short"},
+        {"start": 6, "end": 10, "text": "Text"},
+        {"start": 11, "end": 15, "text": "Combined"},
     ]
     # max_chars=10 should group at least first two
     chunks = chunk_from_utterances(utterances, max_chars=10)
@@ -38,7 +37,6 @@ def test_chunk_from_utterances_grouping():
     assert len(chunks_small) == 2
     assert chunks_small[0]["text"] == "Short"
     assert chunks_small[1]["text"] == "Text Combined"
-    assert chunks_small[1]["speaker"] == "1, 2"
 
 
 def test_batch_texts_for_embedding():

@@ -6,7 +6,7 @@ from typing import Any
 
 import httpx
 
-from app.config import get_embedding_settings, get_manticore_settings
+from app.config import get_manticore_settings
 
 logger = logging.getLogger(__name__)
 
@@ -100,13 +100,6 @@ class ManticoreClient:
                 else:
                     doc[k] = v
 
-            vector = point.get("vector")
-            if isinstance(vector, dict):
-                if "default" in vector:
-                    doc["vec"] = vector["default"]
-            elif isinstance(vector, list):
-                doc["vec"] = vector
-
             line = {"replace": {"table": collection_name, "id": m_id, "doc": doc}}
             lines.append(json.dumps(line, ensure_ascii=False))
 
@@ -115,7 +108,7 @@ class ManticoreClient:
             f"{self.url}/json/bulk",
             content=body.encode("utf-8"),
             headers={"Content-Type": "application/x-ndjson"},
-            timeout=120.0,
+            timeout=None,
         )
         if r.status_code >= 400:
             logger.error(f"Manticore bulk request failed. Status: {r.status_code}. Response: {r.text}")
@@ -269,16 +262,11 @@ def init_manticore():
     settings = get_manticore_settings()
     table_name = settings.table_name
 
-    emb_settings = get_embedding_settings()
-    vector_size = emb_settings.dimension
-
-    # Добавлен обязательный параметр type='rt' в конце создания таблицы
     sql_chunks = f"""
     CREATE TABLE IF NOT EXISTS `{table_name}` (
         `text` text,
         `title` text,
-        `speaker` text,
-        `chunk_id` string,
+        `chunk_id` bigint,
         `video_id` string,
         `source_file_id` string,
         `source_url` string,
@@ -288,24 +276,12 @@ def init_manticore():
         `end_sec` float,
         `is_short` int,
         `is_4k` int,
-        `is_primary` int,
-        `vec` float_vector knn_type='hnsw' knn_dims='{vector_size}' hnsw_similarity='cosine'
-    ) type='rt'
-    """
-
-    sql_speakers = """
-    CREATE TABLE IF NOT EXISTS `speaker_registry` (
-        `name` text,
-        `sample_file` string,
-        `vec` float_vector knn_type='hnsw' knn_dims='192' hnsw_similarity='cosine'
-    ) type='rt'
+        `is_primary` int
+    ) type='rt' rt_mem_limit='512M' morphology='stem_ru'
     """
 
     logger.info(f"Sending DDL for {table_name} via /cli...")
     client._execute_ddl(sql_chunks)
-
-    logger.info("Sending DDL for speaker_registry via /cli...")
-    client._execute_ddl(sql_speakers)
 
     # Заставляем Manticore принудительно обновить таблицы в памяти
     logger.info("Flushing Manticore metadata...")
