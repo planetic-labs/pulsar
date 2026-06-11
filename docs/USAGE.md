@@ -53,11 +53,11 @@ The **Status** page provides real-time insights into the processing queue:
 
 ### Full Reindex
 If you change your embedding model or update the indexing logic, you can trigger a full reindex:
-`POST /api/v1/reindex/all?clear_qdrant=true`
-This will clear the Qdrant collection and re-process all transcriptions from SQLite.
+`POST /api/v1/reindex/all?clear_manticore=true`
+This will clear the Manticore table and re-process all transcriptions from SQLite.
 
 ### Integrity Check
-Run this script inside the container to ensure SQLite and Qdrant are in sync:
+Run this script inside the container to ensure SQLite and Manticore are in sync:
 ```bash
 docker compose exec app uv run scripts/check_integrity.py
 ```

@@ -2,8 +2,8 @@ import sqlite3
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-from qdrant_client import models
 
+from app.manticore import models
 from app.search import hybrid_search
 
 
@@ -14,21 +14,19 @@ async def test_hybrid_search_filter_4k(mocker):
 
     # Mock settings
     mock_q_settings = MagicMock()
-    mock_q_settings.collection_name = "test_chunks"
-    mocker.patch("app.search.get_qdrant_settings", return_value=mock_q_settings)
+    mock_q_settings.table_name = "test_chunks"
+    mocker.patch("app.search.get_manticore_settings", return_value=mock_q_settings)
 
     mock_e_settings = MagicMock()
     mock_e_settings.dimension = 1024
     mocker.patch("app.search.get_embedding_settings", return_value=mock_e_settings)
 
-    # Mock QdrantClient methods
+    # Mock QdrantClient methods (now ManticoreClient)
     mock_qdrant_client = MagicMock()
     # Mock query_points to return dummy data
-    mock_points_res = MagicMock()
-    mock_points_res.points = [
+    mock_points_res = [
         models.ScoredPoint(
             id=1,
-            version=1,
             score=0.9,
             payload={
                 "chunk_id": 1,
@@ -45,7 +43,7 @@ async def test_hybrid_search_filter_4k(mocker):
         )
     ]
     mock_qdrant_client.query_points.return_value = mock_points_res
-    mocker.patch("app.search.get_qdrant_client", return_value=mock_qdrant_client)
+    mocker.patch("app.search.get_manticore_client", return_value=mock_qdrant_client)
 
     # Mock UnifiedEmbeddingClient
     mock_embed_instance = MagicMock()
@@ -62,23 +60,13 @@ async def test_hybrid_search_filter_4k(mocker):
 
     # Verify that query_points was called with correct filter for is_4k
     mock_qdrant_client.query_points.assert_called_once()
-    args, _ = mock_qdrant_client.query_points.call_args
+    _, kwargs = mock_qdrant_client.query_points.call_args
 
     # Extract the query filter
-    q_filter = args[4]
+    where_clause = kwargs.get("where_clause")
 
-    assert q_filter is not None
-    assert isinstance(q_filter, models.Filter)
-
-    # Check that is_4k filter is present in must conditions
-    is_4k_filter = None
-    for condition in q_filter.must:
-        if isinstance(condition, models.FieldCondition) and condition.key == "is_4k":
-            is_4k_filter = condition
-            break
-
-    assert is_4k_filter is not None
-    assert is_4k_filter.match.value is True
+    assert where_clause is not None
+    assert "is_4k = 1" in where_clause
 
     # Verify results mapping
     assert len(results) == 1

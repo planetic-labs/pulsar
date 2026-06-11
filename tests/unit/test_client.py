@@ -3,7 +3,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from app.config import EmbeddingSettings
-from app.gemini import UnifiedEmbeddingClient, clear_l1_cache
+from app.embeddings import UnifiedEmbeddingClient, clear_l1_cache
 
 
 @pytest.fixture(autouse=True)
@@ -18,7 +18,7 @@ def embed_settings():
 
 def test_embed_text_sync(embed_settings, mocker, tmp_db):
     client = UnifiedEmbeddingClient(embed_settings)
-    mocker.patch("app.gemini.get_sqlite_settings", return_value=tmp_db)
+    mocker.patch("app.embeddings.client.get_sqlite_settings", return_value=tmp_db)
 
     mock_response = MagicMock()
     mock_response.json.return_value = {"data": [{"embedding": [0.1, 0.2]}], "usage": {}}
@@ -36,7 +36,7 @@ def test_embed_text_sync(embed_settings, mocker, tmp_db):
 @pytest.mark.asyncio
 async def test_embed_text_async(embed_settings, mocker, tmp_db):
     client = UnifiedEmbeddingClient(embed_settings)
-    mocker.patch("app.gemini.get_sqlite_settings", return_value=tmp_db)
+    mocker.patch("app.embeddings.client.get_sqlite_settings", return_value=tmp_db)
 
     mock_response = MagicMock()
     mock_response.json.return_value = {

@@ -41,6 +41,6 @@ jobs:
           PYTHONPATH: .
           DATABASE_URL: "sqlite:///./test.db"
           SECRET_KEY: "test-secret-key"
-          QDRANT_HOST: "localhost"
+          MANTICORE_URL: "http://localhost:9308"
           APP_ACCESS_TOKEN: "test-token"
           SESSION_SECRET_KEY: "test-secret"

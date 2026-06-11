@@ -10,7 +10,7 @@ if str(ROOT_DIR) not in sys.path:
 from app.chunking import chunk_from_utterances
 from app.config import get_app_settings, get_deepgram_settings, get_sqlite_settings
 from app.db import db_connection, init_db
-from app.repository import replace_chunks, replace_transcript, update_video_status, upsert_video
+from app.repository import replace_chunks, update_video_status, upsert_video
 from app.transcription.deepgram import DeepgramEngine
 from app.transcription.postprocessing import apply_postprocessing_to_raw
 
@@ -29,40 +29,29 @@ def rebuild():
     with db_connection(pg_settings) as conn:
         init_db(conn)
 
-        # Перебираем папки видео в raw/
-        for video_dir in raw_dir.iterdir():
-            if not video_dir.is_dir():
-                continue
-
-            file_id = video_dir.name
+        # Ищем все .json.gz файлы в raw/
+        for latest_file in raw_dir.glob("**/*.json.gz"):
+            file_id = latest_file.name[:-8]
             print(f"Processing video: {file_id}")
-
-            # Находим JSON файлы
-            files = list(video_dir.glob("*.json"))
-            if not files:
-                continue
-
-            # Берем самый свежий файл
-            latest_file = max(files, key=lambda x: x.stat().st_mtime)
 
             video_id = upsert_video(
                 conn,
-                source_type="google_drive",
                 source_file_id=file_id,
                 title=f"Rebuilt: {file_id}",  # Titles will be synced later
                 source_url=f"https://drive.google.com/file/d/{file_id}/view",
-                processing_status="transcribed",
+                status="transcribed",
                 mime_type=None,
                 size_bytes=None,
                 duration_sec=None,
-                local_video_path=None,
-                local_audio_path=None,
             )
 
             print(f"  - File: {latest_file.name}")
             try:
-                raw_payload = json.loads(latest_file.read_text(encoding="utf-8"))
-            except json.JSONDecodeError as e:
+                import gzip
+
+                with gzip.open(latest_file, "rt", encoding="utf-8") as f:
+                    raw_payload = json.load(f)
+            except Exception as e:
                 print(f"    Error loading JSON: {e}")
                 continue
 
@@ -75,24 +64,17 @@ def rebuild():
                 print(f"    Error normalizing: {e}")
                 continue
 
-            norm_filename = f"{file_id}_deepgram.json"
-            norm_path = app_settings.normalized_transcripts_dir / norm_filename
+            norm_path = app_settings.get_normalized_transcript_path(file_id)
             norm_path.parent.mkdir(parents=True, exist_ok=True)
-            norm_path.write_text(json.dumps(normalized, ensure_ascii=False, indent=2), encoding="utf-8")
+            import gzip
 
-            transcript_id = replace_transcript(
-                conn,
-                video_id=video_id,
-                language="ru",
-                confidence=float(normalized.get("confidence", 1.0)),
-                raw_json_path=Path(latest_file),
-                normalized_json_path=Path(norm_path),
-            )
+            with gzip.open(norm_path, "wt", encoding="utf-8") as f:
+                json.dump(normalized, f, separators=(",", ":"), ensure_ascii=False)
 
             chunks = chunk_from_utterances(normalized.get("utterances", []))
-            replace_chunks(conn, video_id=video_id, transcript_id=transcript_id, chunks=chunks)
+            replace_chunks(conn, video_id=video_id, chunks=chunks)
 
-            update_video_status(conn, video_id=video_id, processing_status="completed")
+            update_video_status(conn, video_id=video_id, status="completed")
 
     print("\nRebuild finished!")
 

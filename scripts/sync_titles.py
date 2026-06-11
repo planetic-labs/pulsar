@@ -61,7 +61,7 @@ async def sync_indexed_metadata():
         # 2. Sync Videos (titles and parent_folder_id)
         sql_v = """
             SELECT id, source_file_id, title, parent_folder_id, duration_sec
-            FROM videos WHERE source_type = 'google_drive'
+            FROM videos
         """
         rows = conn.execute(sql_v).fetchall()
 

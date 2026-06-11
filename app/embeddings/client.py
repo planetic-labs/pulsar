@@ -4,11 +4,10 @@ import logging
 from collections import OrderedDict
 from collections.abc import Callable
 
-import httpx
-from qdrant_client import models
-
 from app.config import EmbeddingSettings, get_sqlite_settings
 from app.db import db_connection
+from app.embeddings.factory import get_provider
+from app.manticore import models
 from app.repository import get_cached_embedding, save_cached_embedding
 
 logger = logging.getLogger(__name__)
@@ -25,8 +24,7 @@ def clear_l1_cache() -> None:
 class UnifiedEmbeddingClient:
     def __init__(self, settings: EmbeddingSettings) -> None:
         self.settings = settings
-        if not self.settings.api_url:
-            raise ValueError("EMBEDDING_API_URL must be set for remote embeddings.")
+        self.provider = get_provider(self.settings)
 
     async def embed_text_async(
         self, text: str, task_type: str = "RETRIEVAL_QUERY"
@@ -52,25 +50,10 @@ class UnifiedEmbeddingClient:
         except Exception as e:
             logger.warning(f"Cache L2 lookup failed: {e}")
 
-        # --- LEVEL 3: Remote API ---
-        logger.info(f"AI: Embedding query from remote ({text[:20]}...)")
-        url = f"{self.settings.api_url.rstrip('/')}/embeddings"
-        headers = {"Authorization": f"Bearer {self.settings.api_token}"} if self.settings.api_token else {}
-        payload = {"model": self.settings.model_id, "input": [text]}
-
+        # --- LEVEL 3: Remote API via Provider ---
         try:
-            async with httpx.AsyncClient(timeout=60.0) as client:
-                response = await client.post(url, json=payload, headers=headers)
-                response.raise_for_status()
-                res = response.json()
-
-            dense = res["data"][0]["embedding"]
-            sparse = None
-            if "usage" in res and "embeddings_sparse" in res["data"][0]:
-                sparse_data = res["data"][0]["embeddings_sparse"]
-                sparse = models.SparseVector(indices=sparse_data["indices"], values=sparse_data["values"])
-
-            result = (dense, sparse)
+            result = await self.provider.embed_text_async(text, task_type=task_type)
+            dense, sparse = result
 
             # Save to L1 & L2
             self._update_l1(query_key, result)
@@ -82,7 +65,7 @@ class UnifiedEmbeddingClient:
 
             return result
         except Exception as e:
-            logger.error(f"Remote embedding failed (async): {e}")
+            logger.error(f"Embedding provider failed (async): {e}")
             raise e
 
     def _update_l1(self, key: str, value: tuple[list[float], models.SparseVector | None]) -> None:
@@ -116,25 +99,11 @@ class UnifiedEmbeddingClient:
         except Exception as e:
             logger.warning(f"Cache L2 lookup failed (sync): {e}")
 
-        # Remote
-        logger.info(f"AI: Embedding query from remote (sync) ({text[:20]}...)")
-        url = f"{self.settings.api_url.rstrip('/')}/embeddings"
-        headers = {"Authorization": f"Bearer {self.settings.api_token}"} if self.settings.api_token else {}
-        payload = {"model": self.settings.model_id, "input": [text]}
-
+        # Remote via Provider
         try:
-            with httpx.Client(timeout=60.0) as client:
-                response = client.post(url, json=payload, headers=headers)
-                response.raise_for_status()
-                res = response.json()
+            result = self.provider.embed_text(text, task_type=task_type)
+            dense, sparse = result
 
-            dense = res["data"][0]["embedding"]
-            sparse = None
-            if "usage" in res and "embeddings_sparse" in res["data"][0]:
-                sparse_data = res["data"][0]["embeddings_sparse"]
-                sparse = models.SparseVector(indices=sparse_data["indices"], values=sparse_data["values"])
-
-            result = (dense, sparse)
             self._update_l1(query_key, result)
             try:
                 with db_connection(get_sqlite_settings()) as conn:
@@ -144,7 +113,7 @@ class UnifiedEmbeddingClient:
 
             return dense, sparse
         except Exception as e:
-            logger.error(f"Remote embedding failed: {e}")
+            logger.error(f"Embedding provider failed: {e}")
             raise e
 
     async def embed_batch_async(
@@ -157,43 +126,10 @@ class UnifiedEmbeddingClient:
         if not texts:
             return []
 
-        url = f"{self.settings.api_url.rstrip('/')}/embeddings"
-        headers = {"Authorization": f"Bearer {self.settings.api_token}"} if self.settings.api_token else {}
-
-        results = []
-        total = len(texts)
-        batch_size = 50  # Restored to 50 as requested
-        async with httpx.AsyncClient(timeout=300.0) as client:
-            for i in range(0, total, batch_size):
-                batch = texts[i : i + batch_size]
-                current_end = min(i + batch_size, total)
-                logger.info(f"AI: Обработка батча {i // batch_size + 1} (фрагменты {i} - {current_end} из {total})...")
-
-                if progress_callback:
-                    progress_callback(i, total)
-
-                payload = {"model": self.settings.model_id, "input": batch}
-                try:
-                    response = await client.post(url, json=payload, headers=headers)
-                    response.raise_for_status()
-                    res = response.json()
-
-                    for item in res["data"]:
-                        dense = item["embedding"]
-                        sparse = None
-                        if "embeddings_sparse" in item:
-                            s = item["embeddings_sparse"]
-                            sparse = models.SparseVector(indices=s["indices"], values=s["values"])
-                        results.append((dense, sparse))
-                except Exception as e:
-                    logger.error(f"Remote batch embedding failed (async): {e}")
-                    raise e
-
-        if progress_callback:
-            progress_callback(total, total)
-
-        return results
-
-
-# For backward compatibility during migration
-GeminiEmbeddingClient = UnifiedEmbeddingClient
+        try:
+            return await self.provider.embed_batch_async(
+                texts, task_type=task_type, progress_callback=progress_callback
+            )
+        except Exception as e:
+            logger.error(f"Embedding provider batch failed (async): {e}")
+            raise e

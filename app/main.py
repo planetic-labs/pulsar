@@ -10,10 +10,9 @@ from typing import Any
 
 import httpx
 from fastapi import Depends, FastAPI, Form, HTTPException, Request, WebSocket, WebSocketDisconnect, status
-from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, Response, StreamingResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
-from qdrant_client import models
 from starlette.middleware.sessions import SessionMiddleware
 
 from app.auth import is_valid_token, login_user, logout_user, require_access_token, require_admin
@@ -22,13 +21,13 @@ from app.config import (
     get_deepgram_settings,
     get_embedding_settings,
     get_google_drive_settings,
-    get_qdrant_settings,
+    get_manticore_settings,
     get_sqlite_settings,
 )
 from app.db import db_connection, init_db
-from app.gemini import UnifiedEmbeddingClient
+from app.embeddings import UnifiedEmbeddingClient
 from app.google_drive import GoogleDriveClient
-from app.qdrant import get_qdrant_client, init_qdrant
+from app.manticore import get_manticore_client, init_manticore
 from app.schemas import FeedbackRequest, VideoStatusItem
 from app.search import hybrid_search
 from app.worker import broadcaster, get_worker, set_main_loop
@@ -64,7 +63,7 @@ def get_global_stats() -> dict[str, Any]:
 
             sql = (
                 "SELECT COUNT(*) as count, SUM(duration_sec) as total_sec "
-                "FROM videos WHERE processing_status = 'indexed_chunks_ready'"
+                "FROM videos WHERE status = 'indexed_chunks_ready'"
             )
             row = conn.execute(sql).fetchone()
             total_sec = row["total_sec"] or 0
@@ -88,7 +87,7 @@ async def lifespan(app: FastAPI):
     with db_connection(settings) as connection:
         init_db(connection)
 
-    init_qdrant()
+    init_manticore()
 
     # Enable thread-safe logging to WebSocket
     set_main_loop(asyncio.get_running_loop())
@@ -145,9 +144,8 @@ def _status_rows(connection: Any) -> list[VideoStatusItem]:
     rows = connection.execute(
         """
         SELECT
-            v.id, v.title, v.source_type, v.source_file_id, v.processing_status,
-            v.local_video_path, v.local_audio_path, v.updated_at, v.created_at,
-            (SELECT COUNT(*) FROM transcripts t WHERE t.video_id = v.id) AS transcript_count,
+            v.id, v.title, v.source_file_id, v.status AS processing_status, v.updated_at, v.created_at,
+            CASE WHEN EXISTS(SELECT 1 FROM chunks c WHERE c.video_id = v.id) THEN 1 ELSE 0 END AS transcript_count,
             (SELECT COUNT(*) FROM chunks c WHERE c.video_id = v.id) AS chunk_count,
             'Deepgram' as primary_engine
         FROM videos v
@@ -210,9 +208,9 @@ async def speakers_page(request: Request):
     if current_token != settings.access_token:
         return RedirectResponse(url="/")
 
-    q_client = get_qdrant_client()
+    m_client = get_manticore_client()
     try:
-        res = q_client.scroll(collection_name="speaker_registry", limit=100)[0]
+        res = m_client.scroll(collection_name="speaker_registry", limit=100)[0]
         speakers = []
         for p in res:
             if p.payload:
@@ -244,12 +242,12 @@ async def api_register_speaker(
 
 @app.delete("/api/speakers/{speaker_id}")
 async def api_delete_speaker(speaker_id: str, _: str = Depends(require_admin)):
-    q_client = get_qdrant_client()
+    m_client = get_manticore_client()
     settings = get_app_settings()
 
     # Пытаемся найти инфу о файле перед удалением
     try:
-        points = q_client.retrieve(collection_name="speaker_registry", ids=[speaker_id])
+        points = m_client.retrieve(collection_name="speaker_registry", ids=[speaker_id])
         if points and points[0].payload:
             filename = points[0].payload.get("sample_file")
             if filename:
@@ -259,7 +257,7 @@ async def api_delete_speaker(speaker_id: str, _: str = Depends(require_admin)):
     except Exception:
         pass
 
-    q_client.delete(collection_name="speaker_registry", points_selector=models.PointIdsList(points=[speaker_id]))
+    m_client.delete(collection_name="speaker_registry", ids=[speaker_id])
     return {"status": "deleted"}
 
 
@@ -403,7 +401,7 @@ async def api_worker_progress(_: str = Depends(require_admin)):
         # Detail duplicate MD5 files
         stats["duplicate_md5_list"] = []
         stats["duplicate_md5_count"] = 0
-        sql_dc = "SELECT COUNT(*) as c FROM videos WHERE is_md5_duplicate = 1 AND is_md5_duplicate_saved = 0"
+        sql_dc = "SELECT COUNT(*) as c FROM videos WHERE is_original = 0"
         stats["duplicate_md5_count"] = conn.execute(sql_dc).fetchone()["c"]
 
         def get_folder_path(connection, folder_id: str | None) -> str:
@@ -432,8 +430,8 @@ async def api_worker_progress(_: str = Depends(require_admin)):
         if stats["duplicate_md5_count"] > 0:
             sql_d = """
                 SELECT id, title, source_file_id, source_url, md5_checksum,
-                       size_bytes, duration_sec, processing_status, created_at, parent_folder_id
-                FROM videos WHERE is_md5_duplicate = 1 AND is_md5_duplicate_saved = 0
+                       size_bytes, duration_sec, status AS processing_status, created_at, parent_folder_id, original_id
+                FROM videos WHERE original_id IS NOT NULL
                 ORDER BY updated_at DESC LIMIT 20
             """
             d_rows = conn.execute(sql_d).fetchall()
@@ -441,13 +439,13 @@ async def api_worker_progress(_: str = Depends(require_admin)):
                 # Find matching original video
                 original_title = "Неизвестный оригинал"
                 original_info = None
-                if dr["md5_checksum"]:
+                if dr["original_id"]:
                     sql_orig = """
                         SELECT id, title, source_file_id, source_url,
-                               size_bytes, duration_sec, processing_status, created_at, parent_folder_id
-                        FROM videos WHERE md5_checksum = ? AND is_md5_duplicate = 0 LIMIT 1
+                               size_bytes, duration_sec, status AS processing_status, created_at, parent_folder_id
+                        FROM videos WHERE id = ? LIMIT 1
                     """
-                    orig_row = conn.execute(sql_orig, (dr["md5_checksum"],)).fetchone()
+                    orig_row = conn.execute(sql_orig, (dr["original_id"],)).fetchone()
                     if orig_row:
                         original_title = orig_row["title"]
                         created_val = orig_row["created_at"]
@@ -612,10 +610,10 @@ def indexed_page(request: Request):
 async def api_toggle_short(video_id: int, _: str = Depends(require_admin)):
     """Toggles is_short status and re-queues for indexing."""
     pg_settings = get_sqlite_settings()
-    q_settings = get_qdrant_settings()
+    q_settings = get_manticore_settings()
 
     from app.chunking import chunk_from_utterances
-    from app.qdrant import get_qdrant_client
+    from app.manticore import get_manticore_client
     from app.repository import replace_chunks
 
     with db_connection(pg_settings) as conn:
@@ -628,31 +626,32 @@ async def api_toggle_short(video_id: int, _: str = Depends(require_admin)):
         conn.execute("UPDATE videos SET is_short = ? WHERE id = ?", (new_is_short, video_id))
 
         # 2. Get transcript to re-chunk
-        t_row = conn.execute(
-            "SELECT id, normalized_json_path FROM transcripts WHERE video_id = ?", (video_id,)
-        ).fetchone()
-        if t_row and t_row["normalized_json_path"]:
-            norm_path = Path(t_row["normalized_json_path"])
+        v_row = conn.execute("SELECT source_file_id FROM videos WHERE id = ?", (video_id,)).fetchone()
+        if v_row and v_row["source_file_id"]:
+            norm_path = settings.get_normalized_transcript_path(v_row["source_file_id"])
             if norm_path.exists():
-                norm_payload = json.loads(norm_path.read_text(encoding="utf-8"))
+                import gzip
+
+                with gzip.open(norm_path, "rt", encoding="utf-8") as f:
+                    norm_payload = json.load(f)
                 raw_chunks = norm_payload.get("utterances") or norm_payload.get("chunks") or []
 
                 # 3. Re-chunk
                 new_chunks = chunk_from_utterances(raw_chunks, single_chunk=new_is_short)
 
-                # 4. Clear Qdrant old points
+                # 4. Clear Manticore old points
                 old_chunk_ids = [
                     r["id"] for r in conn.execute("SELECT id FROM chunks WHERE video_id = ?", (video_id,)).fetchall()
                 ]
                 if old_chunk_ids:
-                    qdrant = get_qdrant_client()
-                    qdrant.delete(
-                        collection_name=q_settings.collection_name,
-                        points_selector=models.PointIdsList(points=old_chunk_ids),
+                    manticore = get_manticore_client()
+                    manticore.delete(
+                        collection_name=q_settings.table_name,
+                        ids=old_chunk_ids,
                     )
 
                 # 5. Clear SQLite chunks and save new ones
-                replace_chunks(conn, video_id=video_id, transcript_id=t_row["id"], chunks=new_chunks)
+                replace_chunks(conn, video_id=video_id, chunks=new_chunks)
 
                 # 6. Re-queue for Stage 3 indexing
                 conn.execute(
@@ -672,36 +671,30 @@ async def api_toggle_short(video_id: int, _: str = Depends(require_admin)):
 
 @app.delete("/api/v1/indexed/videos/{video_id}")
 async def api_indexed_delete_video(video_id: int, _: str = Depends(require_admin)):
-    """Deletes a video, its files, and its chunks from DB and Qdrant."""
+    """Deletes a video, its files, and its chunks from DB and Manticore."""
     pg_settings = get_sqlite_settings()
-    q_settings = get_qdrant_settings()
+    q_settings = get_manticore_settings()
 
-    from app.qdrant import get_qdrant_client
+    from app.manticore import get_manticore_client
 
     with db_connection(pg_settings) as conn:
-        video_row = conn.execute(
-            "SELECT local_video_path, local_audio_path FROM videos WHERE id = ?", (video_id,)
-        ).fetchone()
+        video_row = conn.execute("SELECT source_file_id FROM videos WHERE id = ?", (video_id,)).fetchone()
         if not video_row:
             raise HTTPException(status_code=404, detail="Video not found")
 
-        transcript_rows = conn.execute(
-            "SELECT raw_json_path, normalized_json_path FROM transcripts WHERE video_id = ?", (video_id,)
-        ).fetchall()
-
         chunk_rows = conn.execute("SELECT id FROM chunks WHERE video_id = ?", (video_id,)).fetchall()
 
-    # Delete points from Qdrant if they exist
+    # Delete points from Manticore if they exist
     chunk_ids = [c["id"] for c in chunk_rows]
     if chunk_ids:
         try:
-            qdrant = get_qdrant_client()
-            qdrant.delete(
-                collection_name=q_settings.collection_name,
-                points_selector=models.PointIdsList(points=chunk_ids),
+            manticore = get_manticore_client()
+            manticore.delete(
+                collection_name=q_settings.table_name,
+                ids=chunk_ids,
             )
         except Exception as e:
-            logger.error(f"Failed to delete Qdrant points for video {video_id}: {e}")
+            logger.error(f"Failed to delete Manticore points for video {video_id}: {e}")
 
     # Delete files from the filesystem (with raw transcript archiving)
     app_settings = get_app_settings()
@@ -709,39 +702,52 @@ async def api_indexed_delete_video(video_id: int, _: str = Depends(require_admin
     archive_dir.mkdir(parents=True, exist_ok=True)
 
     files_to_delete = []
-    if video_row["local_video_path"]:
-        video_p = app_settings.resolve_path(video_row["local_video_path"])
-        if video_p:
-            files_to_delete.append(video_p)
-    if video_row["local_audio_path"]:
-        audio_p = app_settings.resolve_path(video_row["local_audio_path"])
-        if audio_p:
-            files_to_delete.append(audio_p)
+    source_file_id = video_row["source_file_id"]
+    if source_file_id:
+        wav_p = app_settings.audio_dir / f"{source_file_id}.wav"
+        ogg_p = app_settings.audio_dir / f"{source_file_id}.ogg"
+        for p in [wav_p, ogg_p]:
+            if p.exists():
+                files_to_delete.append(p)
 
-    import shutil
+        # Check and clean downloads directory for any temporary video files
+        downloads_dir = app_settings.downloads_dir
+        if downloads_dir.exists():
+            for p in downloads_dir.glob(f"{source_file_id}*"):
+                files_to_delete.append(p)
 
-    for t_row in transcript_rows:
-        if t_row["raw_json_path"]:
-            raw_path = app_settings.resolve_path(t_row["raw_json_path"])
-            if raw_path and raw_path.exists():
-                try:
-                    archive_dest = archive_dir / f"video_{video_id}_{raw_path.name}"
-                    shutil.move(str(raw_path), str(archive_dest))
-                    logger.info(f"Moved raw transcript to {archive_dest}")
-                except Exception as e:
-                    logger.error(f"Failed to move raw transcript {raw_path} to {archive_dest}: {e}")
-                    files_to_delete.append(raw_path)
-            elif raw_path:
+        # Archive raw transcript if it exists
+        raw_path = app_settings.get_raw_transcript_path(source_file_id)
+        if raw_path.exists():
+            try:
+                import shutil
+
+                archive_dest = archive_dir / f"video_{video_id}_{source_file_id}.json.gz"
+                shutil.move(str(raw_path), str(archive_dest))
+                logger.info(f"Moved raw transcript to {archive_dest}")
+                # Удаляем пустую родительскую папку шардирования
+                if raw_path.parent.exists() and not any(raw_path.parent.iterdir()):
+                    raw_path.parent.rmdir()
+            except Exception as e:
+                logger.error(f"Failed to move raw transcript {raw_path} to {archive_dest}: {e}")
                 files_to_delete.append(raw_path)
-        if t_row["normalized_json_path"]:
-            norm_p = app_settings.resolve_path(t_row["normalized_json_path"])
-            if norm_p:
-                files_to_delete.append(norm_p)
+
+        # Add normalized transcript to deletion list
+        norm_path = app_settings.get_normalized_transcript_path(source_file_id)
+        if norm_path.exists():
+            files_to_delete.append(norm_path)
 
     for f_path in files_to_delete:
         try:
             if f_path.exists():
                 f_path.unlink()
+                # Удаляем пустую родительскую папку, если она опустела
+                if f_path.parent.exists() and f_path.parent not in (
+                    app_settings.raw_transcripts_dir,
+                    app_settings.normalized_transcripts_dir,
+                ):
+                    if not any(f_path.parent.iterdir()):
+                        f_path.parent.rmdir()
         except Exception as e:
             logger.error(f"Failed to delete file {f_path}: {e}")
 
@@ -760,20 +766,19 @@ async def api_worker_duplicates_swap(
 ):
     """Swaps the roles of an original video and a duplicate video."""
     pg_settings = get_sqlite_settings()
-    q_settings = get_qdrant_settings()
+    q_settings = get_manticore_settings()
 
-    from qdrant_client import models
+    from app.manticore import get_manticore_client
 
     with db_connection(pg_settings) as conn:
         orig_row = conn.execute(
-            "SELECT id, md5_checksum, size_bytes, duration_sec, "
-            "local_video_path, local_audio_path, processing_status, title "
-            "FROM videos WHERE id = ?",
+            "SELECT id, md5_checksum, size_bytes, duration_sec, status AS processing_status, "
+            "       source_file_id, title FROM videos WHERE id = ?",
             (original_id,),
         ).fetchone()
 
         dup_row = conn.execute(
-            "SELECT id, md5_checksum, title FROM videos WHERE id = ?",
+            "SELECT id, md5_checksum, source_file_id, title FROM videos WHERE id = ?",
             (duplicate_id,),
         ).fetchone()
 
@@ -784,23 +789,49 @@ async def api_worker_duplicates_swap(
         if orig_row["md5_checksum"] != dup_row["md5_checksum"]:
             raise HTTPException(status_code=400, detail="Файлы имеют разные контрольные суммы MD5")
 
+        # Rename transcript files on disk
+        orig_source = orig_row["source_file_id"]
+        dup_source = dup_row["source_file_id"]
+        if orig_source and dup_source:
+            app_settings = get_app_settings()
+
+            # Для raw:
+            old_raw = app_settings.get_raw_transcript_path(orig_source)
+            new_raw = app_settings.get_raw_transcript_path(dup_source)
+            if old_raw.exists():
+                try:
+                    new_raw.parent.mkdir(parents=True, exist_ok=True)
+                    old_raw.rename(new_raw)
+                    if old_raw.parent.exists() and not any(old_raw.parent.iterdir()):
+                        old_raw.parent.rmdir()
+                except Exception as e:
+                    logger.error(f"Failed to rename raw transcript {old_raw} to {new_raw}: {e}")
+
+            # Для normalized:
+            old_norm = app_settings.get_normalized_transcript_path(orig_source)
+            new_norm = app_settings.get_normalized_transcript_path(dup_source)
+            if old_norm.exists():
+                try:
+                    new_norm.parent.mkdir(parents=True, exist_ok=True)
+                    old_norm.rename(new_norm)
+                    if old_norm.parent.exists() and not any(old_norm.parent.iterdir()):
+                        old_norm.parent.rmdir()
+                except Exception as e:
+                    logger.error(f"Failed to rename normalized transcript {old_norm} to {new_norm}: {e}")
+
         # Swap roles in SQLite
-        # 1. Move transcripts and chunks from original_id to duplicate_id
-        conn.execute("UPDATE transcripts SET video_id = ? WHERE video_id = ?", (duplicate_id, original_id))
+        # 1. Move chunks from original_id to duplicate_id
         conn.execute("UPDATE chunks SET video_id = ? WHERE video_id = ?", (duplicate_id, original_id))
 
         # 2. Make duplicate_id the new original
         conn.execute(
             "UPDATE videos "
-            "SET is_md5_duplicate = 0, processing_status = 'transcribed', "
-            "    size_bytes = ?, duration_sec = ?, "
-            "    local_video_path = ?, local_audio_path = ? "
+            "SET original_id = NULL, status = 'transcribed', "
+            "    size_bytes = ?, duration_sec = ? "
             "WHERE id = ?",
             (
                 orig_row["size_bytes"],
                 orig_row["duration_sec"],
-                orig_row["local_video_path"],
-                orig_row["local_audio_path"],
                 duplicate_id,
             ),
         )
@@ -808,36 +839,34 @@ async def api_worker_duplicates_swap(
         # 3. Make original_id the new duplicate
         conn.execute(
             "UPDATE videos "
-            "SET is_md5_duplicate = 1, processing_status = 'skipped_duplicate_md5', "
-            "    size_bytes = NULL, duration_sec = NULL, "
-            "    local_video_path = NULL, local_audio_path = NULL "
+            "SET original_id = ?, status = 'skipped_duplicate_md5', "
+            "    size_bytes = NULL, duration_sec = NULL "
             "WHERE id = ?",
-            (original_id,),
+            (duplicate_id, original_id),
         )
 
-        # 4. Queue a re-indexing task for the new original to rebuild vectors in Qdrant with new metadata
+        # Update other duplicates that pointed to original_id to now point to duplicate_id
+        conn.execute(
+            "UPDATE videos SET original_id = ? WHERE original_id = ?",
+            (duplicate_id, original_id),
+        )
+
+        # 4. Queue a re-indexing task for the new original to rebuild vectors in Manticore with new metadata
         new_payload = {"video_id": duplicate_id, "title": dup_row["title"]}
         conn.execute(
             "INSERT INTO tasks (task_type, payload, status, priority) VALUES ('stage_3_index', ?, 'pending', 5)",
             (json.dumps(new_payload, ensure_ascii=False),),
         )
 
-    # 5. Delete old points of original_id from Qdrant
+    # 5. Delete old points of original_id from Manticore
     try:
-        qdrant = get_qdrant_client()
-        qdrant.delete(
-            collection_name=q_settings.collection_name,
-            points_selector=models.Filter(
-                must=[
-                    models.FieldCondition(
-                        key="video_id",
-                        match=models.MatchValue(value=original_id),
-                    )
-                ]
-            ),
+        manticore = get_manticore_client()
+        manticore.delete(
+            collection_name=q_settings.table_name,
+            where_clause=f"video_id = {original_id}",
         )
     except Exception as e:
-        logger.error(f"Failed to delete old points from Qdrant during swap: {e}")
+        logger.error(f"Failed to delete old points from Manticore during swap: {e}")
 
     # Auto-start worker to process stage_3_index for the new original
     worker = get_worker()
@@ -861,8 +890,9 @@ async def api_worker_duplicates_save(
         row = conn.execute("SELECT id FROM videos WHERE id = ?", (duplicate_id,)).fetchone()
         if not row:
             raise HTTPException(status_code=404, detail="Файл не найден")
-        conn.execute("UPDATE videos SET is_md5_duplicate_saved = 1 WHERE id = ?", (duplicate_id,))
-    return {"status": "success", "message": "Роль дубликата сохранена, он скрыт из списка мониторинга"}
+        # Since is_md5_duplicate_saved was removed, we do not update any columns here.
+        # We will redesign the save queue/mechanism globally later.
+    return {"status": "success", "message": "Роль дубликата сохранена"}
 
 
 @app.get("/api/v1/indexed/ls")
@@ -888,11 +918,9 @@ async def api_indexed_ls(folder_id: str | None = None, _: str = Depends(require_
         video_sql = """
             SELECT
                 v.id, v.title, v.mime_type, v.duration_sec, v.updated_at, v.source_file_id, v.is_short, v.is_4k,
-                v.is_md5_duplicate,
-                t.language, t.confidence,
+                (v.original_id IS NOT NULL) AS is_md5_duplicate,
                 (SELECT COUNT(*) FROM chunks c WHERE c.video_id = v.id) as chunk_count
             FROM videos v
-            LEFT JOIN transcripts t ON t.video_id = v.id
             WHERE {where_clause}
             ORDER BY v.title ASC
         """
@@ -935,8 +963,8 @@ async def api_indexed_ls(folder_id: str | None = None, _: str = Depends(require_
                 "source_file_id": r["source_file_id"],
                 "duration_sec": r["duration_sec"],
                 "chunk_count": r["chunk_count"],
-                "language": r["language"],
-                "confidence": r["confidence"],
+                "language": "ru",
+                "confidence": 1.0,
                 "updated_at": r["updated_at"],
             }
         )
@@ -1455,21 +1483,21 @@ async def api_restart_no_space_tasks(_: str = Depends(require_access_token)):
 
 
 @app.post("/api/v1/reindex/all")
-async def api_reindex_all(clear_qdrant: bool = False, _: str = Depends(require_access_token)):
-    """Queues all transcribed videos for re-indexing in Qdrant."""
+async def api_reindex_all(clear_manticore: bool = False, _: str = Depends(require_access_token)):
+    """Queues all transcribed videos for re-indexing in Manticore."""
     settings = get_sqlite_settings()
-    q_settings = get_qdrant_settings()
+    q_settings = get_manticore_settings()
 
-    if clear_qdrant:
-        from app.qdrant import init_qdrant
+    if clear_manticore:
+        from app.manticore import init_manticore
 
-        qdrant = get_qdrant_client()
-        logger.info(f"Clearing Qdrant collection {q_settings.collection_name} for full reindex")
+        manticore = get_manticore_client()
+        logger.info(f"Clearing Manticore table {q_settings.table_name} for full reindex")
         try:
-            qdrant.delete_collection(q_settings.collection_name)
-            init_qdrant()
+            manticore.delete_collection(q_settings.table_name)
+            init_manticore()
         except Exception as e:
-            logger.error(f"Failed to clear Qdrant: {e}")
+            logger.error(f"Failed to clear Manticore: {e}")
 
     with db_connection(settings) as conn:
         # Find all videos that have at least one chunk
@@ -1510,51 +1538,11 @@ async def api_reindex_all(clear_qdrant: bool = False, _: str = Depends(require_a
 
 @app.get("/api/videos/{video_id}/speakers")
 def api_list_speakers(video_id: int, _: str = Depends(require_access_token)):
-    settings = get_sqlite_settings()
-    with db_connection(settings) as conn:
-        # Find all unique speaker tags in chunks
-        rows = conn.execute("SELECT DISTINCT speaker_tags FROM chunks WHERE video_id = ?", (video_id,)).fetchall()
-
-        tags = set()
-        for r in rows:
-            if r["speaker_tags"]:
-                for t in r["speaker_tags"].split(", "):
-                    tags.add(t)
-
-        # If no tags detected (old video or single speaker), provide a default tag 'primary'
-        if not tags:
-            tags.add("primary")
-
-        # Get existing names from speakers table
-        names_rows = conn.execute("SELECT speaker_tag, name FROM speakers WHERE video_id = ?", (video_id,)).fetchall()
-        name_map = {r["speaker_tag"]: r["name"] for r in names_rows}
-
-        return [
-            {"tag": t, "name": name_map.get(t, f"Speaker {t}" if t != "primary" else "Основной голос")}
-            for t in sorted(tags)
-        ]
+    return [{"tag": "primary", "name": "Основной голос"}]
 
 
 @app.post("/api/videos/{video_id}/speakers")
 async def api_save_speaker(video_id: int, request: Request, _: str = Depends(require_access_token)):
-    data = await request.json()
-    tag = data.get("tag")
-    name = data.get("name")
-
-    if not tag or not name:
-        raise HTTPException(status_code=400, detail="Missing tag or name")
-
-    settings = get_sqlite_settings()
-    with db_connection(settings) as conn:
-        # 1. Save to local SQLite
-        sql_s = """
-            INSERT INTO speakers (video_id, speaker_tag, name)
-            VALUES (?, ?, ?)
-            ON CONFLICT(video_id, speaker_tag) DO UPDATE SET name = EXCLUDED.name
-        """
-        conn.execute(sql_s, (video_id, str(tag), name))
-
-    # 2. Global Enrollment (Voice Fingerprinting) - DISABLED due to 405 error
     return {"status": "saved", "enrolled": False}
 
 
@@ -1564,7 +1552,7 @@ def api_video_export(video_id: int, _: str = Depends(require_access_token)):
     with db_connection(settings) as connection:
         rows = connection.execute(
             """
-            SELECT c.text, c.speaker_tags
+            SELECT c.text
             FROM chunks c
             WHERE c.video_id = ?
             ORDER BY c.chunk_index ASC
@@ -1575,17 +1563,9 @@ def api_video_export(video_id: int, _: str = Depends(require_access_token)):
         if not rows:
             raise HTTPException(status_code=404, detail="Transcript not found")
 
-        # Get speaker names for this video
-        s_rows = connection.execute("SELECT speaker_tag, name FROM speakers WHERE video_id = ?", (video_id,)).fetchall()
-        s_map = {r["speaker_tag"]: r["name"] for r in s_rows}
-
         full_text_lines = []
         for r in rows:
-            speaker_info = ""
-            if r["speaker_tags"]:
-                names = [s_map.get(t, f"Speaker {t}") for t in r["speaker_tags"].split(", ")]
-                speaker_info = f"[{', '.join(names)}]: "
-            full_text_lines.append(f"{speaker_info}{r['text']}")
+            full_text_lines.append(r["text"])
 
         full_text = "\n\n".join(full_text_lines)
         v_row = connection.execute("SELECT title FROM videos WHERE id = ?", (video_id,)).fetchone()
@@ -1606,7 +1586,6 @@ def api_video_chunks(video_id: int, _: str = Depends(require_access_token)):
             """
             SELECT c.id, c.start_sec, c.end_sec, c.text
             FROM chunks c
-            JOIN transcripts t ON t.id = c.transcript_id
             WHERE c.video_id = ?
             ORDER BY c.chunk_index ASC
             """,
@@ -1632,19 +1611,17 @@ async def api_update_chunk(chunk_id: int, request: Request, _: str = Depends(req
 
     settings = get_sqlite_settings()
     embed_client = UnifiedEmbeddingClient(get_embedding_settings())
-    qdrant = get_qdrant_client()
-    q_settings = get_qdrant_settings()
+    manticore = get_manticore_client()
+    q_settings = get_manticore_settings()
 
     with db_connection(settings) as connection:
-        # 1. Получаем информацию о чанке (нужна для payload в Qdrant)
+        # 1. Получаем информацию о чанке (нужна для payload)
         row = connection.execute(
             """
             SELECT
-                c.chunk_index, c.video_id, c.transcript_id, c.start_sec, c.end_sec,
-                t.normalized_json_path,
+                c.chunk_index, c.video_id, c.start_sec, c.end_sec,
                 v.title, v.source_file_id, v.source_url
             FROM chunks c
-            JOIN transcripts t ON t.id = c.transcript_id
             JOIN videos v ON v.id = c.video_id
             WHERE c.id = ?
             """,
@@ -1654,28 +1631,27 @@ async def api_update_chunk(chunk_id: int, request: Request, _: str = Depends(req
         if not row:
             raise HTTPException(status_code=404, detail="Chunk not found")
 
-        # 2. Обновляем PostgreSQL (только текст, векторы ушли в Qdrant)
+        # 2. Обновляем SQLite (только текст, векторы ушли в Manticore)
         connection.execute("UPDATE chunks SET text = ? WHERE id = ?", (new_text, chunk_id))
 
         # 3. Генерируем НОВЫЕ векторы
         try:
             dense_vec, sparse_vec = await embed_client.embed_text_async(new_text, task_type="RETRIEVAL_DOCUMENT")
 
-            # 4. Обновляем Qdrant
+            # 4. Обновляем Manticore
             vectors: dict[str, Any] = {"default": dense_vec}
             if sparse_vec:
                 vectors["text-sparse"] = sparse_vec
 
-            qdrant.upsert(
-                collection_name=q_settings.collection_name,
+            manticore.upsert(
+                collection_name=q_settings.table_name,
                 points=[
-                    models.PointStruct(
-                        id=chunk_id,
-                        vector=vectors,
-                        payload={
+                    {
+                        "id": chunk_id,
+                        "vector": vectors,
+                        "payload": {
                             "chunk_id": chunk_id,
                             "video_id": row["video_id"],
-                            "transcript_id": row["transcript_id"],
                             "chunk_index": row["chunk_index"],
                             "start_sec": row["start_sec"],
                             "end_sec": row["end_sec"],
@@ -1685,21 +1661,28 @@ async def api_update_chunk(chunk_id: int, request: Request, _: str = Depends(req
                             "source_url": row["source_url"],
                             "is_primary": True,
                         },
-                    )
+                    }
                 ],
             )
             vector_updated = True
         except Exception as e:
-            logger.error(f"Failed to update vectors in Qdrant for chunk {chunk_id}: {e}")
+            logger.error(f"Failed to update vectors in Manticore for chunk {chunk_id}: {e}")
             vector_updated = False
 
         # 5. Обновляем физический файл на диске
-        json_path_str = row["normalized_json_path"]
-        if json_path_str:
-            path = Path(json_path_str)
+        source_file_id = row["source_file_id"]
+        if source_file_id:
+            from app.config import get_app_settings
+
+            app_settings = get_app_settings()
+            path = app_settings.get_normalized_transcript_path(source_file_id)
             if path.exists():
                 try:
-                    content = json.loads(path.read_text(encoding="utf-8"))
+                    import gzip
+
+                    with gzip.open(path, "rt", encoding="utf-8") as f:
+                        content = json.load(f)
+
                     chunk_index = row["chunk_index"]
                     if "utterances" in content and len(content["utterances"]) > chunk_index:
                         content["utterances"][chunk_index]["text"] = new_text
@@ -1709,7 +1692,8 @@ async def api_update_chunk(chunk_id: int, request: Request, _: str = Depends(req
                     if "utterances" in content:
                         content["transcript"] = " ".join(u["text"] for u in content["utterances"])
 
-                    path.write_text(json.dumps(content, ensure_ascii=False, indent=2), encoding="utf-8")
+                    with gzip.open(path, "wt", encoding="utf-8") as f:
+                        json.dump(content, f, separators=(",", ":"), ensure_ascii=False)
                 except Exception as e:
                     logger.error(f"Failed to sync JSON file {path}: {e}")
 
@@ -1727,10 +1711,8 @@ async def api_drive_ls(folder_id: str | None = None, refresh: bool = False, _: s
         # Check database for indexed status
         sqlite_settings = get_sqlite_settings()
         with db_connection(sqlite_settings) as connection:
-            # Get all source_file_ids for google_drive source
-            indexed_rows = connection.execute(
-                "SELECT source_file_id, md5_checksum FROM videos WHERE source_type = 'google_drive'"
-            ).fetchall()
+            # Get all source_file_ids
+            indexed_rows = connection.execute("SELECT source_file_id, md5_checksum FROM videos").fetchall()
             indexed_ids = {row["source_file_id"] for row in indexed_rows}
             indexed_md5s = {row["md5_checksum"] for row in indexed_rows if row["md5_checksum"]}
 
@@ -1798,7 +1780,7 @@ async def video_file(video_id: int, request: Request, token: str | None = None) 
     if not row:
         raise HTTPException(status_code=404)
 
-    if row["source_type"] == "google_drive" and row["source_file_id"]:
+    if row["source_file_id"]:
         drive_client = GoogleDriveClient(get_google_drive_settings())
 
         # Open the stream from Google Drive
@@ -1834,6 +1816,4 @@ async def video_file(video_id: int, request: Request, token: str | None = None) 
             headers=headers,
         )
 
-    if not row["local_video_path"]:
-        raise HTTPException(status_code=404)
-    return FileResponse(row["local_video_path"], filename=row["title"], media_type=row["mime_type"] or "video/mp4")
+    raise HTTPException(status_code=404, detail="Local video streaming is not supported")

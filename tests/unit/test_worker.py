@@ -1,6 +1,5 @@
 import asyncio
 import json
-from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -69,8 +68,8 @@ async def test_worker_consume_stage_lifecycle(tmp_db, monkeypatch, mocker):
 @pytest.mark.asyncio
 async def test_worker_stage_3_index(tmp_db, monkeypatch, mocker, mock_qdrant):
     monkeypatch.setattr("app.worker.get_sqlite_settings", lambda: tmp_db)
-    monkeypatch.setattr("app.worker.get_qdrant_settings", lambda: MagicMock(collection_name="test_col"))
-    monkeypatch.setattr("app.worker.get_qdrant_client", lambda: mock_qdrant)
+    monkeypatch.setattr("app.worker.get_manticore_settings", lambda: MagicMock(table_name="test_col"))
+    monkeypatch.setattr("app.worker.get_manticore_client", lambda: mock_qdrant)
 
     # Mock settings to return real strings just in case
     mock_settings = MagicMock()
@@ -87,34 +86,22 @@ async def test_worker_stage_3_index(tmp_db, monkeypatch, mocker, mock_qdrant):
 
     # Prepare DB: video + chunk + task
     from app.db import db_connection
-    from app.repository import replace_chunks, replace_transcript, upsert_video
+    from app.repository import replace_chunks, upsert_video
 
     with db_connection(tmp_db) as conn:
         vid = upsert_video(
             conn,
-            source_type="t",
             source_file_id="f",
             title="T",
             source_url=None,
             mime_type=None,
             size_bytes=None,
             duration_sec=None,
-            local_video_path=None,
-            local_audio_path=None,
-            processing_status="pending",
-        )
-        tid = replace_transcript(
-            conn,
-            video_id=vid,
-            language="ru",
-            confidence=1.0,
-            raw_json_path=Path("r"),
-            normalized_json_path=Path("n"),
+            status="pending",
         )
         replace_chunks(
             conn,
             video_id=vid,
-            transcript_id=tid,
             chunks=[{"chunk_index": 0, "start_sec": 0, "end_sec": 1, "text": "Hello"}],
         )
         conn.execute(
@@ -132,8 +119,8 @@ async def test_worker_stage_3_index(tmp_db, monkeypatch, mocker, mock_qdrant):
     with db_connection(tmp_db) as conn:
         row = conn.execute("SELECT status FROM tasks WHERE id=1").fetchone()
         assert row["status"] == "completed"
-        v_row = conn.execute("SELECT processing_status FROM videos WHERE id=?", (vid,)).fetchone()
-        assert v_row["processing_status"] == "indexed_chunks_ready"
+        v_row = conn.execute("SELECT status FROM videos WHERE id=?", (vid,)).fetchone()
+        assert v_row["status"] == "indexed_chunks_ready"
 
 
 @pytest.mark.asyncio
@@ -209,16 +196,13 @@ async def test_worker_md5_duplicate_check(tmp_db, monkeypatch, mocker):
     with db_connection(tmp_db) as conn:
         upsert_video(
             conn,
-            source_type="google_drive",
             source_file_id="original_file_id",
             title="Original Video",
             source_url="http://original",
             mime_type="video/mp4",
             size_bytes=1000,
             duration_sec=60.0,
-            local_video_path="/tmp/o.mp4",
-            local_audio_path="/tmp/o.mp3",
-            processing_status="indexed_chunks_ready",
+            status="indexed_chunks_ready",
             md5_checksum="duplicate-md5-hash",
         )
 
@@ -241,13 +225,13 @@ async def test_worker_md5_duplicate_check(tmp_db, monkeypatch, mocker):
     mock_download.assert_not_called()
 
     # 2. The task status is updated to 'skipped_duplicate_md5'
-    # 3. A new video entry exists in DB with is_md5_duplicate = 1 and status skipped_duplicate_md5
+    # 3. A new video entry exists in DB with original_id IS NOT NULL and status skipped_duplicate_md5
     with db_connection(tmp_db) as conn:
         task_row = conn.execute("SELECT status FROM tasks WHERE id = ?", (task_id,)).fetchone()
         assert task_row["status"] == "skipped_duplicate_md5"
 
         video_row = conn.execute("SELECT * FROM videos WHERE source_file_id = 'new_duplicate_file_id'").fetchone()
         assert video_row is not None
-        assert video_row["is_md5_duplicate"] == 1
-        assert video_row["processing_status"] == "skipped_duplicate_md5"
+        assert video_row["original_id"] is not None
+        assert video_row["status"] == "skipped_duplicate_md5"
         assert video_row["md5_checksum"] == "duplicate-md5-hash"

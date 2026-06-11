@@ -10,11 +10,10 @@ if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
 from app.chunking import chunk_from_utterances
-from app.config import get_app_settings, get_deepgram_settings, get_sqlite_settings
+from app.config import get_app_settings, get_sqlite_settings
 from app.db import db_connection, init_db
 from app.repository import (
     replace_chunks,
-    replace_transcript,
     update_video_status,
     upsert_video,
 )
@@ -45,48 +44,44 @@ def main() -> None:
     normalized_payload = json.loads(Path(args.normalized_transcript_path).read_text(encoding="utf-8"))
     chunks = chunk_from_utterances(normalized_payload.get("utterances", []))
 
-    get_app_settings()
-    deepgram_settings = get_deepgram_settings()
+    app_settings = get_app_settings()
+
+    # Copy files to designated storage directories
+    dest_raw = app_settings.raw_transcripts_dir / f"{args.source_file_id}.json"
+    dest_norm = app_settings.normalized_transcripts_dir / f"{args.source_file_id}.json"
+    dest_raw.parent.mkdir(parents=True, exist_ok=True)
+    dest_norm.parent.mkdir(parents=True, exist_ok=True)
+
+    import shutil
+
+    shutil.copy2(args.raw_transcript_path, dest_raw)
+    shutil.copy2(args.normalized_transcript_path, dest_norm)
 
     with db_connection(get_sqlite_settings()) as connection:
         init_db(connection)
         video_id = upsert_video(
             connection,
-            source_type=args.source_type,
             source_file_id=args.source_file_id,
             title=args.title,
             source_url=args.source_url,
             mime_type=args.mime_type,
             size_bytes=args.size_bytes,
             duration_sec=args.duration_sec,
-            local_video_path=args.video_path,
-            local_audio_path=args.audio_path,
-            processing_status="transcribed",
-        )
-        transcript_id = replace_transcript(
-            connection,
-            video_id=video_id,
-            language=deepgram_settings.language,
-            confidence=normalized_payload.get("confidence"),
-            raw_json_path=Path(args.raw_transcript_path),
-            normalized_json_path=Path(args.normalized_transcript_path),
+            status="transcribed",
         )
         replace_chunks(
             connection,
             video_id=video_id,
-            transcript_id=transcript_id,
             chunks=chunks,
         )
         update_video_status(
             connection,
             video_id=video_id,
-            processing_status="indexed_chunks_ready",
-            local_audio_path=args.audio_path,
+            status="indexed_chunks_ready",
         )
 
     print("Transcript registered.")
     print(f"Video ID: {video_id}")
-    print(f"Transcript ID: {transcript_id}")
 
 
 if __name__ == "__main__":
