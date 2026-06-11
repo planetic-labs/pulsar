@@ -246,18 +246,46 @@ def verify_integrity() -> dict[str, Any]:
 
     print(f"Чанков в SQLite: {len(db_chunk_ids)}")
 
-    print("Получение данных из Manticore...")
+    print("Получение данных из Manticore (постранично)...")
     q_point_ids = set()
-    q_sample_points = []
+    q_point_map = {}
 
-    points, _ = manticore.scroll(
-        collection_name=q_settings.table_name,
-        limit=100000,
-    )
-    for p in points:
-        q_point_ids.add(p.id)
-        if len(q_sample_points) < 100:
-            q_sample_points.append(p)
+    last_id = 0
+    batch_size = 5000
+    while True:
+        sql = (
+            f"SELECT id, video_id, chunk_index, text FROM {q_settings.table_name} "
+            f"WHERE id > {last_id} ORDER BY id ASC LIMIT {batch_size} "
+            f"OPTION max_matches={batch_size}"
+        )
+        try:
+            res = manticore._execute_sql(sql)
+        except Exception as e:
+            print(f"❌ Failed to query Manticore: {e}")
+            issues.append(f"Manticore query failed: {e}")
+            break
+
+        if not res or len(res) == 0:
+            break
+        data = res[0].get("data", [])
+        if not data:
+            break
+        columns = [list(c.keys())[0] for c in res[0].get("columns", [])]
+        for row in data:
+            if isinstance(row, dict):
+                r_dict = row
+            else:
+                r_dict = dict(zip(columns, row, strict=False))
+            doc_id = r_dict["id"]
+            last_id = max(last_id, doc_id)
+            q_point_ids.add(doc_id)
+            q_point_map[doc_id] = {
+                "text": r_dict.get("text") or "",
+                "video_id": r_dict.get("video_id"),
+                "chunk_index": r_dict.get("chunk_index"),
+            }
+        if len(data) < batch_size:
+            break
 
     print(f"Точек в Manticore: {len(q_point_ids)}")
 
@@ -270,12 +298,12 @@ def verify_integrity() -> dict[str, Any]:
 
         # Find videos for these missing chunks
         missing_list = list(missing_in_manticore)
-        batch_size = 500
+        batch_size_sel = 500
         video_map = {}  # video_id -> title
 
         with db_connection(sqlite_settings) as conn:
-            for i in range(0, len(missing_list), batch_size):
-                batch = missing_list[i : i + batch_size]
+            for i in range(0, len(missing_list), batch_size_sel):
+                batch = missing_list[i : i + batch_size_sel]
                 placeholders = ",".join(["?"] * len(batch))
                 sql = f"""
                     SELECT DISTINCT v.id, v.title
@@ -331,10 +359,13 @@ def verify_integrity() -> dict[str, Any]:
         print(f"⚠️  {msg}. Удаляем сиротские точки из Manticore...")
         try:
             orphan_list = list(orphan_in_manticore)
-            manticore.delete(
-                collection_name=q_settings.table_name,
-                ids=orphan_list,
-            )
+            # Delete in chunks to avoid URL size limit
+            for k in range(0, len(orphan_list), 1000):
+                sub_list = orphan_list[k : k + 1000]
+                manticore.delete(
+                    collection_name=q_settings.table_name,
+                    ids=sub_list,
+                )
             deleted_manticore_points_count = len(orphan_list)
             print(f"✅ Успешно удалено точек из Manticore: {deleted_manticore_points_count}")
         except Exception as e:
@@ -347,13 +378,20 @@ def verify_integrity() -> dict[str, Any]:
     # Check sample Manticore metadata vs SQLite
     metadata_errors = 0
     print("--- Выборочная проверка метаданных (Manticore vs SQLite) ---")
-    for p in random.sample(q_sample_points, min(len(q_sample_points), 20)):
-        db_text = db_chunk_map.get(p.id)
-        q_text = p.payload.get("text") if p.payload is not None else None
-        if db_text and q_text and db_text.strip() != q_text.strip():
-            print(f"❌ Payload mismatch for point {p.id}!")
+    sample_ids = random.sample(list(db_chunk_ids), min(len(db_chunk_ids), 100)) if db_chunk_ids else []
+    for s_id in sample_ids:
+        db_text = db_chunk_map.get(s_id)
+        m_chunk = q_point_map.get(s_id)
+        if not m_chunk:
+            print(f"❌ Чанк SQLite ID {s_id} ОТСУТСТВУЕТ в Manticore!")
             metadata_errors += 1
-            issues.append(f"Payload mismatch for point {p.id} in Manticore vs SQLite")
+            issues.append(f"Chunk SQLite ID {s_id} is missing in Manticore")
+            continue
+        q_text = m_chunk["text"]
+        if db_text and q_text and db_text.strip() != q_text.strip():
+            print(f"❌ Несоответствие текста для чанка {s_id}!")
+            metadata_errors += 1
+            issues.append(f"Text mismatch for chunk ID {s_id} in Manticore vs SQLite")
 
     if metadata_errors == 0:
         print("✅ Выборочная проверка метаданных пройдена.")
