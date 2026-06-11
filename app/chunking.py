@@ -16,14 +16,12 @@ def chunk_from_utterances(
 
     if single_chunk:
         chunk_text = " ".join(u.get("text", "") or u.get("transcript", "") for u in utterances)
-        speakers = {str(u["speaker"]) for u in utterances if u.get("speaker") is not None}
         return [
             {
                 "chunk_index": 0,
                 "start_sec": float(utterances[0]["start"]),
                 "end_sec": float(utterances[-1]["end"]),
                 "text": chunk_text,
-                "speaker": ", ".join(sorted(speakers)) if speakers else None,
             }
         ]
 
@@ -40,7 +38,6 @@ def chunk_from_utterances(
         if current_length >= max_chars:
             # Close current chunk
             chunk_text = " ".join(u.get("text", "") or u.get("transcript", "") for u in current_batch)
-            speakers = {str(u["speaker"]) for u in current_batch if u.get("speaker") is not None}
 
             chunks.append(
                 {
@@ -48,7 +45,6 @@ def chunk_from_utterances(
                     "start_sec": float(current_batch[0]["start"]),
                     "end_sec": float(current_batch[-1]["end"]),
                     "text": chunk_text,
-                    "speaker": ", ".join(sorted(speakers)) if speakers else None,
                 }
             )
 
@@ -59,14 +55,12 @@ def chunk_from_utterances(
 
     if current_batch:
         chunk_text = " ".join(u.get("text", "") or u.get("transcript", "") for u in current_batch)
-        speakers = {str(u["speaker"]) for u in current_batch if u.get("speaker") is not None}
         chunks.append(
             {
                 "chunk_index": chunk_index,
                 "start_sec": float(current_batch[0]["start"]),
                 "end_sec": float(current_batch[-1]["end"]),
                 "text": chunk_text,
-                "speaker": ", ".join(sorted(speakers)) if speakers else None,
             }
         )
 

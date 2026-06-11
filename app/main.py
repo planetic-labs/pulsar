@@ -823,7 +823,11 @@ async def api_worker_duplicates_swap(
         # 1. Move chunks from original_id to duplicate_id
         conn.execute("UPDATE chunks SET video_id = ? WHERE video_id = ?", (duplicate_id, original_id))
 
-        # 2. Make duplicate_id the new original
+        # 2. Temporarily set md5_checksum of original_id to NULL
+        # to avoid UNIQUE constraint violation on original_id IS NULL
+        conn.execute("UPDATE videos SET md5_checksum = NULL WHERE id = ?", (original_id,))
+
+        # 3. Make duplicate_id the new original
         conn.execute(
             "UPDATE videos "
             "SET original_id = NULL, status = 'transcribed', "
@@ -836,13 +840,14 @@ async def api_worker_duplicates_swap(
             ),
         )
 
-        # 3. Make original_id the new duplicate
+        # 4. Make original_id the new duplicate and restore its md5_checksum
         conn.execute(
             "UPDATE videos "
             "SET original_id = ?, status = 'skipped_duplicate_md5', "
-            "    size_bytes = NULL, duration_sec = NULL "
+            "    size_bytes = NULL, duration_sec = NULL, "
+            "    md5_checksum = ? "
             "WHERE id = ?",
-            (duplicate_id, original_id),
+            (duplicate_id, orig_row["md5_checksum"], original_id),
         )
 
         # Update other duplicates that pointed to original_id to now point to duplicate_id

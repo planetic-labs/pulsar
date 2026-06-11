@@ -9,40 +9,22 @@ ROOT_DIR = Path(__file__).resolve().parents[1]
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
-from app.config import get_embedding_settings, get_manticore_settings, get_sqlite_settings
+from app.config import get_manticore_settings, get_sqlite_settings
 from app.manticore import get_manticore_client, init_manticore
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
 
 
-async def main():
-    sqlite_settings = get_sqlite_settings()
-    m_settings = get_manticore_settings()
-    emb_settings = get_embedding_settings()
-
-    # 1. Инициализация клиента и удаление старой таблицы
-    manticore = get_manticore_client()
-    table_name = m_settings.table_name.lower()  # Гарантируем нижний регистр
-
-    logger.info(f"Dropping existing table '{table_name}'...")
-    manticore.delete_collection(table_name)
-
-    # 2. Создание новой таблицы с правильной схемой
-    logger.info("Initializing Manticore table...")
-    init_manticore()
-
-    logger.info("Waiting for table to bake...")
-    await asyncio.sleep(2)
-
-    # 3. Чтение чанков из SQLite и индексация
+async def index_sqlite_to_manticore(manticore, table_name: str, db_path: str | Path):
+    """Reusable function to index all SQLite chunks to Manticore Search."""
     logger.info("Fetching chunks from SQLite...")
-    with sqlite3.connect(sqlite_settings.db_path) as conn:
+    with sqlite3.connect(db_path) as conn:
         conn.row_factory = sqlite3.Row
         sql = """
             SELECT
                 c.id as chunk_id, c.video_id, c.chunk_index,
-                c.start_sec, c.end_sec, c.text, c.speaker_tags,
+                c.start_sec, c.end_sec, c.text,
                 v.title, v.source_file_id, v.source_url, v.is_short, v.is_4k, v.recorded_date
             FROM chunks c
             JOIN videos v ON v.id = c.video_id
@@ -67,13 +49,12 @@ async def main():
                     {
                         "id": r["chunk_id"],
                         "payload": {
-                            "chunk_id": str(r["chunk_id"]),
+                            "chunk_id": int(r["chunk_id"]),
                             "video_id": str(r["video_id"]),
                             "chunk_index": int(r["chunk_index"]) if r["chunk_index"] is not None else 0,
                             "start_sec": float(r["start_sec"]) if r["start_sec"] is not None else 0.0,
                             "end_sec": float(r["end_sec"]) if r["end_sec"] is not None else 0.0,
                             "text": r["text"] or "",
-                            "speaker": r["speaker_tags"] or "",
                             "title": r["title"] or "",
                             "source_file_id": r["source_file_id"] or "",
                             "source_url": r["source_url"] or "",
@@ -82,8 +63,6 @@ async def main():
                             "is_4k": 1 if r["is_4k"] else 0,
                             "is_primary": 1,
                         },
-                        # Пока отправляем пустой вектор, либо заполняем нулями нужной размерности
-                        "vector": [0.0] * emb_settings.dimension,
                     }
                 )
 
@@ -108,6 +87,28 @@ async def main():
                 gc.collect()
 
     logger.info("All data loaded successfully into Manticore Search!")
+
+
+async def main():
+    sqlite_settings = get_sqlite_settings()
+    m_settings = get_manticore_settings()
+
+    # 1. Инициализация клиента и удаление старой таблицы
+    manticore = get_manticore_client()
+    table_name = m_settings.table_name.lower()  # Гарантируем нижний регистр
+
+    logger.info(f"Dropping existing table '{table_name}'...")
+    manticore.delete_collection(table_name)
+
+    # 2. Создание новой таблицы с правильной схемой
+    logger.info("Initializing Manticore table...")
+    init_manticore()
+
+    logger.info("Waiting for table to bake...")
+    await asyncio.sleep(2)
+
+    # 3. Индексация
+    await index_sqlite_to_manticore(manticore, table_name, sqlite_settings.db_path)
 
 
 if __name__ == "__main__":

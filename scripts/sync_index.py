@@ -234,8 +234,8 @@ async def main():
         # Get all local videos from DB
         videos = conn.execute("""
             SELECT id, source_file_id, title, parent_folder_id, recorded_date,
-                   is_4k, processing_status, source_url, is_missing, is_excluded,
-                   is_original
+                   is_4k, status AS processing_status, source_url, is_missing, is_excluded,
+                   (original_id IS NULL) AS is_original
             FROM videos
         """).fetchall()
         for v in videos:

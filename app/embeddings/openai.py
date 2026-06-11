@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Callable
+from typing import Any
 
 import httpx
 
@@ -25,7 +26,7 @@ class OpenAIEmbeddingProvider(BaseEmbeddingProvider):
         return url
 
     def _build_payload(self, input_data: list[str]) -> dict:
-        payload = {"model": self.settings.model_id, "input": input_data}
+        payload: dict[str, Any] = {"model": self.settings.model_id, "input": input_data}
         if self.settings.openrouter_providers:
             payload["provider"] = {"only": self.settings.openrouter_providers, "allow_fallbacks": False}
         return payload
