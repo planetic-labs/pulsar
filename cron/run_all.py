@@ -82,24 +82,8 @@ def main():
     logger.info("🚀 STARTING UNIFIED CRON WORKFLOW")
     logger.info("=========================================")
 
-    # 1. Execute Backup
-    logger.info("Step 1/3: Running system backup...")
-    try:
-        # Run backup script using the current virtualenv executable
-        backup_script = ROOT_DIR / "backups" / "backup.py"
-        res = subprocess.run([sys.executable, str(backup_script)], capture_output=True, text=True, check=True)
-        logger.info("Backup stdout:")
-        for line in res.stdout.splitlines():
-            logger.info(f"  [BACKUP] {line}")
-        logger.info("✅ Backup completed successfully.")
-    except subprocess.CalledProcessError as e:
-        logger.error(f"❌ Backup failed with exit code {e.returncode}!")
-        logger.error(f"Backup stdout:\n{e.stdout}")
-        logger.error(f"Backup stderr:\n{e.stderr}")
-        # Note: we continue execution of other cron steps even if backup fails
-
-    # 2. Execute Sync Index
-    logger.info("Step 2/3: Running index synchronization in container...")
+    # 1. Execute Sync Index
+    logger.info("Step 1/2: Running index synchronization in container...")
     try:
         compose_cmd = get_docker_compose_cmd()
         cmd = compose_cmd + ["exec", "-T", "pulsar", "uv", "run", "python", "scripts/sync_index.py"]
@@ -113,16 +97,11 @@ def main():
         logger.error(f"Sync stdout:\n{e.stdout}")
         logger.error(f"Sync stderr:\n{e.stderr}")
 
-    # 3. Execute Integrity Check
-    logger.info("Step 3/3: Running database and index integrity checks in container...")
+    # 2. Execute Integrity Check
+    logger.info("Step 2/2: Running database and index integrity checks in container...")
     try:
         compose_cmd = get_docker_compose_cmd()
-        py_cmd = (
-            "from scripts.check_integrity import check_integrity; "
-            "import json; "
-            "print('INTEGRITY_ISSUES:' + json.dumps(check_integrity()))"
-        )
-        cmd = compose_cmd + ["exec", "-T", "pulsar", "uv", "run", "python", "-c", py_cmd]
+        cmd = compose_cmd + ["exec", "-T", "pulsar", "uv", "run", "python", "scripts/check_integrity.py"]
         res = subprocess.run(cmd, capture_output=True, text=True, check=True)
 
         # Log stdout/stderr lines except the JSON wrapper line

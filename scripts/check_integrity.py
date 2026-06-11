@@ -515,4 +515,7 @@ def check_integrity() -> dict[str, Any]:
 
 
 if __name__ == "__main__":
-    check_integrity()
+    import json
+
+    res = check_integrity()
+    print("INTEGRITY_ISSUES:" + json.dumps(res))
