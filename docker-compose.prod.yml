@@ -25,7 +25,6 @@ services:
         condition: service_started
     volumes:
       # Только данные, код уже внутри контейнера
-      - ./downloads:/app/downloads
       - ./data:/app/data
       - ./storage:/app/storage
       - ./models_cache:/app/models_cache
