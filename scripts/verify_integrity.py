@@ -452,8 +452,20 @@ def verify_integrity() -> dict[str, Any]:
         if dup_issues:
             for di in dup_issues:
                 msg = f"Duplicate video '{di['title']}' (ID:{di['id']}) has chunks in DB!"
-                print(f"❌ {msg}")
+                print(f"❌ {msg} Удаляем лишние чанки...")
                 issues.append(msg)
+
+                # Auto-heal: delete chunks from SQLite and Manticore
+                chunk_rows = conn.execute("SELECT id FROM chunks WHERE video_id = ?", (di["id"],)).fetchall()
+                chunk_ids = [r["id"] for r in chunk_rows]
+                if chunk_ids:
+                    try:
+                        manticore.delete(collection_name=q_settings.table_name, ids=chunk_ids)
+                        print(f"  - Удалено {len(chunk_ids)} векторов из Manticore")
+                    except Exception as me:
+                        print(f"  - Ошибка удаления из Manticore: {me}")
+                    conn.execute("DELETE FROM chunks WHERE video_id = ?", (di["id"],))
+                    print(f"  - Удалены чанки из SQLite для видео ID {di['id']}")
         else:
             print("✅ Дубликаты не содержат лишних чанков.")
 
@@ -466,15 +478,51 @@ def verify_integrity() -> dict[str, Any]:
         md5_dupes = conn.execute(sql_md5_dupes).fetchall()
         if md5_dupes:
             for md in md5_dupes:
-                msg = f"Multiple original videos share the same MD5 checksum '{md['md5_checksum']}': {md['cnt']} files"
-                print(f"❌ {msg}")
+                md5_val = md["md5_checksum"]
+                msg = f"Multiple original videos share the same MD5 checksum '{md5_val}': {md['cnt']} files"
+                print(f"❌ {msg} Оставляем самое старое оригиналом, остальные переводим в дубликаты...")
                 issues.append(msg)
+
+                # Auto-heal:
+                orig_rows = conn.execute(
+                    "SELECT id, title FROM videos WHERE md5_checksum = ? AND original_id IS NULL ORDER BY id ASC",
+                    (md5_val,),
+                ).fetchall()
+
+                if len(orig_rows) > 1:
+                    primary_id = orig_rows[0]["id"]
+                    primary_title = orig_rows[0]["title"]
+                    print(f"  - Оригиналом остается '{primary_title}' (ID: {primary_id})")
+
+                    for row in orig_rows[1:]:
+                        dup_id = row["id"]
+                        dup_title = row["title"]
+                        print(f"  - Переводим '{dup_title}' (ID: {dup_id}) в дубликаты...")
+
+                        # Remove duplicate chunks
+                        chunk_rows = conn.execute("SELECT id FROM chunks WHERE video_id = ?", (dup_id,)).fetchall()
+                        chunk_ids = [r["id"] for r in chunk_rows]
+                        if chunk_ids:
+                            try:
+                                manticore.delete(collection_name=q_settings.table_name, ids=chunk_ids)
+                                print(f"    - Удалено {len(chunk_ids)} векторов из Manticore")
+                            except Exception as me:
+                                print(f"    - Ошибка удаления из Manticore: {me}")
+                            conn.execute("DELETE FROM chunks WHERE video_id = ?", (dup_id,))
+
+                        # Convert status
+                        conn.execute(
+                            "UPDATE videos SET original_id = ?, status = 'skipped_duplicate_md5', "
+                            "size_bytes = NULL, duration_sec = NULL, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                            (primary_id, dup_id),
+                        )
+                        print(f"    - Видео ID {dup_id} успешно переведено в статус дубликата.")
         else:
             print("✅ Контрольные суммы оригиналов уникальны.")
 
         # 6. Check for duplicate videos without a corresponding original video
         sql_orphan_dups = """
-            SELECT id, title, original_id FROM videos
+            SELECT id, title, original_id, md5_checksum, source_file_id FROM videos
             WHERE original_id IS NOT NULL AND (
                 original_id NOT IN (SELECT id FROM videos WHERE original_id IS NULL)
             )
@@ -482,12 +530,53 @@ def verify_integrity() -> dict[str, Any]:
         orphan_dups = conn.execute(sql_orphan_dups).fetchall()
         if orphan_dups:
             for od in orphan_dups:
+                dup_id = od["id"]
+                dup_title = od["title"]
+                md5_val = od["md5_checksum"]
+                file_id = od["source_file_id"]
                 msg = (
-                    f"Orphan duplicate video '{od['title']}' (ID:{od['id']}): "
-                    f"original video (ID:{od['original_id']}) is missing or is not marked as original!"
+                    f"Orphan duplicate video '{dup_title}' (ID:{dup_id}) original (ID:{od['original_id']}) is missing!"
                 )
-                print(f"❌ {msg}")
+                print(f"❌ {msg} Восстанавливаем привязку...")
                 issues.append(msg)
+
+                # Auto-heal:
+                real_orig = None
+                if md5_val:
+                    real_orig = conn.execute(
+                        "SELECT id FROM videos WHERE md5_checksum = ? AND original_id IS NULL LIMIT 1", (md5_val,)
+                    ).fetchone()
+
+                if real_orig:
+                    new_orig_id = real_orig["id"]
+                    conn.execute(
+                        "UPDATE videos SET original_id = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                        (new_orig_id, dup_id),
+                    )
+                    print(f"  - Перепривязали к реальному оригиналу ID {new_orig_id}")
+                else:
+                    # Make it a new original and queue download task
+                    conn.execute(
+                        "UPDATE videos SET original_id = NULL, status = 'pending', "
+                        "updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                        (dup_id,),
+                    )
+                    conn.execute(
+                        "INSERT INTO tasks (task_type, payload, status) VALUES (?, ?, ?)",
+                        (
+                            "stage_1_download",
+                            json.dumps(
+                                {
+                                    "file_id": file_id,
+                                    "title": dup_title,
+                                    "diarize": True,
+                                },
+                                ensure_ascii=False,
+                            ),
+                            "pending",
+                        ),
+                    )
+                    print(f"  - Сделали видео ID {dup_id} оригиналом и поставили в очередь на загрузку.")
         else:
             print("✅ Все дубликаты привязаны к существующим оригиналам.")
 

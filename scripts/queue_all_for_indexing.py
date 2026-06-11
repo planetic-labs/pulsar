@@ -45,10 +45,10 @@ def queue_all():
             payload = {"video_id": v["id"], "title": v["title"]}
             conn.execute(
                 """
-                INSERT INTO tasks (task_type, payload, status, priority)
-                VALUES (?, ?, ?, ?)
+                INSERT INTO tasks (video_id, task_type, payload, status, priority)
+                VALUES (?, ?, ?, ?, ?)
             """,
-                ("stage_3_index", json.dumps(payload, ensure_ascii=False), "pending", 10),
+                (v["id"], "stage_3_index", json.dumps(payload, ensure_ascii=False), "pending", 10),
             )
             count += 1
 

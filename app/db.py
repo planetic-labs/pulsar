@@ -110,15 +110,44 @@ def init_db(connection: sqlite3.Connection) -> None:
     connection.execute("""
         CREATE TABLE IF NOT EXISTS tasks (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
+            video_id INTEGER REFERENCES videos(id) ON DELETE CASCADE,
             task_type TEXT NOT NULL,
             payload TEXT NOT NULL,
             status TEXT NOT NULL DEFAULT 'pending',
             priority INTEGER DEFAULT 0,
+            retries INTEGER DEFAULT 0,
+            max_retries INTEGER DEFAULT 3,
             error_message TEXT,
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
             updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
         )
     """)
+
+    # Migrations for existing databases: Add video_id, retries, and max_retries columns if they do not exist
+    cursor = connection.cursor()
+    cursor.execute("PRAGMA table_info(tasks)")
+    columns = [row[1] for row in cursor.fetchall()]
+
+    if "video_id" not in columns:
+        try:
+            connection.execute("ALTER TABLE tasks ADD COLUMN video_id INTEGER REFERENCES videos(id) ON DELETE CASCADE")
+            logger.info("Added video_id column to tasks table.")
+        except Exception as e:
+            logger.error(f"Error adding video_id column to tasks: {e}")
+
+    if "retries" not in columns:
+        try:
+            connection.execute("ALTER TABLE tasks ADD COLUMN retries INTEGER DEFAULT 0")
+            logger.info("Added retries column to tasks table.")
+        except Exception as e:
+            logger.error(f"Error adding retries column to tasks: {e}")
+
+    if "max_retries" not in columns:
+        try:
+            connection.execute("ALTER TABLE tasks ADD COLUMN max_retries INTEGER DEFAULT 3")
+            logger.info("Added max_retries column to tasks table.")
+        except Exception as e:
+            logger.error(f"Error adding max_retries column to tasks: {e}")
 
     # 5. Query cache table
     connection.execute("""

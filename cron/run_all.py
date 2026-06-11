@@ -77,10 +77,57 @@ def get_docker_compose_cmd() -> list[str]:
         return ["docker", "compose"]
 
 
+def clean_manticore_json():
+    logger.info("Step 0/4: Checking Manticore configuration integrity (manticore.json)...")
+    try:
+        compose_cmd = get_docker_compose_cmd()
+        # Read manticore.json from manticore container
+        cmd = compose_cmd + ["exec", "-T", "manticore", "cat", "/var/lib/manticore/manticore.json"]
+        res = subprocess.run(cmd, capture_output=True, text=True, check=True)
+        config = json.loads(res.stdout)
+
+        # We only want 'chunks' index in configuration. If other indexes exist, clean them up.
+        indexes = config.get("indexes", {})
+        dirty = False
+        allowed_indexes = {"chunks"}
+
+        for idx_name in list(indexes.keys()):
+            if idx_name not in allowed_indexes:
+                logger.warning(f"Found orphaned index '{idx_name}' in manticore.json. Removing it...")
+                indexes.pop(idx_name)
+                dirty = True
+
+        if dirty:
+            # Write cleaned configuration back
+            cleaned_json = json.dumps(config, separators=(",", ":"))
+            write_cmd = compose_cmd + [
+                "exec",
+                "-T",
+                "manticore",
+                "sh",
+                "-c",
+                f"echo '{cleaned_json}' > /var/lib/manticore/manticore.json",
+            ]
+            subprocess.run(write_cmd, check=True)
+            logger.info("Successfully cleaned manticore.json. Restarting Manticore container to apply changes...")
+
+            # Restart manticore to apply changes
+            restart_cmd = compose_cmd + ["restart", "manticore"]
+            subprocess.run(restart_cmd, check=True)
+            logger.info("Manticore container restarted and configuration applied.")
+        else:
+            logger.info("Manticore configuration is clean.")
+    except Exception as e:
+        logger.error(f"Failed to check/clean manticore.json: {e}")
+
+
 def main():
     logger.info("=========================================")
     logger.info("🚀 STARTING UNIFIED CRON WORKFLOW")
     logger.info("=========================================")
+
+    # 0. Clean Manticore config metadata
+    clean_manticore_json()
 
     # 1. Execute Integrity Check
     logger.info("Step 1/3: Running database and index integrity checks in container...")
@@ -181,7 +228,7 @@ def main():
         # Note: we continue execution of other cron steps even if backup fails
 
     # 3. Execute Sync Index
-    logger.info("Step 3/3: Running index synchronization in container...")
+    logger.info("Step 3/4: Running index synchronization in container...")
     try:
         compose_cmd = get_docker_compose_cmd()
         cmd = compose_cmd + ["exec", "-T", "pulsar", "uv", "run", "python", "scripts/sync_index.py"]
@@ -194,6 +241,21 @@ def main():
         logger.error(f"❌ Index synchronization failed with exit code {e.returncode}!")
         logger.error(f"Sync stdout:\n{e.stdout}")
         logger.error(f"Sync stderr:\n{e.stderr}")
+
+    # 4. Execute Tasks Cleanup
+    logger.info("Step 4/4: Running tasks history cleanup in container...")
+    try:
+        compose_cmd = get_docker_compose_cmd()
+        cmd = compose_cmd + ["exec", "-T", "pulsar", "uv", "run", "python", "scripts/cleanup_tasks.py"]
+        res = subprocess.run(cmd, capture_output=True, text=True, check=True)
+        logger.info("Cleanup stdout:")
+        for line in res.stdout.splitlines():
+            logger.info(f"  [CLEANUP] {line}")
+        logger.info("✅ Tasks cleanup completed successfully.")
+    except subprocess.CalledProcessError as e:
+        logger.error(f"❌ Tasks cleanup failed with exit code {e.returncode}!")
+        logger.error(f"Cleanup stdout:\n{e.stdout}")
+        logger.error(f"Cleanup stderr:\n{e.stderr}")
 
     logger.info("=========================================")
     logger.info("🎉 UNIFIED CRON WORKFLOW COMPLETED")
