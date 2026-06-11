@@ -8,8 +8,9 @@ ROOT_DIR = Path(__file__).resolve().parents[1]
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
-from app.config import get_sqlite_settings
 from app.qdrant import get_qdrant_client
+
+from app.config import get_sqlite_settings
 from app.voice import extract_speaker_embedding
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
@@ -53,7 +54,7 @@ def reprocess_all_speakers():
     with sqlite3.connect(settings.db_path, timeout=60.0) as conn:
         conn.row_factory = sqlite3.Row
         videos = conn.execute(
-            "SELECT id, title, local_audio_path FROM videos WHERE local_audio_path IS NOT NULL"
+            "SELECT id, title, source_file_id FROM videos WHERE source_file_id IS NOT NULL AND source_file_id != ''"
         ).fetchall()
 
     logger.info(f"Найдено видео для обработки: {len(videos)}")
@@ -63,10 +64,18 @@ def reprocess_all_speakers():
         from app.config import get_app_settings
 
         app_settings = get_app_settings()
-        audio_path = app_settings.resolve_path(video["local_audio_path"])
+        audio_path = None
+        source_file_id = video["source_file_id"]
+        if source_file_id:
+            ogg_p = app_settings.audio_dir / f"{source_file_id}.ogg"
+            wav_p = app_settings.audio_dir / f"{source_file_id}.wav"
+            if ogg_p.exists():
+                audio_path = ogg_p
+            elif wav_p.exists():
+                audio_path = wav_p
 
-        if audio_path is None or not audio_path.exists():
-            logger.warning(f"Файл {audio_path} не найден на диске, пропускаю {video['title']}")
+        if audio_path is None:
+            logger.warning(f"Аудиофайл для {video['title']} ({source_file_id}) не найден на диске, пропускаю")
             continue
 
         logger.info(f"--- Обработка: {video['title']} (ID: {v_id})")

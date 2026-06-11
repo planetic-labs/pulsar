@@ -5,20 +5,18 @@ import traceback
 from pathlib import Path
 from typing import Any
 
-from qdrant_client import models
-
 from app.audio import SilentVideoError
 from app.config import (
     get_deepgram_settings,
     get_embedding_settings,
     get_google_drive_settings,
-    get_qdrant_settings,
+    get_manticore_settings,
     get_sqlite_settings,
 )
 from app.db import db_connection
-from app.gemini import UnifiedEmbeddingClient
+from app.embeddings import UnifiedEmbeddingClient
 from app.google_drive import GoogleDriveClient
-from app.qdrant import get_qdrant_client
+from app.manticore import get_manticore_client
 from app.repository import update_video_status
 from app.transcription.deepgram import DeepgramEngine
 from scripts.ingest_drive_file import (
@@ -80,7 +78,7 @@ log_names = [
     "scripts.ingest_drive_file",
     "app.worker",
     "app.voice",
-    "app.gemini",
+    "app.embeddings",
     "app.transcription.deepgram",
     "app.audio",
 ]
@@ -185,26 +183,27 @@ class Worker:
                         conn.execute(
                             """
                             INSERT INTO videos (
-                                source_type, source_file_id, parent_folder_id, md5_checksum, title,
-                                processing_status, is_md5_duplicate, source_url
+                                source_file_id, parent_folder_id, md5_checksum, title,
+                                processing_status, is_original, original_id, source_url
                             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                            ON CONFLICT (source_type, source_file_id) DO UPDATE SET
+                            ON CONFLICT (source_file_id) DO UPDATE SET
                                 parent_folder_id = EXCLUDED.parent_folder_id,
                                 md5_checksum = EXCLUDED.md5_checksum,
                                 title = EXCLUDED.title,
                                 processing_status = EXCLUDED.processing_status,
-                                is_md5_duplicate = EXCLUDED.is_md5_duplicate,
+                                is_original = EXCLUDED.is_original,
+                                original_id = EXCLUDED.original_id,
                                 source_url = EXCLUDED.source_url,
                                 updated_at = CURRENT_TIMESTAMP
                             """,
                             (
-                                "google_drive",
                                 file_id,
                                 parent_folder_id,
                                 md5,
                                 title,
                                 "skipped_duplicate_md5",
-                                1,
+                                0,
+                                existing["id"],
                                 f"https://drive.google.com/file/d/{file_id}/view",
                             ),
                         )
@@ -345,26 +344,26 @@ class Worker:
             )
 
             try:
-                settings, q_settings = get_sqlite_settings(), get_qdrant_settings()
+                settings, q_settings = get_sqlite_settings(), get_manticore_settings()
                 embed_client = UnifiedEmbeddingClient(get_embedding_settings())
-                qdrant = get_qdrant_client()
+                manticore = get_manticore_client()
 
                 with db_connection(settings) as conn:
-                    update_video_status(conn, video_id=video_id, processing_status="indexing")
+                    update_video_status(conn, video_id=video_id, status="indexing")
                     sql_v = (
                         "SELECT title, source_file_id, source_url, recorded_date, is_short, is_4k "
                         "FROM videos WHERE id = ?"
                     )
                     v_row = conn.execute(sql_v, (video_id,)).fetchone()
                     sql_c = """
-                        SELECT id, transcript_id, chunk_index, text, start_sec, end_sec FROM chunks
+                        SELECT id, chunk_index, text, start_sec, end_sec FROM chunks
                         WHERE video_id = ? ORDER BY chunk_index ASC
                     """
                     chunks = conn.execute(sql_c, (video_id,)).fetchall()
 
                 if not chunks:
                     with db_connection(settings) as conn:
-                        update_video_status(conn, video_id=video_id, processing_status="indexed_chunks_ready")
+                        update_video_status(conn, video_id=video_id, status="indexed_chunks_ready")
                         conn.execute("UPDATE tasks SET status = 'completed' WHERE id = ?", (task_id,))
                     return
 
@@ -379,7 +378,7 @@ class Worker:
 
                 embeddings_data = await embed_client.embed_batch_async(texts, progress_callback=on_embed_progress)
 
-                self._state["stage_3_index"].update({"progress": 75, "status_text": "Загрузка в Qdrant"})
+                self._state["stage_3_index"].update({"progress": 75, "status_text": "Загрузка в Manticore"})
                 points = []
                 for idx, row in enumerate(chunks):
                     dense_vec, sparse_vec = embeddings_data[idx]
@@ -387,12 +386,11 @@ class Worker:
                     if sparse_vec:
                         vd["text-sparse"] = sparse_vec
                     points.append(
-                        models.PointStruct(
-                            id=row["id"],
-                            vector=vd,
-                            payload={
+                        {
+                            "id": row["id"],
+                            "vector": vd,
+                            "payload": {
                                 "chunk_id": row["id"],
-                                "transcript_id": row["transcript_id"],
                                 "chunk_index": row["chunk_index"],
                                 "text": row["text"],
                                 "start_sec": row["start_sec"],
@@ -403,15 +401,16 @@ class Worker:
                                 "is_short": bool(v_row["is_short"]),
                                 "is_4k": bool(v_row["is_4k"]),
                                 "source_file_id": v_row["source_file_id"],
+                                "source_url": v_row["source_url"],
                                 "is_primary": True,
                             },
-                        )
+                        }
                     )
 
                 loop = asyncio.get_running_loop()
                 if points:
                     await loop.run_in_executor(
-                        None, lambda p=points: qdrant.upsert(collection_name=q_settings.collection_name, points=p)
+                        None, lambda p=points: manticore.upsert(collection_name=q_settings.table_name, points=p)
                     )
 
                 with db_connection(settings) as conn:

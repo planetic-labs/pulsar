@@ -1,18 +1,18 @@
 services:
-  qdrant:
-    image: qdrant/qdrant:latest
+  manticore:
+    image: manticoresearch/manticore:latest
     restart: always
     ports:
-      - "127.0.0.1:6333:6333"
-      - "127.0.0.1:6334:6334"
+      - "127.0.0.1:9308:9308"
+      - "127.0.0.1:9306:9306"
     networks:
       - planetic-net
     volumes:
-      - qdrant_data:/qdrant/storage
+      - manticore_data:/var/lib/manticore
 
-  pulsar:
-    container_name: pulsar
-    image: pulsar
+  pulsat-qwin:
+    container_name: pulsat-qwin
+    image: pulsat-qwin
     build:
       context: .
       args:
@@ -20,17 +20,17 @@ services:
         - GROUP_ID=${GID:-1000}
     user: "${UID:-1000}:${GID:-1000}"
     restart: always
-    command: ["uv", "run", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8032", "--reload", "--proxy-headers", "--forwarded-allow-ips=*"]
+    command: ["uv", "run", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8033", "--reload", "--proxy-headers", "--forwarded-allow-ips=*"]
     ports:
-      - "127.0.0.1:8032:8032"
+      - "127.0.0.1:8033:8033"
     networks:
       - planetic-net
     environment:
       - HF_HOME=/app/models_cache
-      - APP_PORT=8032
+      - APP_PORT=8033
     env_file: .env
     depends_on:
-      qdrant:
+      manticore:
         condition: service_started
     volumes:
       - ./app:/app/app
@@ -47,7 +47,7 @@ services:
 
 
 volumes:
-  qdrant_data:
+  manticore_data:
 
 networks:
   planetic-net:

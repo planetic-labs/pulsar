@@ -10,7 +10,6 @@ from pathlib import Path
 from typing import cast
 
 import boto3
-import httpx
 from botocore.exceptions import ClientError
 from dotenv import load_dotenv
 
@@ -93,11 +92,6 @@ else:
 # Detect if running inside Docker container
 is_container = Path("/.dockerenv").exists() or str(PROJECT_ROOT) == "/app"
 
-QDRANT_URL = os.getenv("QDRANT_URL", "http://127.0.0.1:6333")
-if not is_container and "://qdrant" in QDRANT_URL:
-    QDRANT_URL = QDRANT_URL.replace("://qdrant", "://127.0.0.1")
-
-COLLECTION_NAME = os.getenv("QDRANT_COLLECTION", "chunks_m3")
 TIMESTAMP = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
 BACKUP_PREFIX = f"pulsar_backup_{TIMESTAMP}"
 BACKUP_CONTENT_DIR = TEMP_DIR / BACKUP_PREFIX
@@ -236,31 +230,6 @@ def backup_sqlite(dest_dir: Path):
         source.close()
 
 
-def backup_qdrant(dest_dir: Path):
-    logger.info("📡 Creating Qdrant snapshot...")
-    try:
-        with httpx.Client(timeout=600.0) as client:
-            res = client.post(f"{QDRANT_URL}/collections/{COLLECTION_NAME}/snapshots")
-            res.raise_for_status()
-            snapshot_name = res.json()["result"]["name"]
-            logger.info(f"✅ Snapshot created: {snapshot_name}")
-
-            logger.info("⬇️ Downloading snapshot...")
-            snap_path = dest_dir / snapshot_name
-            with client.stream("GET", f"{QDRANT_URL}/collections/{COLLECTION_NAME}/snapshots/{snapshot_name}") as r:
-                r.raise_for_status()
-                with open(snap_path, "wb") as f:
-                    for chunk in r.iter_bytes(chunk_size=65536):
-                        f.write(chunk)
-            logger.info("✅ Snapshot downloaded.")
-
-            client.delete(f"{QDRANT_URL}/collections/{COLLECTION_NAME}/snapshots/{snapshot_name}")
-            logger.info("✅ Qdrant storage cleaned up.")
-    except Exception as e:
-        logger.error(f"❌ Qdrant backup failed: {e}")
-        raise
-
-
 def copy_files(dest_dir: Path):
     logger.info("📂 Copying static files and configuration...")
     try:
@@ -319,7 +288,6 @@ def main():
 
     try:
         backup_sqlite(BACKUP_CONTENT_DIR)
-        backup_qdrant(BACKUP_CONTENT_DIR)
         copy_files(BACKUP_CONTENT_DIR)
         archive_path = create_archive(BACKUP_CONTENT_DIR)
 

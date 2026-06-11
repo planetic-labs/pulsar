@@ -25,7 +25,6 @@ from app.db import db_connection
 from app.google_drive import GoogleDriveClient
 from app.repository import (
     replace_chunks,
-    replace_transcript,
     upsert_folder,
     upsert_video,
 )
@@ -244,15 +243,17 @@ async def transcribe_stage(
         norm_payload = engine.normalize_response(raw_payload)
 
         # Save files
-        raw_filename = f"dg_nova3_{file_id}.json"
-        raw_path = app_settings.raw_transcripts_dir / file_id / raw_filename
-        norm_filename = f"{file_id}_deepgram.json"
-        norm_path = app_settings.normalized_transcripts_dir / norm_filename
+        raw_path = app_settings.get_raw_transcript_path(file_id)
+        norm_path = app_settings.get_normalized_transcript_path(file_id)
         raw_path.parent.mkdir(parents=True, exist_ok=True)
         norm_path.parent.mkdir(parents=True, exist_ok=True)
 
-        raw_path.write_text(json.dumps(raw_payload, ensure_ascii=False, indent=2), encoding="utf-8")
-        norm_path.write_text(json.dumps(norm_payload, ensure_ascii=False, indent=2), encoding="utf-8")
+        import gzip
+
+        with gzip.open(raw_path, "wt", encoding="utf-8") as f:
+            json.dump(raw_payload, f, separators=(",", ":"), ensure_ascii=False)
+        with gzip.open(norm_path, "wt", encoding="utf-8") as f:
+            json.dump(norm_payload, f, separators=(",", ":"), ensure_ascii=False)
 
         if state_callback:
             state_callback({"status_text": "Сохранение в базу...", "progress": 99, "speed": ""})
@@ -264,7 +265,6 @@ async def transcribe_stage(
 
             video_id = upsert_video(
                 conn,
-                source_type="google_drive",
                 source_file_id=file_id,
                 parent_folder_id=video_metadata.get("parent_folder_id"),
                 md5_checksum=video_metadata.get("md5_checksum"),
@@ -274,23 +274,12 @@ async def transcribe_stage(
                 size_bytes=None,
                 duration_sec=duration_sec,
                 is_short=is_short,
-                local_video_path=None,
-                local_audio_path=str(audio_p),
-                processing_status="transcribed",
-            )
-
-            transcript_id = replace_transcript(
-                conn,
-                video_id=video_id,
-                language="ru",
-                confidence=norm_payload.get("confidence"),
-                raw_json_path=raw_path,
-                normalized_json_path=norm_path,
+                status="transcribed",
             )
 
             raw_chunks = norm_payload.get("utterances") or norm_payload.get("chunks") or []
             chunks_data = chunk_from_utterances(raw_chunks, single_chunk=is_short)
-            replace_chunks(conn, video_id=video_id, transcript_id=transcript_id, chunks=chunks_data)
+            replace_chunks(conn, video_id=video_id, chunks=chunks_data)
 
         # Delete audio only on success
         if audio_p.exists():

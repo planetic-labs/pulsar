@@ -3,15 +3,13 @@ import logging
 import re
 import sqlite3
 from dataclasses import dataclass, field
-from pathlib import Path
 from typing import Any
 
 import pymorphy3
-from qdrant_client import models
 
-from app.config import get_embedding_settings, get_qdrant_settings
-from app.gemini import UnifiedEmbeddingClient
-from app.qdrant import get_qdrant_client
+from app.config import get_embedding_settings, get_manticore_settings
+from app.embeddings import UnifiedEmbeddingClient
+from app.manticore import get_manticore_client, models
 
 logger = logging.getLogger(__name__)
 
@@ -20,7 +18,6 @@ logger = logging.getLogger(__name__)
 class SearchResult:
     chunk_id: int
     video_id: int
-    transcript_id: int
     title: str
     source_file_id: str | None
     source_url: str | None
@@ -47,24 +44,27 @@ class SearchResult:
 _morph = pymorphy3.MorphAnalyzer()
 
 
-def _get_utterances_for_transcript(transcript_id: int) -> list[dict]:
-    """Fetch normalized utterances from disk for a given transcript."""
-    # Find normalized_json_path from DB
+def _get_utterances_for_video(video_id: int) -> list[dict]:
+    """Fetch normalized utterances from disk for a given video."""
     try:
-        from app.config import get_sqlite_settings
+        from app.config import get_app_settings, get_sqlite_settings
         from app.db import db_connection
 
         with db_connection(get_sqlite_settings()) as conn:
-            row = conn.execute("SELECT normalized_json_path FROM transcripts WHERE id = ?", (transcript_id,)).fetchone()
-            if not row:
+            row = conn.execute("SELECT source_file_id FROM videos WHERE id = ?", (video_id,)).fetchone()
+            if not row or not row["source_file_id"]:
                 return []
-            path = Path(row["normalized_json_path"])
+            settings = get_app_settings()
+            path = settings.get_normalized_transcript_path(row["source_file_id"])
             if not path.exists():
                 return []
-            data = json.loads(path.read_text(encoding="utf-8"))
+            import gzip
+
+            with gzip.open(path, "rt", encoding="utf-8") as f:
+                data = json.load(f)
             return data.get("utterances", []) or data.get("chunks", [])
     except Exception as e:
-        logger.error(f"Error loading utterances: {e}")
+        logger.error(f"Error loading utterances for video {video_id}: {e}")
         return []
 
 
@@ -129,6 +129,15 @@ def _build_quote_regex(phrase: str) -> str:
     # Use [\s\S] to match across any character including newlines.
     # Limit gap to 60 characters - enough for a few small words/punctuation between anchors.
     return r"[\s\S]{0,60}?".join(regex_parts)
+
+
+def _build_manticore_phrase_query(query: str, slop: int = 10) -> str | None:
+    """Build a Manticore Search proximity query syntax like '"word1 word2"~10'."""
+    words = re.findall(r"[а-яА-ЯёЁa-zA-Z0-9]+", query.lower())
+    if not words:
+        return None
+    phrase = " ".join(words)
+    return f'"{phrase}"~{slop}'
 
 
 def _quote_highlight(text: str, exact_phrases: list[str]) -> str:
@@ -266,47 +275,32 @@ async def hybrid_search(
     date_to: str | None = None,
     video_type: str = "all",
 ) -> list[SearchResult]:
-    qdrant = get_qdrant_client()
-    settings = get_qdrant_settings()
+    manticore = get_manticore_client()
+    settings = get_manticore_settings()
 
     # 1. Parse Filters
-    video_filter: models.Condition | None = None
-    speaker_filter: models.Condition | None = None
-    date_filter: models.Condition | None = None
-    type_filter: models.Condition | None = None
+    where_clauses: list[str] = []
 
     if video_type == "short":
-        type_filter = models.FieldCondition(key="is_short", match=models.MatchValue(value=True))
+        where_clauses.append("is_short = 1")
     elif video_type == "long":
-        type_filter = models.FieldCondition(key="is_short", match=models.MatchValue(value=False))
+        where_clauses.append("is_short = 0")
     elif video_type == "4k":
-        type_filter = models.FieldCondition(key="is_4k", match=models.MatchValue(value=True))
+        where_clauses.append("is_4k = 1")
 
     if date_from or date_to:
         # User requirement: ignore date filters for short videos
         if video_type != "short":
-            # DatetimeRange expects date/datetime objects or strings depending on version,
-            # but ty expects date | None.
-            from datetime import datetime
-
-            # Qdrant supports ISO strings, but to satisfy the type checker we can use datetime objects
-            gte_dt = datetime.fromisoformat(f"{date_from}T00:00:00") if date_from and len(date_from) > 1 else None
-            lte_dt = datetime.fromisoformat(f"{date_to}T23:59:59") if date_to and len(date_to) > 1 else None
-
-            if gte_dt or lte_dt:
-                date_filter = models.FieldCondition(
-                    key="recorded_date",
-                    range=models.DatetimeRange(
-                        gte=gte_dt,
-                        lte=lte_dt,
-                    ),
-                )
+            if date_from:
+                where_clauses.append(f"recorded_date >= '{date_from}T00:00:00'")
+            if date_to:
+                where_clauses.append(f"recorded_date <= '{date_to}T23:59:59'")
 
     v_match = re.search(r"(?:video_id|v):(\d+)", query)
     v_id = None
     if v_match:
         v_id = int(v_match.group(1))
-        video_filter = models.FieldCondition(key="video_id", match=models.MatchValue(value=v_id))
+        where_clauses.append(f"video_id = {v_id}")
 
     s_match = re.search(r"(?:speaker|s):([^\s]+)", query)
     if s_match:
@@ -315,121 +309,93 @@ async def hybrid_search(
             "SELECT video_id, speaker_tag FROM speakers WHERE LOWER(name) LIKE ?", (f"%{s_name}%",)
         ).fetchall()
         if rows:
-            conditions: list[models.Condition] = []
+            conditions = []
             for r in rows:
-                conditions.append(
-                    models.Filter(
-                        must=[
-                            models.FieldCondition(key="video_id", match=models.MatchValue(value=r["video_id"])),
-                            models.FieldCondition(key="speaker", match=models.MatchText(text=r["speaker_tag"])),
-                        ]
-                    )
-                )
-            speaker_filter = models.Filter(should=conditions)
+                escaped_tag = r["speaker_tag"].replace("'", "''")
+                conditions.append(f"(video_id = {r['video_id']} AND speaker = '{escaped_tag}')")
+            where_clauses.append(f"({' OR '.join(conditions)})")
         else:
-            speaker_filter = models.FieldCondition(key="speaker", match=models.MatchText(text=s_name))
+            escaped_s_name = s_name.replace("'", "''")
+            where_clauses.append(f"speaker = '{escaped_s_name}'")
 
     clean_query = re.sub(r"(?:video_id|speaker|s|v):[^\s]+", "", query).strip()
 
-    must_filters: list[models.Condition] = []
-    if video_filter:
-        must_filters.append(video_filter)
-    if speaker_filter:
-        must_filters.append(speaker_filter)
-    if date_filter:
-        must_filters.append(date_filter)
-    if type_filter:
-        must_filters.append(type_filter)
-
-    q_filter = models.Filter(must=must_filters) if must_filters else None
+    where_clause = " AND ".join(where_clauses) if where_clauses else None
 
     scores_map: dict[Any, dict[str, Any]] = {}
     points: list[models.ScoredPoint] | list[models.Record] = []
 
     if search_mode == "quote" and clean_query:
-        # --- FAST TEXTUAL QUOTE SEARCH (Sliding Window) ---
-        pattern = _build_quote_regex(clean_query)
-        if not pattern:
+        # --- FAST INDEXED PHRASE SEARCH (Manticore) ---
+        phrase_query = _build_manticore_phrase_query(clean_query, slop=10)
+        if not phrase_query:
             return []
 
-        # We search in a combined text of 3 chunks and return the combined text itself
-        sql = """
-            SELECT
-                c1.id,
-                c1.text as t1, IFNULL(c2.text, '') as t2, IFNULL(c3.text, '') as t3,
-                c1.start_sec as s1, c1.end_sec as e1,
-                c2.start_sec as s2, c2.end_sec as e2,
-                c3.start_sec as s3, c3.end_sec as e3,
-                (c1.text || ' ' || IFNULL(c2.text, '') || ' ' || IFNULL(c3.text, '')) as combined_text
-            FROM chunks c1
-            LEFT JOIN chunks c2 ON c1.video_id = c2.video_id AND c2.chunk_index = c1.chunk_index + 1
-            LEFT JOIN chunks c3 ON c1.video_id = c3.video_id AND c3.chunk_index = c1.chunk_index + 2
-            WHERE 1=1
-        """
-        params = []
-        # Optimization: use LIKE as a pre-filter for the first few words to speed up REGEXP
-        words = re.findall(r"[а-яА-ЯёЁa-zA-Z0-9]{3,}", clean_query.lower())
-        for w in words[:2]:  # Only first two words for pre-filter speed
-            sql += " AND (c1.text || ' ' || IFNULL(c2.text, '') || ' ' || IFNULL(c3.text, '')) LIKE ?"
-            params.append(f"%{w}%")
+        # 1. Search in Manticore using Proximity Search
+        points = manticore.query_points(
+            collection_name=settings.table_name,
+            query=phrase_query,
+            using="text",
+            where_clause=where_clause,
+            limit=limit * 3,
+        )
 
-        sql += " AND (c1.text || ' ' || IFNULL(c2.text, '') || ' ' || IFNULL(c3.text, '')) REGEXP ?"
-        params.append(pattern)
+        if points:
+            candidate_ids = [p.id for p in points]
+            ids_str = ",".join(str(x) for x in candidate_ids)
 
-        if v_id:
-            sql += " AND c1.video_id = ?"
-            params.append(v_id)
+            # 2. Fetch combined text of 3 adjacent chunks from SQLite for context/display
+            sql = f"""
+                SELECT
+                    c1.id,
+                    c1.text as t1, IFNULL(c2.text, '') as t2, IFNULL(c3.text, '') as t3,
+                    c1.start_sec as s1, c1.end_sec as e1,
+                    c2.start_sec as s2, c2.end_sec as e2,
+                    c3.start_sec as s3, c3.end_sec as e3,
+                    (c1.text || ' ' || IFNULL(c2.text, '') || ' ' || IFNULL(c3.text, '')) as combined_text
+                FROM chunks c1
+                LEFT JOIN chunks c2 ON c1.video_id = c2.video_id AND c2.chunk_index = c1.chunk_index + 1
+                LEFT JOIN chunks c3 ON c1.video_id = c3.video_id AND c3.chunk_index = c1.chunk_index + 2
+                WHERE c1.id IN ({ids_str})
+            """
+            rows = connection.execute(sql).fetchall()
 
-        rows = connection.execute(sql, params).fetchall()
-
-        # Map ID -> Full Quote Data for results
-        id_to_quote_data = {
-            r["id"]: {
-                "combined_text": r["combined_text"],
-                "chunks_data": [
-                    {"text": r["t1"], "start_sec": r["s1"], "end_sec": r["e1"]},
-                    {"text": r["t2"], "start_sec": r["s2"], "end_sec": r["e2"]},
-                    {"text": r["t3"], "start_sec": r["s3"], "end_sec": r["e3"]},
-                ],
+            id_to_quote_data = {
+                r["id"]: {
+                    "combined_text": r["combined_text"],
+                    "chunks_data": [
+                        {"text": r["t1"], "start_sec": r["s1"], "end_sec": r["e1"]},
+                        {"text": r["t2"], "start_sec": r["s2"], "end_sec": r["e2"]},
+                        {"text": r["t3"], "start_sec": r["s3"], "end_sec": r["e3"]},
+                    ],
+                }
+                for r in rows
             }
-            for r in rows
-        }
-        candidate_ids = list(id_to_quote_data.keys())
 
-        if candidate_ids:
-            # Fetch payload for metadata (start_sec, video_id, etc.)
-            exact_conditions: list[models.Condition] = [models.HasIdCondition(has_id=candidate_ids)]
-            if must_filters:
-                exact_conditions.extend(must_filters)
-
-            res_scroll = qdrant.scroll(
-                collection_name=settings.collection_name,
-                scroll_filter=models.Filter(must=exact_conditions),
-                limit=limit * 3,  # Fetch more because many will be timing-duplicates
-                with_payload=True,
-            )
-            points = res_scroll[0]
-
-            # Use combined text from SQL and assign high scores
+            # Filter points to only those that we successfully loaded context for
+            valid_points = []
             scores_map = {}
             for p in points:
-                q_data = id_to_quote_data.get(p.id)
-                scores_map[p.id] = {
-                    "combined": 100.0,
-                    "match_type": "quote",
-                    "quote_phrases": [clean_query],
-                    "override_text": q_data["combined_text"] if q_data else None,
-                    "quote_data": q_data,
-                }
+                if p.id in id_to_quote_data:
+                    valid_points.append(p)
+                    q_data = id_to_quote_data[p.id]
+                    scores_map[p.id] = {
+                        "combined": 100.0,
+                        "match_type": "quote",
+                        "quote_phrases": [clean_query],
+                        "override_text": q_data["combined_text"],
+                        "quote_data": q_data,
+                    }
+            points = valid_points
         else:
             points = []
+            scores_map = {}
 
-    elif q_filter and not clean_query:
-        res_scroll = qdrant.scroll(
-            collection_name=settings.collection_name,
-            scroll_filter=q_filter,
+    elif where_clause and not clean_query:
+        res_scroll = manticore.scroll(
+            collection_name=settings.table_name,
+            where_clause=where_clause,
             limit=limit,
-            with_payload=True,
         )
         points = res_scroll[0]
         scores_map = {p.id: {"combined": 1.0, "match_type": "filter"} for p in points}
@@ -452,26 +418,22 @@ async def hybrid_search(
 
         # 1. Fetch results based on mode
         if search_mode in ["semantic", "hybrid"]:
-            dense_results = qdrant.query_points(
-                settings.collection_name,
+            dense_results = manticore.query_points(
+                settings.table_name,
                 query_dense,
-                "default",
-                None,
-                q_filter,
+                using="default",
+                where_clause=where_clause,
                 limit=prefetch_limit,
-                with_payload=True,
-            ).points
+            )
 
-        if search_mode in ["lexical", "hybrid"] and query_sparse:
-            sparse_results = qdrant.query_points(
-                settings.collection_name,
-                models.SparseVector(indices=query_sparse.indices, values=query_sparse.values),
-                "text-sparse",
-                None,
-                q_filter,
+        if search_mode in ["lexical", "hybrid"] and clean_query:
+            sparse_results = manticore.query_points(
+                settings.table_name,
+                clean_query,
+                using="text",
+                where_clause=where_clause,
                 limit=prefetch_limit,
-                with_payload=True,
-            ).points
+            )
 
         # 2. Merge results using RRF
         k = 60
@@ -540,7 +502,7 @@ async def hybrid_search(
 
     results = []
 
-    # Cache for utterances (transcript_id -> utterances)
+    # Cache for utterances (video_id -> utterances)
     utterance_cache = {}
 
     for point in points:
@@ -558,16 +520,16 @@ async def hybrid_search(
         # Text extraction (with override and cropping for quote mode)
         full_text = point_data.get("override_text") or str(payload.get("text") or "")
 
-        transcript_id = int(payload.get("transcript_id") or 0)
+        video_id = int(payload.get("video_id") or 0)
 
         if m_type == "quote":
             q_data = point_data.get("quote_data")
-            if q_data and transcript_id:
+            if q_data and video_id:
                 # Load utterances if not cached
-                if transcript_id not in utterance_cache:
-                    utterance_cache[transcript_id] = _get_utterances_for_transcript(transcript_id)
+                if video_id not in utterance_cache:
+                    utterance_cache[video_id] = _get_utterances_for_video(video_id)
 
-                uts = utterance_cache[transcript_id]
+                uts = utterance_cache[video_id]
                 if uts:
                     # Distribute utterances to chunks in q_data
                     for _, chunk in enumerate(q_data["chunks_data"]):
@@ -650,7 +612,6 @@ async def hybrid_search(
             SearchResult(
                 chunk_id=chunk_id,
                 video_id=get_int(payload, "video_id"),
-                transcript_id=get_int(payload, "transcript_id"),
                 title=title,
                 source_file_id=source_file_id,
                 source_url=source_url,
@@ -692,7 +653,7 @@ async def hybrid_search(
     diversified = []
     for res in results:
         count = video_counts.get(res.video_id, 0)
-        if count < 3 or (video_filter is not None):  # Don't limit if searching within specific video
+        if count < 3 or (v_id is not None):  # Don't limit if searching within specific video
             diversified.append(res)
             video_counts[res.video_id] = count + 1
     results = diversified
@@ -700,7 +661,7 @@ async def hybrid_search(
     # C. Apply final limit
     results = results[:limit]
 
-    if video_filter and not clean_query:
+    if v_id and not clean_query:
         results.sort(key=lambda x: x.chunk_index)
 
     return results

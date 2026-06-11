@@ -10,11 +10,9 @@ ROOT_DIR = Path(__file__).resolve().parents[1]
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
-from qdrant_client import models
-
-from app.config import get_app_settings, get_qdrant_settings, get_sqlite_settings
+from app.config import get_app_settings, get_manticore_settings, get_sqlite_settings
 from app.db import db_connection
-from app.qdrant import get_qdrant_client
+from app.manticore import get_manticore_client
 
 logging.basicConfig(level=logging.INFO, format="%(message)s")
 logger = logging.getLogger("integrity_check")
@@ -23,7 +21,7 @@ logger = logging.getLogger("integrity_check")
 def check_integrity() -> dict[str, Any]:
     app_settings = get_app_settings()
     sqlite_settings = get_sqlite_settings()
-    q_settings = get_qdrant_settings()
+    q_settings = get_manticore_settings()
 
     # Check if worker queue is active before running integrity checks
     with db_connection(sqlite_settings) as conn:
@@ -43,10 +41,10 @@ def check_integrity() -> dict[str, Any]:
             "deleted_norm_count": 0,
             "reindexed_videos_count": 0,
             "reindexed_chunks_count": 0,
-            "deleted_qdrant_points_count": 0,
+            "deleted_manticore_points_count": 0,
         }
 
-    qdrant = get_qdrant_client()
+    manticore = get_manticore_client()
 
     print("\n=== [1] ПРОВЕРКА ФАЙЛОВОЙ СИСТЕМЫ И SQLITE ===")
 
@@ -54,7 +52,7 @@ def check_integrity() -> dict[str, Any]:
     deleted_raw_count = 0
     deleted_norm_count = 0
     reindexed_videos_count = 0
-    deleted_qdrant_points_count = 0
+    deleted_manticore_points_count = 0
     db_raw_files = set()
     db_norm_files = set()
     corrupted_json = []
@@ -62,124 +60,121 @@ def check_integrity() -> dict[str, Any]:
     text_mismatch_errors = []
 
     with db_connection(sqlite_settings) as conn:
-        sql = "SELECT id, video_id, raw_json_path, normalized_json_path FROM transcripts"
-        transcripts = conn.execute(sql).fetchall()
+        # Список транскрибированных видео — это видео-оригиналы (где original_id IS NULL)
+        sql = "SELECT id as video_id, source_file_id, title, is_short FROM videos WHERE original_id IS NULL"
+        videos = conn.execute(sql).fetchall()
 
-        for t in transcripts:
+        for v in videos:
+            file_id = v["source_file_id"]
+            if not file_id:
+                continue
+
+            raw_path = app_settings.get_raw_transcript_path(file_id)
+            norm_path = app_settings.get_normalized_transcript_path(file_id)
+
             # Check RAW
-            if t["raw_json_path"]:
-                raw_path = app_settings.resolve_path(t["raw_json_path"])
-                if raw_path:
-                    db_raw_files.add(raw_path.resolve())
-                    if not raw_path.exists():
-                        msg = f"Video {t['video_id']}: Missing RAW at {raw_path}"
-                        missing_files.append(msg)
-                        issues.append(msg)
-                    else:
-                        try:
-                            with open(raw_path, encoding="utf-8") as f:
-                                json.load(f)
-                        except Exception:
-                            msg = f"Video {t['video_id']}: Corrupted RAW JSON at {raw_path}"
-                            corrupted_json.append(msg)
-                            issues.append(msg)
+            db_raw_files.add(raw_path.resolve())
+            if not raw_path.exists():
+                msg = f"Video {v['video_id']}: Missing RAW at {raw_path}"
+                missing_files.append(msg)
+                issues.append(msg)
+            else:
+                try:
+                    import gzip
+
+                    with gzip.open(raw_path, "rt", encoding="utf-8") as f:
+                        json.load(f)
+                except Exception:
+                    msg = f"Video {v['video_id']}: Corrupted RAW JSON at {raw_path}"
+                    corrupted_json.append(msg)
+                    issues.append(msg)
 
             # Check NORMALIZED + text comparison
-            if t["normalized_json_path"]:
-                norm_path = app_settings.resolve_path(t["normalized_json_path"])
-                if norm_path:
-                    db_norm_files.add(norm_path.resolve())
-                    if not norm_path.exists():
-                        msg = f"Video {t['video_id']}: Missing NORMALIZED at {norm_path}"
-                        missing_files.append(msg)
+            db_norm_files.add(norm_path.resolve())
+            if not norm_path.exists():
+                msg = f"Video {v['video_id']}: Missing NORMALIZED at {norm_path}"
+                missing_files.append(msg)
+                issues.append(msg)
+            else:
+                try:
+                    import gzip
+
+                    with gzip.open(norm_path, "rt", encoding="utf-8") as f:
+                        norm_data = json.load(f)
+
+                    # Check text of the first chunk
+                    sql_chunk = "SELECT text FROM chunks WHERE video_id = ? ORDER BY chunk_index LIMIT 1"
+                    first_chunk = conn.execute(sql_chunk, (v["video_id"],)).fetchone()
+
+                    if first_chunk and "utterances" in norm_data and len(norm_data["utterances"]) > 0:
+                        json_text = norm_data["utterances"][0].get("text", "")
+                        if json_text and not first_chunk["text"].startswith(json_text):
+                            if not first_chunk["text"].strip().startswith(json_text.strip()):
+                                msg = f"Video {v['video_id']}: Text mismatch between DB and JSON"
+                                text_mismatch_errors.append(msg)
+                                issues.append(msg)
+
+                    # Check chunk count matching is_short format and config
+                    is_short_val = bool(v["is_short"])
+                    raw_chunks = norm_data.get("utterances") or norm_data.get("chunks") or []
+                    from app.chunking import chunk_from_utterances
+
+                    expected_chunks = chunk_from_utterances(raw_chunks, single_chunk=is_short_val)
+                    expected_count = len(expected_chunks)
+
+                    actual_count = conn.execute(
+                        "SELECT COUNT(*) as cnt FROM chunks WHERE video_id = ?", (v["video_id"],)
+                    ).fetchone()["cnt"]
+
+                    if actual_count != expected_count:
+                        msg = (
+                            f"Video '{v['title']}' (ID:{v['video_id']}): "
+                            f"chunk count mismatch. DB has {actual_count}, expected {expected_count} "
+                            f"(is_short={is_short_val})."
+                        )
                         issues.append(msg)
-                    else:
-                        try:
-                            with open(norm_path, encoding="utf-8") as f:
-                                norm_data = json.load(f)
+                        print(f"⚠️  {msg} Восстанавливаем чанки...")
 
-                            # Check text of the first chunk
-                            sql_chunk = "SELECT text FROM chunks WHERE transcript_id = ? ORDER BY chunk_index LIMIT 1"
-                            first_chunk = conn.execute(sql_chunk, (t["id"],)).fetchone()
+                        # Auto-heal: delete from Manticore, replace chunks in SQLite, and queue re-indexing
+                        from app.repository import replace_chunks
 
-                            if first_chunk and "utterances" in norm_data and len(norm_data["utterances"]) > 0:
-                                json_text = norm_data["utterances"][0].get("text", "")
-                                if json_text and not first_chunk["text"].startswith(json_text):
-                                    if not first_chunk["text"].strip().startswith(json_text.strip()):
-                                        msg = f"Video {t['video_id']}: Text mismatch between DB and JSON"
-                                        text_mismatch_errors.append(msg)
-                                        issues.append(msg)
+                        old_chunk_ids = [
+                            r["id"]
+                            for r in conn.execute(
+                                "SELECT id FROM chunks WHERE video_id = ?", (v["video_id"],)
+                            ).fetchall()
+                        ]
+                        if old_chunk_ids:
+                            try:
+                                manticore.delete(
+                                    collection_name=q_settings.table_name,
+                                    ids=old_chunk_ids,
+                                )
+                                deleted_manticore_points_count += len(old_chunk_ids)
+                            except Exception as q_err:
+                                print(f"❌ Failed to delete chunks from Manticore: {q_err}")
 
-                            # Check chunk count matching is_short format and config
-                            video_row = conn.execute(
-                                "SELECT title, is_short FROM videos WHERE id = ?", (t["video_id"],)
-                            ).fetchone()
-                            if video_row:
-                                is_short_val = bool(video_row["is_short"])
-                                raw_chunks = norm_data.get("utterances") or norm_data.get("chunks") or []
-                                from app.chunking import chunk_from_utterances
+                        replace_chunks(conn, video_id=v["video_id"], chunks=expected_chunks)
 
-                                expected_chunks = chunk_from_utterances(raw_chunks, single_chunk=is_short_val)
-                                expected_count = len(expected_chunks)
+                        # Queue re-indexing task
+                        reindex_payload = {"video_id": v["video_id"], "title": v["title"]}
+                        conn.execute(
+                            "INSERT INTO tasks (task_type, payload, status, priority) VALUES (?, ?, ?, ?)",
+                            (
+                                "stage_3_index",
+                                json.dumps(reindex_payload, ensure_ascii=False),
+                                "pending",
+                                5,
+                            ),
+                        )
+                        reindexed_videos_count += 1
+                        print(f"✅ Пересоздано чанков: {expected_count}, видео поставлено в очередь на индексацию.")
+                except Exception as e:
+                    msg = f"Video {v['video_id']}: Corrupted NORM JSON at {norm_path} ({e})"
+                    corrupted_json.append(msg)
+                    issues.append(msg)
 
-                                actual_count = conn.execute(
-                                    "SELECT COUNT(*) as cnt FROM chunks WHERE transcript_id = ?", (t["id"],)
-                                ).fetchone()["cnt"]
-
-                                if actual_count != expected_count:
-                                    msg = (
-                                        f"Video '{video_row['title']}' (ID:{t['video_id']}): "
-                                        f"chunk count mismatch. DB has {actual_count}, expected {expected_count} "
-                                        f"(is_short={is_short_val})."
-                                    )
-                                    issues.append(msg)
-                                    print(f"⚠️  {msg} Восстанавливаем чанки...")
-
-                                    # Auto-heal: delete from Qdrant, replace chunks in SQLite, and queue re-indexing
-                                    from app.repository import replace_chunks
-
-                                    old_chunk_ids = [
-                                        r["id"]
-                                        for r in conn.execute(
-                                            "SELECT id FROM chunks WHERE transcript_id = ?", (t["id"],)
-                                        ).fetchall()
-                                    ]
-                                    if old_chunk_ids:
-                                        try:
-                                            qdrant.delete(
-                                                collection_name=q_settings.collection_name,
-                                                points_selector=models.PointIdsList(points=old_chunk_ids),
-                                            )
-                                            deleted_qdrant_points_count += len(old_chunk_ids)
-                                        except Exception as q_err:
-                                            print(f"❌ Failed to delete chunks from Qdrant: {q_err}")
-
-                                    replace_chunks(
-                                        conn, video_id=t["video_id"], transcript_id=t["id"], chunks=expected_chunks
-                                    )
-
-                                    # Queue re-indexing task
-                                    reindex_payload = {"video_id": t["video_id"], "title": video_row["title"]}
-                                    conn.execute(
-                                        "INSERT INTO tasks (task_type, payload, status, priority) VALUES (?, ?, ?, ?)",
-                                        (
-                                            "stage_3_index",
-                                            json.dumps(reindex_payload, ensure_ascii=False),
-                                            "pending",
-                                            5,
-                                        ),
-                                    )
-                                    reindexed_videos_count += 1
-                                    print(
-                                        f"✅ Пересоздано чанков: {expected_count}, "
-                                        "видео поставлено в очередь на индексацию."
-                                    )
-                        except Exception as e:
-                            msg = f"Video {t['video_id']}: Corrupted NORM JSON at {norm_path} ({e})"
-                            corrupted_json.append(msg)
-                            issues.append(msg)
-
-    print(f"Записей в базе: {len(transcripts)}")
+    print(f"Оригинальных видео в базе: {len(videos)}")
     if missing_files:
         print(f"❌ Пропущено файлов: {len(missing_files)}")
         for m in missing_files[:10]:
@@ -203,8 +198,8 @@ def check_integrity() -> dict[str, Any]:
 
     # Search and clean up orphan files
     print("\n--- Поиск и очистка файлов-сирот (есть на диске, нет в базе) ---")
-    all_raw_on_disk = {p.resolve() for p in app_settings.raw_transcripts_dir.glob("**/*.json")}
-    all_norm_on_disk = {p.resolve() for p in app_settings.normalized_transcripts_dir.glob("*.json")}
+    all_raw_on_disk = {p.resolve() for p in app_settings.raw_transcripts_dir.glob("**/*.json.gz")}
+    all_norm_on_disk = {p.resolve() for p in app_settings.normalized_transcripts_dir.glob("**/*.json.gz")}
 
     orphan_raw = all_raw_on_disk - db_raw_files
     orphan_norm = all_norm_on_disk - db_norm_files
@@ -239,51 +234,42 @@ def check_integrity() -> dict[str, Any]:
     if not orphan_raw and not orphan_norm:
         print("✅ Лишних файлов не обнаружено.")
 
-    print("\n=== [2] ПРОВЕРКА SQLITE И QDRANT ===")
+    print("\n=== [2] ПРОВЕРКА SQLITE И MANTICORE ===")
 
     with db_connection(sqlite_settings) as conn:
         sql_chunks = conn.execute("SELECT id, text FROM chunks").fetchall()
         db_chunk_map = {r["id"]: r["text"] for r in sql_chunks}
         db_chunk_ids = set(db_chunk_map.keys())
 
-        sql_v = "SELECT id, title FROM videos WHERE processing_status IN ('completed', 'indexed_chunks_ready')"
+        sql_v = "SELECT id, title FROM videos WHERE status IN ('completed', 'indexed_chunks_ready')"
         completed_videos = conn.execute(sql_v).fetchall()
 
     print(f"Чанков в SQLite: {len(db_chunk_ids)}")
 
-    print("Получение данных из Qdrant...")
+    print("Получение данных из Manticore...")
     q_point_ids = set()
     q_sample_points = []
 
-    offset = None
-    while True:
-        points, next_offset = qdrant.scroll(
-            collection_name=q_settings.collection_name,
-            limit=10000,
-            with_payload=True,
-            with_vectors=False,
-            offset=offset,
-        )
-        for p in points:
-            q_point_ids.add(p.id)
-            if len(q_sample_points) < 100:
-                q_sample_points.append(p)
+    points, _ = manticore.scroll(
+        collection_name=q_settings.table_name,
+        limit=100000,
+    )
+    for p in points:
+        q_point_ids.add(p.id)
+        if len(q_sample_points) < 100:
+            q_sample_points.append(p)
 
-        if not next_offset:
-            break
-        offset = next_offset
+    print(f"Точек в Manticore: {len(q_point_ids)}")
 
-    print(f"Точек в Qdrant: {len(q_point_ids)}")
+    missing_in_manticore = db_chunk_ids - q_point_ids
+    orphan_in_manticore = q_point_ids - db_chunk_ids
 
-    missing_in_qdrant = db_chunk_ids - q_point_ids
-    orphan_in_qdrant = q_point_ids - db_chunk_ids
-
-    if missing_in_qdrant:
-        msg = f"Chunks in SQLite missing in Qdrant: {len(missing_in_qdrant)}"
+    if missing_in_manticore:
+        msg = f"Chunks in SQLite missing in Manticore: {len(missing_in_manticore)}"
         print(f"⚠️  {msg}. Инициируем автоматическую повторную индексацию через воркер...")
 
         # Find videos for these missing chunks
-        missing_list = list(missing_in_qdrant)
+        missing_list = list(missing_in_manticore)
         batch_size = 500
         video_map = {}  # video_id -> title
 
@@ -340,34 +326,34 @@ def check_integrity() -> dict[str, Any]:
     else:
         print("✅ Все чанки из базы есть в поиске.")
 
-    if orphan_in_qdrant:
-        msg = f"Orphan points in Qdrant (missing in SQLite): {len(orphan_in_qdrant)}"
-        print(f"⚠️  {msg}. Удаляем сиротские точки из Qdrant...")
+    if orphan_in_manticore:
+        msg = f"Orphan points in Manticore (missing in SQLite): {len(orphan_in_manticore)}"
+        print(f"⚠️  {msg}. Удаляем сиротские точки из Manticore...")
         try:
-            orphan_list = list(orphan_in_qdrant)
-            qdrant.delete(
-                collection_name=q_settings.collection_name,
-                points_selector=models.PointIdsList(points=orphan_list),
+            orphan_list = list(orphan_in_manticore)
+            manticore.delete(
+                collection_name=q_settings.table_name,
+                ids=orphan_list,
             )
-            deleted_qdrant_points_count = len(orphan_list)
-            print(f"✅ Успешно удалено точек из Qdrant: {deleted_qdrant_points_count}")
+            deleted_manticore_points_count = len(orphan_list)
+            print(f"✅ Успешно удалено точек из Manticore: {deleted_manticore_points_count}")
         except Exception as e:
-            err_msg = f"Failed to delete orphan points from Qdrant: {e}"
+            err_msg = f"Failed to delete orphan points from Manticore: {e}"
             print(f"❌ {err_msg}")
             issues.append(err_msg)
     else:
-        print("✅ В Qdrant нет лишних данных.")
+        print("✅ В Manticore нет лишних данных.")
 
-    # Check sample Qdrant metadata vs SQLite
+    # Check sample Manticore metadata vs SQLite
     metadata_errors = 0
-    print("--- Выборочная проверка метаданных (Qdrant vs SQLite) ---")
+    print("--- Выборочная проверка метаданных (Manticore vs SQLite) ---")
     for p in random.sample(q_sample_points, min(len(q_sample_points), 20)):
         db_text = db_chunk_map.get(p.id)
         q_text = p.payload.get("text") if p.payload is not None else None
         if db_text and q_text and db_text.strip() != q_text.strip():
             print(f"❌ Payload mismatch for point {p.id}!")
             metadata_errors += 1
-            issues.append(f"Payload mismatch for point {p.id} in Qdrant vs SQLite")
+            issues.append(f"Payload mismatch for point {p.id} in Manticore vs SQLite")
 
     if metadata_errors == 0:
         print("✅ Выборочная проверка метаданных пройдена.")
@@ -414,27 +400,26 @@ def check_integrity() -> dict[str, Any]:
         else:
             print("✅ Дубликатов видео не обнаружено.")
 
-        # 4. Check that duplicate videos have no chunks or transcripts
+        # 4. Check that duplicate videos have no chunks
         sql_dup_issues = """
             SELECT id, title FROM videos
-            WHERE is_md5_duplicate = 1 AND (
-                id IN (SELECT DISTINCT video_id FROM chunks) OR
-                id IN (SELECT DISTINCT video_id FROM transcripts)
+            WHERE original_id IS NOT NULL AND (
+                id IN (SELECT DISTINCT video_id FROM chunks)
             )
         """
         dup_issues = conn.execute(sql_dup_issues).fetchall()
         if dup_issues:
             for di in dup_issues:
-                msg = f"Duplicate video '{di['title']}' (ID:{di['id']}) has chunks or transcripts in DB!"
+                msg = f"Duplicate video '{di['title']}' (ID:{di['id']}) has chunks in DB!"
                 print(f"❌ {msg}")
                 issues.append(msg)
         else:
-            print("✅ Дубликаты не содержат лишних чанков или транскриптов.")
+            print("✅ Дубликаты не содержат лишних чанков.")
 
         # 5. Check for multiple originals with the same MD5
         sql_md5_dupes = """
             SELECT md5_checksum, COUNT(*) as cnt FROM videos
-            WHERE is_md5_duplicate = 0 AND md5_checksum IS NOT NULL AND md5_checksum != ''
+            WHERE original_id IS NULL AND md5_checksum IS NOT NULL AND md5_checksum != ''
             GROUP BY md5_checksum HAVING cnt > 1
         """
         md5_dupes = conn.execute(sql_md5_dupes).fetchall()
@@ -448,9 +433,9 @@ def check_integrity() -> dict[str, Any]:
 
         # 6. Check for duplicate videos without a corresponding original video
         sql_orphan_dups = """
-            SELECT id, title, md5_checksum FROM videos
-            WHERE is_md5_duplicate = 1 AND md5_checksum NOT IN (
-                SELECT DISTINCT md5_checksum FROM videos WHERE is_md5_duplicate = 0
+            SELECT id, title, original_id FROM videos
+            WHERE original_id IS NOT NULL AND (
+                original_id NOT IN (SELECT id FROM videos WHERE original_id IS NULL)
             )
         """
         orphan_dups = conn.execute(sql_orphan_dups).fetchall()
@@ -458,7 +443,7 @@ def check_integrity() -> dict[str, Any]:
             for od in orphan_dups:
                 msg = (
                     f"Orphan duplicate video '{od['title']}' (ID:{od['id']}): "
-                    f"original video with MD5 '{od['md5_checksum']}' is missing!"
+                    f"original video (ID:{od['original_id']}) is missing or is not marked as original!"
                 )
                 print(f"❌ {msg}")
                 issues.append(msg)
@@ -509,8 +494,8 @@ def check_integrity() -> dict[str, Any]:
         "deleted_raw_count": deleted_raw_count,
         "deleted_norm_count": deleted_norm_count,
         "reindexed_videos_count": reindexed_videos_count,
-        "reindexed_chunks_count": len(missing_in_qdrant),
-        "deleted_qdrant_points_count": deleted_qdrant_points_count,
+        "reindexed_chunks_count": len(missing_in_manticore),
+        "deleted_manticore_points_count": deleted_manticore_points_count,
     }
 
 

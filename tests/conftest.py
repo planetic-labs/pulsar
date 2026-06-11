@@ -10,7 +10,7 @@ _db_file = _tmp_dir / "test_search_ui_global.db"
 
 os.environ["APP_ACCESS_TOKEN"] = "test-token"
 os.environ["SESSION_SECRET_KEY"] = "test-secret"
-os.environ["QDRANT_URL"] = "http://mock-qdrant:6333"
+os.environ["MANTICORE_URL"] = "http://mock-manticore:9308"
 os.environ["EMBEDDING_API_URL"] = "http://mock-embedding:7997"
 os.environ["SQLITE_DB_PATH"] = str(_db_file)
 os.environ["APP_DATA_DIR"] = str(_tmp_dir)
@@ -58,20 +58,23 @@ def mock_db_conn(tmp_db):
 def client(tmp_db, monkeypatch):
     """FastAPI test client with injected test database."""
     monkeypatch.setattr("app.main.get_sqlite_settings", lambda: tmp_db)
-    monkeypatch.setattr("app.main.init_qdrant", lambda: None)
+    monkeypatch.setattr("app.main.init_manticore", lambda: None)
     with TestClient(app) as c:
         yield c
 
 
 @pytest.fixture(scope="function")
 def mock_qdrant(mocker):
-    """Mock for Qdrant client."""
-    mock = mocker.patch("app.qdrant.QdrantClient", autospec=True)
-    return mock.return_value
+    """Mock for Manticore client."""
+    from unittest.mock import MagicMock
+
+    client_mock = MagicMock()
+    mocker.patch("app.manticore.get_manticore_client", return_value=client_mock)
+    return client_mock
 
 
 @pytest.fixture(scope="function")
 def mock_embedding_client(mocker):
     """Mock for UnifiedEmbeddingClient."""
-    mock = mocker.patch("app.gemini.UnifiedEmbeddingClient", autospec=True)
+    mock = mocker.patch("app.embeddings.UnifiedEmbeddingClient", autospec=True)
     return mock.return_value

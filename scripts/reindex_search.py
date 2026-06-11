@@ -10,37 +10,32 @@ ROOT_DIR = Path(__file__).resolve().parents[1]
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
-from qdrant_client import models
-
-from app.config import get_embedding_settings, get_qdrant_settings, get_sqlite_settings
+from app.config import get_embedding_settings, get_manticore_settings, get_sqlite_settings
 from app.db import db_connection, init_db
-from app.gemini import UnifiedEmbeddingClient
-from app.qdrant import get_qdrant_client, init_qdrant
+from app.embeddings import UnifiedEmbeddingClient
+from app.manticore import get_manticore_client, init_manticore
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
 
-# Google AI Free Tier Limits (now handled by client, but kept for legacy ratio)
-CHAR_TO_TOKEN_RATIO = 0.3
-
 
 async def rebuild_semantic_index(full_reindex: bool = False):
     pg_settings = get_sqlite_settings()
-    q_settings = get_qdrant_settings()
+    m_settings = get_manticore_settings()
 
     # Initialize DBs
     with db_connection(pg_settings) as conn:
         init_db(conn)
 
-    init_qdrant()
-    qdrant = get_qdrant_client()
+    init_manticore()
+    manticore = get_manticore_client()
 
     embed_client = UnifiedEmbeddingClient(get_embedding_settings())
 
     if full_reindex:
-        logger.info(f"Full reindex requested. Clearing Qdrant collection {q_settings.collection_name}...")
-        qdrant.delete_collection(q_settings.collection_name)
-        init_qdrant()
+        logger.info(f"Full reindex requested. Clearing Manticore table {m_settings.table_name}...")
+        manticore.delete_collection(m_settings.table_name)
+        init_manticore()
 
     # Automatically sync titles
     try:
@@ -51,12 +46,12 @@ async def rebuild_semantic_index(full_reindex: bool = False):
         logger.warning(f"Could not sync titles: {e}")
 
     with db_connection(pg_settings) as conn:
-        # Fetch all chunks with metadata (engine/is_primary removed)
+        # Fetch all chunks with metadata
         sql = """
             SELECT
-                c.id as chunk_id, c.video_id, c.transcript_id, c.chunk_index,
+                c.id as chunk_id, c.video_id, c.chunk_index,
                 c.start_sec, c.end_sec, c.text, c.speaker_tags,
-                v.title, v.source_file_id, v.source_url, v.is_short, v.is_4k
+                v.title, v.source_file_id, v.source_url, v.is_short, v.is_4k, v.recorded_date
             FROM chunks c
             JOIN videos v ON v.id = c.video_id
             ORDER BY c.id ASC
@@ -68,9 +63,9 @@ async def rebuild_semantic_index(full_reindex: bool = False):
             return
 
         total_rows = len(rows)
-        logger.info(f"Processing {total_rows} chunks for Qdrant...")
+        logger.info(f"Processing {total_rows} chunks for Manticore...")
 
-        # New Batch Processing Logic
+        # Batch Processing Logic
         batch_size = 50
         for i in range(0, total_rows, batch_size):
             batch_rows = rows[i : i + batch_size]
@@ -78,7 +73,7 @@ async def rebuild_semantic_index(full_reindex: bool = False):
             # Check for existing points if not full reindex
             if not full_reindex:
                 ids = [r["chunk_id"] for r in batch_rows]
-                existing = qdrant.retrieve(collection_name=q_settings.collection_name, ids=ids)
+                existing = manticore.retrieve(collection_name=m_settings.table_name, ids=ids)
                 existing_ids = {p.id for p in existing}
                 batch_rows = [r for r in batch_rows if r["chunk_id"] not in existing_ids]
                 if not batch_rows:
@@ -92,19 +87,21 @@ async def rebuild_semantic_index(full_reindex: bool = False):
                 # 1. Get both Dense and Sparse embeddings from unified client
                 embeddings_data = await embed_client.embed_batch_async(texts)
 
-                points: list[models.PointStruct] = []
+                points = []
                 for idx, row in enumerate(batch_rows):
                     dense_vec, sparse_vec = embeddings_data[idx]
 
-                    vectors: dict[str, Any] = {"default": dense_vec, "text-sparse": sparse_vec}
+                    vectors: dict[str, Any] = {"default": dense_vec}
+                    if sparse_vec:
+                        vectors["text-sparse"] = sparse_vec
+
                     points.append(
-                        models.PointStruct(
-                            id=row["chunk_id"],
-                            vector=vectors,
-                            payload={
+                        {
+                            "id": row["chunk_id"],
+                            "vector": vectors,
+                            "payload": {
                                 "chunk_id": row["chunk_id"],
                                 "video_id": row["video_id"],
-                                "transcript_id": row["transcript_id"],
                                 "chunk_index": row["chunk_index"],
                                 "start_sec": row["start_sec"],
                                 "end_sec": row["end_sec"],
@@ -113,18 +110,19 @@ async def rebuild_semantic_index(full_reindex: bool = False):
                                 "title": row["title"],
                                 "source_file_id": row["source_file_id"],
                                 "source_url": row["source_url"],
+                                "recorded_date": row["recorded_date"],
                                 "is_short": bool(row["is_short"]),
                                 "is_4k": bool(row["is_4k"]),
                                 "is_primary": True,
                             },
-                        )
+                        }
                     )
 
                 if points:
-                    # Run Qdrant upsert (sync) in executor
+                    # Run Manticore upsert (sync) in executor
                     loop = asyncio.get_running_loop()
                     await loop.run_in_executor(
-                        None, lambda p=points: qdrant.upsert(collection_name=q_settings.collection_name, points=p)
+                        None, lambda p=points: manticore.upsert(collection_name=m_settings.table_name, points=p)
                     )
 
                 logger.info(f"Progress: {i + len(batch_rows)}/{total_rows}")
@@ -137,8 +135,8 @@ async def rebuild_semantic_index(full_reindex: bool = False):
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Migrate search index to Qdrant")
-    parser.add_argument("--full", action="store_true", help="Clear Qdrant collection and start from scratch")
+    parser = argparse.ArgumentParser(description="Migrate search index to Manticore")
+    parser.add_argument("--full", action="store_true", help="Clear Manticore table and start from scratch")
     args = parser.parse_args()
 
     asyncio.run(rebuild_semantic_index(full_reindex=args.full))

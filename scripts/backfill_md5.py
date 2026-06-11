@@ -30,8 +30,7 @@ async def backfill_md5_checksums():
         sql_v = """
             SELECT id, source_file_id, title
             FROM videos
-            WHERE source_type = 'google_drive'
-              AND (md5_checksum IS NULL OR md5_checksum = '')
+            WHERE (md5_checksum IS NULL OR md5_checksum = '')
         """
         rows = conn.execute(sql_v).fetchall()
 

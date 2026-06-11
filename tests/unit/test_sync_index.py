@@ -131,9 +131,9 @@ async def test_sync_main_flow(tmp_db, monkeypatch, mocker):
             """
             INSERT INTO videos (
                 id, source_file_id, title, parent_folder_id,
-                recorded_date, is_4k, processing_status, source_type
+                recorded_date, is_4k, processing_status
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 101,
@@ -143,7 +143,6 @@ async def test_sync_main_flow(tmp_db, monkeypatch, mocker):
                 "2020-01-01",
                 0,
                 "transcribed",
-                "google_drive",
             ),
         )
         # Existing video that was removed
@@ -151,9 +150,9 @@ async def test_sync_main_flow(tmp_db, monkeypatch, mocker):
             """
             INSERT INTO videos (
                 id, source_file_id, title, parent_folder_id,
-                processing_status, source_type, source_url
+                processing_status, source_url
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?)
             """,
             (
                 102,
@@ -161,7 +160,6 @@ async def test_sync_main_flow(tmp_db, monkeypatch, mocker):
                 "2020.02.02 Removed Video.mp4",
                 "root_folder_id",
                 "indexed_chunks_ready",
-                "google_drive",
                 "https://drive.google.com/removed",
             ),
         )
@@ -170,9 +168,9 @@ async def test_sync_main_flow(tmp_db, monkeypatch, mocker):
             """
             INSERT INTO videos (
                 id, source_file_id, title, parent_folder_id,
-                recorded_date, is_4k, processing_status, source_type
+                recorded_date, is_4k, processing_status
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 103,
@@ -182,7 +180,6 @@ async def test_sync_main_flow(tmp_db, monkeypatch, mocker):
                 "2026-05-01",
                 0,
                 "transcribed",
-                "google_drive",
             ),
         )
 
@@ -315,9 +312,9 @@ async def test_sync_main_flow_gdrive_error(tmp_db, monkeypatch, mocker):
             """
             INSERT INTO videos (
                 id, source_file_id, title, parent_folder_id,
-                recorded_date, is_4k, processing_status, source_type
+                recorded_date, is_4k, processing_status
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 103,
@@ -327,7 +324,6 @@ async def test_sync_main_flow_gdrive_error(tmp_db, monkeypatch, mocker):
                 "2026-05-01",
                 0,
                 "transcribed",
-                "google_drive",
             ),
         )
 

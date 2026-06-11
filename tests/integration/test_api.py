@@ -259,8 +259,13 @@ def test_api_indexed_delete_video(client, tmp_db, mocker, mock_qdrant, tmp_path,
     client.post("/login", data={"token": "test-token"})
 
     # Create dummy local files
-    dummy_video = tmp_path / "video.mp4"
-    dummy_audio = tmp_path / "audio.ogg"
+    audio_dir = tmp_path / "audio"
+    downloads_dir = tmp_path / "downloads"
+    audio_dir.mkdir(parents=True, exist_ok=True)
+    downloads_dir.mkdir(parents=True, exist_ok=True)
+
+    dummy_video = downloads_dir / "drive_123.mp4"
+    dummy_audio = audio_dir / "drive_123.ogg"
     dummy_raw_json = tmp_path / "raw.json"
     dummy_norm_json = tmp_path / "norm.json"
 
@@ -271,81 +276,78 @@ def test_api_indexed_delete_video(client, tmp_db, mocker, mock_qdrant, tmp_path,
 
     from app.db import db_connection
 
-    # Insert video, transcript, chunks, speakers
+    # Insert video, chunks, speakers
     with db_connection(tmp_db) as conn:
         cursor = conn.cursor()
         cursor.execute(
             """
             INSERT INTO videos (
-                source_type, source_file_id, title, local_video_path, local_audio_path, processing_status
-            ) VALUES (?, ?, ?, ?, ?, ?)
+                source_file_id, title, status
+            ) VALUES (?, ?, ?)
             """,
-            ("google_drive", "drive_123", "Test Video", str(dummy_video), str(dummy_audio), "indexed_chunks_ready"),
+            ("drive_123", "Test Video", "indexed_chunks_ready"),
         )
         video_id = cursor.lastrowid
 
-        cursor.execute(
-            """
-            INSERT INTO transcripts (video_id, language, raw_json_path, normalized_json_path)
-            VALUES (?, ?, ?, ?)
-            """,
-            (video_id, "ru", str(dummy_raw_json), str(dummy_norm_json)),
-        )
-        transcript_id = cursor.lastrowid
+        # Copy raw and norm mock files to their proper dynamic paths
+        from app.config import get_app_settings
+
+        app_settings = get_app_settings()
+        dest_raw = app_settings.raw_transcripts_dir / "drive_123.json"
+        dest_norm = app_settings.normalized_transcripts_dir / "drive_123.json"
+        dest_raw.parent.mkdir(parents=True, exist_ok=True)
+        dest_norm.parent.mkdir(parents=True, exist_ok=True)
+        import shutil
+
+        shutil.copy2(dummy_raw_json, dest_raw)
+        shutil.copy2(dummy_norm_json, dest_norm)
 
         cursor.execute(
             """
-            INSERT INTO chunks (video_id, transcript_id, chunk_index, start_sec, end_sec, text)
-            VALUES (?, ?, ?, ?, ?, ?)
+            INSERT INTO chunks (video_id, chunk_index, start_sec, end_sec, text)
+            VALUES (?, ?, ?, ?, ?)
             """,
-            (video_id, transcript_id, 0, 0.0, 10.0, "hello world"),
+            (video_id, 0, 0.0, 10.0, "hello world"),
         )
         chunk_id = cursor.lastrowid
 
-    # Mock get_qdrant_client to return our mock_qdrant client
-    mocker.patch("app.main.get_qdrant_client", return_value=mock_qdrant)
+    # Mock get_manticore_client to return our mock_qdrant client
+    mocker.patch("app.main.get_manticore_client", return_value=mock_qdrant)
 
     # Call delete API endpoint
     response = client.delete(f"/api/v1/indexed/videos/{video_id}")
     assert response.status_code == 200
     assert response.json() == {"status": "success"}
 
-    # Verify database: check that video row, transcripts, and chunks are deleted
+    # Verify database: check that video row and chunks are deleted
     with db_connection(tmp_db) as conn:
         video_row = conn.execute("SELECT * FROM videos WHERE id = ?", (video_id,)).fetchone()
         assert video_row is None
 
-        transcript_row = conn.execute("SELECT * FROM transcripts WHERE video_id = ?", (video_id,)).fetchone()
-        assert transcript_row is None
-
         chunk_row = conn.execute("SELECT * FROM chunks WHERE video_id = ?", (video_id,)).fetchone()
         assert chunk_row is None
 
-    # Verify Qdrant points deletion was called
+    # Verify Manticore points deletion was called
     mock_qdrant.delete.assert_called_once_with(
         collection_name=mocker.ANY,
-        points_selector=mocker.ANY,
+        ids=[chunk_id],
     )
-    # Check that points_selector includes chunk_id
-    call_args = mock_qdrant.delete.call_args[1]
-    selector = call_args["points_selector"]
-    assert selector.points == [chunk_id]
 
     # Verify files are deleted from the filesystem
     assert not dummy_video.exists()
     assert not dummy_audio.exists()
-    assert not dummy_raw_json.exists()
-    assert not dummy_norm_json.exists()
+    assert not dest_raw.exists()
+    assert not dest_norm.exists()
 
     # Verify the raw transcript was successfully archived
-    archived_file = tmp_path / "transcripts" / "archive" / f"video_{video_id}_{dummy_raw_json.name}"
+    archived_file = tmp_path / "transcripts" / "archive" / f"video_{video_id}_drive_123.json"
     assert archived_file.exists()
     assert archived_file.read_text() == "raw json"
 
 
 def test_api_worker_duplicates_swap(client, tmp_db, mocker, mock_qdrant):
     client.post("/login", data={"token": "test-token"})
-    mocker.patch("app.main.get_qdrant_client", return_value=mock_qdrant)
+    mocker.patch("app.main.get_manticore_client", return_value=mock_qdrant)
     mocker.patch("app.main.get_worker")
 
     import json
@@ -360,20 +362,18 @@ def test_api_worker_duplicates_swap(client, tmp_db, mocker, mock_qdrant):
         cursor.execute(
             """
             INSERT INTO videos (
-                source_type, source_file_id, title, is_md5_duplicate, md5_checksum,
-                size_bytes, duration_sec, processing_status, local_audio_path
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                source_file_id, title, original_id, md5_checksum,
+                size_bytes, duration_sec, status
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)
             """,
             (
-                "google_drive",
                 "file_orig_id",
                 "Orig Video",
-                0,
+                None,
                 "swap-md5",
                 500,
                 30.0,
                 "indexed_chunks_ready",
-                "audio.ogg",
             ),
         )
         orig_id = cursor.lastrowid
@@ -382,26 +382,18 @@ def test_api_worker_duplicates_swap(client, tmp_db, mocker, mock_qdrant):
         cursor.execute(
             """
             INSERT INTO videos (
-                source_type, source_file_id, title, is_md5_duplicate, md5_checksum,
-                processing_status
-            ) VALUES (?, ?, ?, ?, ?, ?)
+                source_file_id, title, original_id, md5_checksum,
+                status
+            ) VALUES (?, ?, ?, ?, ?)
             """,
-            ("google_drive", "file_dup_id", "Dup Video", 1, "swap-md5", "skipped_duplicate_md5"),
+            ("file_dup_id", "Dup Video", orig_id, "swap-md5", "skipped_duplicate_md5"),
         )
         dup_id = cursor.lastrowid
 
-        # 3. Transcript
+        # 3. Chunk
         cursor.execute(
-            "INSERT INTO transcripts (video_id, language) VALUES (?, ?)",
-            (orig_id, "ru"),
-        )
-        trans_id = cursor.lastrowid
-
-        # 4. Chunk
-        cursor.execute(
-            "INSERT INTO chunks (video_id, transcript_id, chunk_index, "
-            "start_sec, end_sec, text) VALUES (?, ?, ?, ?, ?, ?)",
-            (orig_id, trans_id, 0, 0.0, 10.0, "dummy chunk text"),
+            "INSERT INTO chunks (video_id, chunk_index, start_sec, end_sec, text) VALUES (?, ?, ?, ?, ?)",
+            (orig_id, 0, 0.0, 10.0, "dummy chunk text"),
         )
 
     # Call swap roles endpoint
@@ -417,23 +409,19 @@ def test_api_worker_duplicates_swap(client, tmp_db, mocker, mock_qdrant):
     with db_connection(tmp_db) as conn:
         # Check original video (became duplicate)
         o_row = conn.execute("SELECT * FROM videos WHERE id = ?", (orig_id,)).fetchone()
-        assert o_row["is_md5_duplicate"] == 1
-        assert o_row["processing_status"] == "skipped_duplicate_md5"
+        assert o_row["original_id"] == dup_id
+        assert o_row["status"] == "skipped_duplicate_md5"
         assert o_row["size_bytes"] is None
         assert o_row["duration_sec"] is None
-        assert o_row["local_audio_path"] is None
 
         # Check duplicate video (became original)
         d_row = conn.execute("SELECT * FROM videos WHERE id = ?", (dup_id,)).fetchone()
-        assert d_row["is_md5_duplicate"] == 0
-        assert d_row["processing_status"] == "transcribed"
+        assert d_row["original_id"] is None
+        assert d_row["status"] == "transcribed"
         assert d_row["size_bytes"] == 500
         assert d_row["duration_sec"] == 30.0
-        assert d_row["local_audio_path"] == "audio.ogg"
 
-        # Check transcript and chunks mapped to new video_id
-        t_row = conn.execute("SELECT * FROM transcripts WHERE video_id = ?", (dup_id,)).fetchone()
-        assert t_row is not None
+        # Check chunks mapped to new video_id
         c_row = conn.execute("SELECT * FROM chunks WHERE video_id = ?", (dup_id,)).fetchone()
         assert c_row is not None
 
@@ -443,8 +431,11 @@ def test_api_worker_duplicates_swap(client, tmp_db, mocker, mock_qdrant):
         task_payload = json.loads(task["payload"])
         assert task_payload["video_id"] == dup_id
 
-    # Verify Qdrant points deletion for old original ID A
-    mock_qdrant.delete.assert_called_once()
+    # Verify Manticore points deletion for old original ID A
+    mock_qdrant.delete.assert_called_once_with(
+        collection_name=mocker.ANY,
+        where_clause=f"video_id = {orig_id}",
+    )
 
 
 def test_api_indexed_ls(client, tmp_db):
@@ -463,15 +454,14 @@ def test_api_indexed_ls(client, tmp_db):
         cursor.execute(
             """
             INSERT INTO videos (
-                source_type, source_file_id, title, is_md5_duplicate, md5_checksum,
+                source_file_id, title, is_original, md5_checksum,
                 size_bytes, duration_sec, processing_status, parent_folder_id
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
-                "google_drive",
                 "file_orig_id",
                 "Orig Video",
-                0,
+                1,
                 "some-md5",
                 500,
                 30.0,
@@ -479,19 +469,21 @@ def test_api_indexed_ls(client, tmp_db):
                 "folder_1",
             ),
         )
+        orig_id = cursor.lastrowid
+
         # 3. Duplicate video inside that folder
         cursor.execute(
             """
             INSERT INTO videos (
-                source_type, source_file_id, title, is_md5_duplicate, md5_checksum,
+                source_file_id, title, is_original, original_id, md5_checksum,
                 processing_status, parent_folder_id
             ) VALUES (?, ?, ?, ?, ?, ?, ?)
             """,
             (
-                "google_drive",
                 "file_dup_id",
                 "Dup Video",
-                1,
+                0,
+                orig_id,
                 "some-md5",
                 "skipped_duplicate_md5",
                 "folder_1",
@@ -540,11 +532,11 @@ def test_api_worker_duplicates_save(client, tmp_db):
         cursor.execute(
             """
             INSERT INTO videos (
-                source_type, source_file_id, title, is_md5_duplicate, is_md5_duplicate_saved,
+                source_file_id, title, is_original,
                 processing_status
-            ) VALUES (?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?)
             """,
-            ("google_drive", "file_dup_id", "Dup Video", 1, 0, "skipped_duplicate_md5"),
+            ("file_dup_id", "Dup Video", 0, "skipped_duplicate_md5"),
         )
         dup_id = cursor.lastrowid
 
@@ -557,10 +549,10 @@ def test_api_worker_duplicates_save(client, tmp_db):
     data = response.json()
     assert data["status"] == "success"
 
-    # Verify is_md5_duplicate_saved is 1
+    # Verify the video still exists
     with db_connection(tmp_db) as conn:
-        row = conn.execute("SELECT is_md5_duplicate_saved FROM videos WHERE id = ?", (dup_id,)).fetchone()
-        assert row["is_md5_duplicate_saved"] == 1
+        row = conn.execute("SELECT is_original FROM videos WHERE id = ?", (dup_id,)).fetchone()
+        assert row["is_original"] == 0
 
 
 def test_check_integrity_duplicates(tmp_db, mocker, monkeypatch):
@@ -568,9 +560,9 @@ def test_check_integrity_duplicates(tmp_db, mocker, monkeypatch):
 
     # Mock settings and Qdrant client to avoid side effects
     monkeypatch.setattr("scripts.check_integrity.get_sqlite_settings", lambda: tmp_db)
-    mock_qdrant = mocker.patch("scripts.check_integrity.get_qdrant_client")
+    mock_qdrant = mocker.patch("scripts.check_integrity.get_manticore_client")
     mock_qdrant.return_value.scroll.return_value = ([], None)
-    mocker.patch("scripts.check_integrity.get_qdrant_settings")
+    mocker.patch("scripts.check_integrity.get_manticore_settings")
 
     from app.db import db_connection
 
@@ -580,11 +572,11 @@ def test_check_integrity_duplicates(tmp_db, mocker, monkeypatch):
         cursor.execute(
             """
             INSERT INTO videos (
-                source_type, source_file_id, title, is_md5_duplicate, md5_checksum,
+                source_file_id, title, is_original, original_id, md5_checksum,
                 processing_status
             ) VALUES (?, ?, ?, ?, ?, ?)
             """,
-            ("google_drive", "file_dup_id", "Dup Video", 1, "test-md5", "skipped_duplicate_md5"),
+            ("file_dup_id", "Dup Video", 0, None, "test-md5", "skipped_duplicate_md5"),
         )
         dup_id = cursor.lastrowid
 
@@ -606,20 +598,20 @@ def test_check_integrity_duplicates(tmp_db, mocker, monkeypatch):
         cursor.execute(
             """
             INSERT INTO videos (
-                source_type, source_file_id, title, is_md5_duplicate, md5_checksum,
+                source_file_id, title, is_original, md5_checksum,
                 processing_status
-            ) VALUES (?, ?, ?, 0, ?, 'completed')
+            ) VALUES (?, ?, 1, ?, 'completed')
             """,
-            ("google_drive", "file_orig1_id", "Orig 1", "same-md5"),
+            ("file_orig1_id", "Orig 1", "same-md5"),
         )
         cursor.execute(
             """
             INSERT INTO videos (
-                source_type, source_file_id, title, is_md5_duplicate, md5_checksum,
+                source_file_id, title, is_original, md5_checksum,
                 processing_status
-            ) VALUES (?, ?, ?, 0, ?, 'completed')
+            ) VALUES (?, ?, 1, ?, 'completed')
             """,
-            ("google_drive", "file_orig2_id", "Orig 2", "same-md5"),
+            ("file_orig2_id", "Orig 2", "same-md5"),
         )
 
     # Run check_integrity
@@ -656,11 +648,11 @@ def test_api_indexed_toggle_short(client, tmp_db, tmp_path, mocker, mock_qdrant)
         cursor.execute(
             """
             INSERT INTO videos (
-                source_type, source_file_id, title, is_md5_duplicate,
+                source_file_id, title, is_original,
                 processing_status, is_short
-            ) VALUES (?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?)
             """,
-            ("google_drive", "file_video_id", "Toggle Video", 0, "transcribed", 0),
+            ("file_video_id", "Toggle Video", 1, "transcribed", 0),
         )
         video_id = cursor.lastrowid
 
@@ -736,9 +728,9 @@ def test_check_integrity_chunk_mismatch(tmp_db, mocker, monkeypatch, tmp_path):
 
     # Mock settings and Qdrant client to avoid side effects
     monkeypatch.setattr("scripts.check_integrity.get_sqlite_settings", lambda: tmp_db)
-    mock_qdrant = mocker.patch("scripts.check_integrity.get_qdrant_client")
+    mock_qdrant = mocker.patch("scripts.check_integrity.get_manticore_client")
     mock_qdrant.return_value.scroll.return_value = ([], None)
-    mocker.patch("scripts.check_integrity.get_qdrant_settings")
+    mocker.patch("scripts.check_integrity.get_manticore_settings")
 
     from app.db import db_connection
 
@@ -759,11 +751,11 @@ def test_check_integrity_chunk_mismatch(tmp_db, mocker, monkeypatch, tmp_path):
         cursor.execute(
             """
             INSERT INTO videos (
-                source_type, source_file_id, title, is_md5_duplicate,
+                source_file_id, title, is_original,
                 processing_status, is_short
-            ) VALUES (?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?)
             """,
-            ("google_drive", "file_video_id", "Integrity Video", 0, "completed", 0),
+            ("file_video_id", "Integrity Video", 1, "completed", 0),
         )
         video_id = cursor.lastrowid
 

@@ -8,9 +8,9 @@ ROOT_DIR = Path(__file__).resolve().parents[1]
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
-from app.config import get_qdrant_settings, get_sqlite_settings
+from app.config import get_manticore_settings, get_sqlite_settings
 from app.db import db_connection
-from app.qdrant import get_qdrant_client, init_qdrant
+from app.manticore import get_manticore_client, init_manticore
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
@@ -18,16 +18,16 @@ logger = logging.getLogger(__name__)
 
 def queue_all():
     pg_settings = get_sqlite_settings()
-    q_settings = get_qdrant_settings()
+    m_settings = get_manticore_settings()
 
-    # 1. Clear Qdrant
-    logger.info(f"Clearing Qdrant collection: {q_settings.collection_name}")
-    qdrant = get_qdrant_client()
+    # 1. Clear Manticore
+    logger.info(f"Clearing Manticore table: {m_settings.table_name}")
+    manticore = get_manticore_client()
     try:
-        qdrant.delete_collection(q_settings.collection_name)
+        manticore.delete_collection(m_settings.table_name)
     except Exception as e:
-        logger.warning(f"Could not delete collection: {e}")
-    init_qdrant()
+        logger.warning(f"Could not delete table: {e}")
+    init_manticore()
 
     # 2. Add tasks to SQLite
     with db_connection(pg_settings) as conn:

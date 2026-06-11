@@ -155,7 +155,7 @@ def main():
         deleted_norm = result.get("deleted_norm_count", 0)
         reindexed_videos = result.get("reindexed_videos_count", 0)
         reindexed_chunks = result.get("reindexed_chunks_count", 0)
-        deleted_qdrant_points = result.get("deleted_qdrant_points_count", 0)
+        deleted_manticore_points = result.get("deleted_manticore_points_count", 0)
 
         # Build notification text
         notification_lines = []
@@ -178,8 +178,8 @@ def main():
             auto_corrected.append(
                 f"• Отправлено на повторную индексацию: {reindexed_videos} видео ({reindexed_chunks} чанков)"
             )
-        if deleted_qdrant_points > 0:
-            auto_corrected.append(f"• Удалено сиротских векторов из Qdrant: {deleted_qdrant_points}")
+        if deleted_manticore_points > 0:
+            auto_corrected.append(f"• Удалено сиротских векторов из Manticore: {deleted_manticore_points}")
 
         if auto_corrected:
             if not issues:

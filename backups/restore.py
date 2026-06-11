@@ -8,7 +8,6 @@ import tarfile
 from pathlib import Path
 
 import boto3
-import httpx
 from botocore.exceptions import ClientError
 from dotenv import load_dotenv
 
@@ -89,12 +88,6 @@ else:
 
 # Detect if running inside Docker container
 is_container = Path("/.dockerenv").exists() or str(PROJECT_ROOT) == "/app"
-
-QDRANT_URL = os.getenv("QDRANT_URL", "http://127.0.0.1:6333")
-if not is_container and "://qdrant" in QDRANT_URL:
-    QDRANT_URL = QDRANT_URL.replace("://qdrant", "://127.0.0.1")
-
-COLLECTION_NAME = os.getenv("QDRANT_COLLECTION", "chunks_m3")
 
 # S3 Config
 S3_ENDPOINT = os.getenv("S3_ENDPOINT_URL")
@@ -211,36 +204,6 @@ def download_from_s3(key: str):
     LOCAL_BACKUP_DIR.mkdir(parents=True, exist_ok=True)
     download_with_progress(s3, S3_BUCKET, key, dest_path)
     return dest_path
-
-
-def restore_qdrant(extract_dir: Path):
-    logger.info("📡 Restoring Qdrant collection...")
-    snapshots = list(extract_dir.glob("*.snapshot"))
-    if not snapshots:
-        logger.warning("No Qdrant snapshot found in backup.")
-        return
-    snapshot_path = Path(snapshots[0])
-    logger.info(f"Found snapshot: {snapshot_path.name}")
-    try:
-        with open(snapshot_path, "rb") as f:
-            with httpx.Client(timeout=600.0) as client:
-                logger.info("Uploading snapshot to Qdrant...")
-                files = {"snapshot": (snapshot_path.name, f)}
-                res = client.post(f"{QDRANT_URL}/collections/{COLLECTION_NAME}/snapshots/upload", files=files)
-                res.raise_for_status()
-
-                logger.info(f"Recovering collection '{COLLECTION_NAME}' from snapshot...")
-                res = client.put(
-                    f"{QDRANT_URL}/collections/{COLLECTION_NAME}/snapshots/recover",
-                    json={
-                        "location": f"http://localhost:6333/collections/{COLLECTION_NAME}/snapshots/{snapshot_path.name}"
-                    },
-                )
-                res.raise_for_status()
-                logger.info("✅ Qdrant recovery triggered.")
-    except Exception as e:
-        logger.error(f"❌ Qdrant restoration failed: {e}")
-        raise
 
 
 def main():
@@ -391,7 +354,6 @@ def main():
                 shutil.copy2(env_src, dest)
                 logger.info("✅ .env restored.")
 
-        restore_qdrant(extract_root)
         logger.info("\n✨ RESTORATION FINISHED ✨")
 
     except Exception as e:

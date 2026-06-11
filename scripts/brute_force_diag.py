@@ -9,7 +9,7 @@ if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
 from app.config import get_sqlite_settings
-from app.qdrant import get_qdrant_client
+from app.manticore import get_manticore_client
 from app.voice import extract_speaker_embedding
 
 logging.basicConfig(level=logging.INFO, format="%(message)s")
@@ -19,19 +19,16 @@ logger = logging.getLogger(__name__)
 def test_brute_force(video_id: int):
     settings = get_sqlite_settings()
 
-    # Принудительно меняем qdrant -> localhost для работы вне докера
-    qdrant_url = os.getenv("QDRANT_URL", "http://qdrant:6333")
-    if "://qdrant" in qdrant_url:
-        qdrant_url = qdrant_url.replace("://qdrant", "://localhost")
-    os.environ["QDRANT_URL"] = qdrant_url
+    manticore_url = os.getenv("MANTICORE_URL", "http://localhost:9308")
+    os.environ["MANTICORE_URL"] = manticore_url
 
-    print(f"Using Qdrant URL: {qdrant_url}")
-    q_client = get_qdrant_client()
+    print(f"Using Manticore URL: {manticore_url}")
+    q_client = get_manticore_client()
 
     # 1. Получаем инфо о видео
     with sqlite3.connect(settings.db_path) as conn:
         conn.row_factory = sqlite3.Row
-        video = conn.execute("SELECT title, local_audio_path FROM videos WHERE id = ?", (video_id,)).fetchone()
+        video = conn.execute("SELECT title, source_file_id FROM videos WHERE id = ?", (video_id,)).fetchone()
         if not video:
             print(f"Видео {video_id} не найдено")
             return
@@ -39,9 +36,18 @@ def test_brute_force(video_id: int):
         from app.config import get_app_settings
 
         app_settings = get_app_settings()
-        audio_path = app_settings.resolve_path(video["local_audio_path"])
+        audio_path = None
+        source_file_id = video["source_file_id"]
+        if source_file_id:
+            ogg_p = app_settings.audio_dir / f"{source_file_id}.ogg"
+            wav_p = app_settings.audio_dir / f"{source_file_id}.wav"
+            if ogg_p.exists():
+                audio_path = ogg_p
+            elif wav_p.exists():
+                audio_path = wav_p
+
         if audio_path is None:
-            print("Аудио-файл не указан")
+            print(f"Аудио-файл для {video['title']} ({source_file_id}) не найден на диске")
             return
         print(f"ТЕСТ BRUTE-FORCE: {video['title']} (ID: {video_id})")
 
@@ -79,7 +85,7 @@ def test_brute_force(video_id: int):
             try:
                 emb = extract_speaker_embedding(audio_path, start, end)
                 if emb:
-                    results = q_client.query_points(collection_name="speaker_registry", query=emb, limit=1).points
+                    results = q_client.query_points(collection_name="speaker_registry", query=emb, limit=1)
 
                     score = results[0].score if results else 0
                     best_score = max(best_score, score)

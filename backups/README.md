@@ -13,7 +13,7 @@ uv sync
 ## Configuration
 
 1. Copy `.env.example` to `.env`.
-2. Fill in your S3 credentials and Qdrant URL.
+2. Fill in your S3 credentials and Manticore URL.
 3. If this folder is NOT inside the Pulsar project root, specify absolute paths to `DATA_DIR` and `STORAGE_DIR` in the `.env` file.
 
 ## Usage

@@ -59,6 +59,8 @@ class EmbeddingSettings:
     model_id: str = "BAAI/bge-m3"
     dimension: int = 1024
     cache_lru_size: int = 20
+    provider: str = "custom"
+    openrouter_providers: list[str] | None = None
 
 
 @dataclass(frozen=True)
@@ -74,9 +76,9 @@ class VoiceSettings:
 
 
 @dataclass(frozen=True)
-class QdrantSettings:
+class ManticoreSettings:
     url: str
-    collection_name: str = "chunks_m3"
+    table_name: str = "chunks"
 
 
 @dataclass(frozen=True)
@@ -102,9 +104,17 @@ class AppSettings:
     def raw_transcripts_dir(self) -> Path:
         return self.storage_dir / "transcripts" / "raw"
 
+    def get_raw_transcript_path(self, source_file_id: str) -> Path:
+        prefix = source_file_id[:2] if len(source_file_id) >= 2 else source_file_id
+        return self.raw_transcripts_dir / prefix / f"{source_file_id}.json.gz"
+
     @property
     def normalized_transcripts_dir(self) -> Path:
         return self.storage_dir / "transcripts" / "normalized"
+
+    def get_normalized_transcript_path(self, source_file_id: str) -> Path:
+        prefix = source_file_id[:2] if len(source_file_id) >= 2 else source_file_id
+        return self.normalized_transcripts_dir / prefix / f"{source_file_id}.json.gz"
 
     @property
     def downloads_dir(self) -> Path:
@@ -141,16 +151,22 @@ def get_sqlite_settings() -> SQLiteSettings:
 
 
 def get_embedding_settings() -> EmbeddingSettings:
+    providers_raw = os.getenv("EMBEDDING_OPENROUTER_PROVIDERS")
+    openrouter_providers = [p.strip() for p in providers_raw.split(",")] if providers_raw else None
     return EmbeddingSettings(
         api_url=os.getenv("EMBEDDING_API_URL", ""),
         api_token=os.getenv("EMBEDDING_API_TOKEN", ""),
+        model_id=os.getenv("EMBEDDING_MODEL_ID", "BAAI/bge-m3"),
+        dimension=int(os.getenv("EMBEDDING_DIMENSION", "1024")),
         cache_lru_size=int(os.getenv("EMBEDDING_CACHE_LRU_SIZE", "20")),
+        provider=os.getenv("EMBEDDING_PROVIDER", "custom"),
+        openrouter_providers=openrouter_providers,
     )
 
 
-def get_qdrant_settings() -> QdrantSettings:
-    return QdrantSettings(
-        url=os.getenv("QDRANT_URL", "http://qdrant:6333"), collection_name=os.getenv("QDRANT_COLLECTION", "chunks_m3")
+def get_manticore_settings() -> ManticoreSettings:
+    return ManticoreSettings(
+        url=os.getenv("MANTICORE_URL", "http://manticore:9308"), table_name=os.getenv("MANTICORE_TABLE", "chunks")
     )
 
 

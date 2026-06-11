@@ -55,18 +55,18 @@ def init_db(connection: sqlite3.Connection) -> None:
         CREATE TABLE IF NOT EXISTS folders (
             id TEXT PRIMARY KEY,
             name TEXT NOT NULL,
-            parent_id TEXT,
-            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            parent_id TEXT REFERENCES folders(id) ON DELETE CASCADE,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            CHECK (parent_id IS NULL OR parent_id != id)
         )
     """)
 
-    # 1. Videos table (UPDATED: added md5_checksum)
+    # 1. Videos table (UPDATED: removed source_type, local paths, unique on source_file_id)
     connection.execute("""
         CREATE TABLE IF NOT EXISTS videos (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            source_type TEXT NOT NULL,
             source_file_id TEXT NOT NULL,
-            parent_folder_id TEXT,
+            parent_folder_id TEXT REFERENCES folders(id) ON DELETE SET NULL,
             md5_checksum TEXT,
             title TEXT NOT NULL,
             recorded_date DATE,
@@ -75,98 +75,38 @@ def init_db(connection: sqlite3.Connection) -> None:
             mime_type TEXT,
             size_bytes BIGINT,
             duration_sec DOUBLE PRECISION,
-            local_video_path TEXT,
-            local_audio_path TEXT,
-            processing_status TEXT NOT NULL,
+            status TEXT NOT NULL,
             is_4k BOOLEAN DEFAULT FALSE,
             is_missing BOOLEAN DEFAULT FALSE,
             is_excluded BOOLEAN DEFAULT FALSE,
-            is_md5_duplicate BOOLEAN DEFAULT FALSE,
-            is_md5_duplicate_saved BOOLEAN DEFAULT FALSE,
+            original_id INTEGER REFERENCES videos(id) ON DELETE SET NULL,
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
             updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-            UNIQUE (source_type, source_file_id)
+            UNIQUE (source_file_id),
+            CHECK (original_id IS NULL OR original_id != id),
+            CHECK (size_bytes IS NULL OR size_bytes >= 0),
+            CHECK (duration_sec IS NULL OR duration_sec >= 0)
         )
     """)
 
-    # --- MIGRATIONS ---
-    cursor = connection.execute("PRAGMA table_info(videos)")
-    columns = [row["name"] for row in cursor.fetchall()]
-    if "parent_folder_id" not in columns:
-        logger.info("Migrating database: Adding parent_folder_id column to videos table.")
-        connection.execute("ALTER TABLE videos ADD COLUMN parent_folder_id TEXT")
-
-    if "recorded_date" not in columns:
-        logger.info("Migrating database: Adding recorded_date column to videos table.")
-        connection.execute("ALTER TABLE videos ADD COLUMN recorded_date DATE")
-
-    if "is_short" not in columns:
-        logger.info("Migrating database: Adding is_short column to videos table.")
-        connection.execute("ALTER TABLE videos ADD COLUMN is_short BOOLEAN DEFAULT FALSE")
-
-    if "md5_checksum" not in columns:
-        logger.info("Migrating database: Adding md5_checksum column to videos table.")
-        connection.execute("ALTER TABLE videos ADD COLUMN md5_checksum TEXT")
-
-    if "is_4k" not in columns:
-        logger.info("Migrating database: Adding is_4k column to videos table.")
-        connection.execute("ALTER TABLE videos ADD COLUMN is_4k BOOLEAN DEFAULT FALSE")
-
-    if "is_missing" not in columns:
-        logger.info("Migrating database: Adding is_missing column to videos table.")
-        connection.execute("ALTER TABLE videos ADD COLUMN is_missing BOOLEAN DEFAULT FALSE")
-
-    if "is_excluded" not in columns:
-        logger.info("Migrating database: Adding is_excluded column to videos table.")
-        connection.execute("ALTER TABLE videos ADD COLUMN is_excluded BOOLEAN DEFAULT FALSE")
-
-    if "is_md5_duplicate" not in columns:
-        logger.info("Migrating database: Adding is_md5_duplicate column to videos table.")
-        connection.execute("ALTER TABLE videos ADD COLUMN is_md5_duplicate BOOLEAN DEFAULT FALSE")
-
-    if "is_md5_duplicate_saved" not in columns:
-        logger.info("Migrating database: Adding is_md5_duplicate_saved column to videos table.")
-        connection.execute("ALTER TABLE videos ADD COLUMN is_md5_duplicate_saved BOOLEAN DEFAULT FALSE")
-
-    # 2. Transcripts table (SIMPLIFIED: engine removed)
-    connection.execute("""
-        CREATE TABLE IF NOT EXISTS transcripts (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            video_id INTEGER NOT NULL REFERENCES videos(id) ON DELETE CASCADE,
-            language TEXT NOT NULL,
-            confidence DOUBLE PRECISION,
-            raw_json_path TEXT,
-            normalized_json_path TEXT,
-            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-        )
-    """)
-
-    # 3. Speakers table (NEW: Speaker reference)
-    connection.execute("""
-        CREATE TABLE IF NOT EXISTS speakers (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            video_id INTEGER NOT NULL REFERENCES videos(id) ON DELETE CASCADE,
-            speaker_tag TEXT NOT NULL,
-            name TEXT NOT NULL,
-            UNIQUE(video_id, speaker_tag)
-        )
-    """)
-
-    # 4. Chunks table
+    # 3. Chunks table (UPDATED: removed speaker_tags, added UNIQUE and CHECK constraints)
     connection.execute("""
         CREATE TABLE IF NOT EXISTS chunks (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             video_id INTEGER NOT NULL REFERENCES videos(id) ON DELETE CASCADE,
-            transcript_id INTEGER NOT NULL REFERENCES transcripts(id) ON DELETE CASCADE,
             chunk_index INTEGER NOT NULL,
             start_sec DOUBLE PRECISION NOT NULL,
             end_sec DOUBLE PRECISION NOT NULL,
             text TEXT NOT NULL,
-            speaker_tags TEXT
+            UNIQUE(video_id, chunk_index),
+            CHECK(chunk_index >= 0),
+            CHECK(start_sec >= 0),
+            CHECK(end_sec >= start_sec),
+            CHECK(length(trim(text)) > 0)
         )
     """)
 
-    # 5. Tasks table (Queue)
+    # 4. Tasks table (Queue)
     connection.execute("""
         CREATE TABLE IF NOT EXISTS tasks (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -180,7 +120,7 @@ def init_db(connection: sqlite3.Connection) -> None:
         )
     """)
 
-    # 6. Query cache table
+    # 5. Query cache table
     connection.execute("""
         CREATE TABLE IF NOT EXISTS query_cache (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -192,12 +132,86 @@ def init_db(connection: sqlite3.Connection) -> None:
         )
     """)
 
-    # 7. Indexes for speed
-    connection.execute("CREATE INDEX IF NOT EXISTS idx_chunks_video_id ON chunks(video_id)")
-    connection.execute("CREATE INDEX IF NOT EXISTS idx_speakers_video_id ON speakers(video_id)")
+    # 6. Indexes for speed
     connection.execute("CREATE INDEX IF NOT EXISTS idx_videos_parent_folder ON videos(parent_folder_id)")
     connection.execute("CREATE INDEX IF NOT EXISTS idx_videos_md5 ON videos(md5_checksum)")
     connection.execute("CREATE INDEX IF NOT EXISTS idx_query_cache_query ON query_cache(query)")
+    connection.execute("CREATE INDEX IF NOT EXISTS idx_videos_original_id ON videos(original_id)")
+    connection.execute("CREATE INDEX IF NOT EXISTS idx_videos_status ON videos(status)")
+    connection.execute("CREATE INDEX IF NOT EXISTS idx_folders_parent_name ON folders(parent_id, name)")
+    connection.execute("CREATE INDEX IF NOT EXISTS idx_tasks_queue ON tasks(status, priority DESC, created_at ASC)")
+
+    # Partial unique index to guarantee only one original video exists per md5_checksum
+    connection.execute("""
+        CREATE UNIQUE INDEX IF NOT EXISTS uidx_videos_md5_original
+        ON videos(md5_checksum)
+        WHERE original_id IS NULL AND md5_checksum IS NOT NULL AND md5_checksum != ''
+    """)
+
+    # Trigger to automatically update updated_at on updates
+    connection.execute("""
+        CREATE TRIGGER IF NOT EXISTS trg_videos_updated_at
+        AFTER UPDATE ON videos
+        BEGIN
+            UPDATE videos SET updated_at = CURRENT_TIMESTAMP WHERE id = NEW.id;
+        END;
+    """)
+
+    # Trigger to automatically update updated_at on updates in tasks
+    connection.execute("""
+        CREATE TRIGGER IF NOT EXISTS trg_tasks_updated_at
+        AFTER UPDATE ON tasks
+        BEGIN
+            UPDATE tasks SET updated_at = CURRENT_TIMESTAMP WHERE id = NEW.id;
+        END;
+    """)
+
+    # Triggers to prevent duplicate chains (copy of a copy)
+    connection.execute("""
+        CREATE TRIGGER IF NOT EXISTS trg_videos_prevent_duplicate_chains_insert
+        BEFORE INSERT ON videos
+        FOR EACH ROW
+        WHEN NEW.original_id IS NOT NULL
+        BEGIN
+            SELECT CASE
+                WHEN (SELECT original_id FROM videos WHERE id = NEW.original_id) IS NOT NULL
+                THEN RAISE(ABORT, 'Циклическая или многоуровневая копия: оригинальный файл сам является дубликатом!')
+            END;
+        END;
+    """)
+
+    connection.execute("""
+        CREATE TRIGGER IF NOT EXISTS trg_videos_prevent_duplicate_chains_update
+        BEFORE UPDATE ON videos
+        FOR EACH ROW
+        WHEN NEW.original_id IS NOT NULL
+        BEGIN
+            SELECT CASE
+                WHEN (SELECT original_id FROM videos WHERE id = NEW.original_id) IS NOT NULL
+                THEN RAISE(ABORT, 'Циклическая или многоуровневая копия: оригинальный файл сам является дубликатом!')
+            END;
+        END;
+    """)
+
+    # Trigger to prevent infinite loops in folder tree hierarchies (A -> B -> C -> A)
+    connection.execute("""
+        CREATE TRIGGER IF NOT EXISTS trg_folders_prevent_loops
+        BEFORE UPDATE ON folders
+        FOR EACH ROW
+        WHEN NEW.parent_id IS NOT NULL
+        BEGIN
+            SELECT CASE
+                WHEN EXISTS (
+                    WITH RECURSIVE path(id, parent_id) AS (
+                        SELECT id, parent_id FROM folders WHERE id = NEW.parent_id
+                        UNION ALL
+                        SELECT f.id, f.parent_id FROM folders f JOIN path p ON f.id = p.parent_id
+                    )
+                    SELECT 1 FROM path WHERE id = NEW.id
+                ) THEN RAISE(ABORT, 'Циклическая зависимость: папка не может быть вложена в своего потомка!')
+            END;
+        END;
+    """)
 
     # 8. Revoked sessions table (for JWT revocation)
     connection.execute("""

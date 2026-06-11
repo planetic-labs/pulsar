@@ -8,9 +8,10 @@ ROOT_DIR = Path(__file__).resolve().parents[1]
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
+from app.qdrant import get_qdrant_client
+
 from app.config import get_qdrant_settings, get_sqlite_settings
 from app.db import db_connection
-from app.qdrant import get_qdrant_client
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
