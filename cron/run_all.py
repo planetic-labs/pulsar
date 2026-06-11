@@ -78,7 +78,7 @@ def get_docker_compose_cmd() -> list[str]:
 
 
 def clean_manticore_json():
-    logger.info("Step 0/4: Checking Manticore configuration integrity (manticore.json)...")
+    logger.info("Step 1/4: Checking Manticore configuration integrity (manticore.json)...")
     try:
         compose_cmd = get_docker_compose_cmd()
         # Read manticore.json from manticore container
@@ -129,16 +129,26 @@ def main():
     # 0. Clean Manticore config metadata
     clean_manticore_json()
 
-    # 1. Execute Integrity Check
-    logger.info("Step 1/3: Running database and index integrity checks in container...")
+    # 1. Execute Tasks Cleanup
+    logger.info("Step 2/4: Running tasks history cleanup in container...")
     try:
         compose_cmd = get_docker_compose_cmd()
-        py_cmd = (
-            "from scripts.verify_integrity import verify_integrity; "
-            "import json; "
-            "print('INTEGRITY_ISSUES:' + json.dumps(verify_integrity()))"
-        )
-        cmd = compose_cmd + ["exec", "-T", "pulsar", "uv", "run", "python", "-c", py_cmd]
+        cmd = compose_cmd + ["exec", "-T", "pulsar", "uv", "run", "python", "scripts/cleanup_tasks.py"]
+        res = subprocess.run(cmd, capture_output=True, text=True, check=True)
+        logger.info("Cleanup stdout:")
+        for line in res.stdout.splitlines():
+            logger.info(f"  [CLEANUP] {line}")
+        logger.info("✅ Tasks cleanup completed successfully.")
+    except subprocess.CalledProcessError as e:
+        logger.error(f"❌ Tasks cleanup failed with exit code {e.returncode}!")
+        logger.error(f"Cleanup stdout:\n{e.stdout}")
+        logger.error(f"Cleanup stderr:\n{e.stderr}")
+
+    # 2. Execute Integrity Check
+    logger.info("Step 3/4: Running database and index integrity checks in container...")
+    try:
+        compose_cmd = get_docker_compose_cmd()
+        cmd = compose_cmd + ["exec", "-T", "pulsar", "uv", "run", "python", "scripts/verify_integrity.py"]
         res = subprocess.run(cmd, capture_output=True, text=True, check=True)
 
         # Log stdout/stderr lines except the JSON wrapper line
@@ -211,24 +221,8 @@ def main():
             logger.error(f"Integrity check stdout:\n{e.stdout}")
             logger.error(f"Integrity check stderr:\n{e.stderr}")
 
-    # 2. Execute Backup
-    logger.info("Step 2/3: Running system backup...")
-    try:
-        # Run backup script using the current virtualenv executable
-        backup_script = ROOT_DIR / "backups" / "backup.py"
-        res = subprocess.run([sys.executable, str(backup_script)], capture_output=True, text=True, check=True)
-        logger.info("Backup stdout:")
-        for line in res.stdout.splitlines():
-            logger.info(f"  [BACKUP] {line}")
-        logger.info("✅ Backup completed successfully.")
-    except subprocess.CalledProcessError as e:
-        logger.error(f"❌ Backup failed with exit code {e.returncode}!")
-        logger.error(f"Backup stdout:\n{e.stdout}")
-        logger.error(f"Backup stderr:\n{e.stderr}")
-        # Note: we continue execution of other cron steps even if backup fails
-
     # 3. Execute Sync Index
-    logger.info("Step 3/4: Running index synchronization in container...")
+    logger.info("Step 4/4: Running index synchronization in container...")
     try:
         compose_cmd = get_docker_compose_cmd()
         cmd = compose_cmd + ["exec", "-T", "pulsar", "uv", "run", "python", "scripts/sync_index.py"]
@@ -241,21 +235,6 @@ def main():
         logger.error(f"❌ Index synchronization failed with exit code {e.returncode}!")
         logger.error(f"Sync stdout:\n{e.stdout}")
         logger.error(f"Sync stderr:\n{e.stderr}")
-
-    # 4. Execute Tasks Cleanup
-    logger.info("Step 4/4: Running tasks history cleanup in container...")
-    try:
-        compose_cmd = get_docker_compose_cmd()
-        cmd = compose_cmd + ["exec", "-T", "pulsar", "uv", "run", "python", "scripts/cleanup_tasks.py"]
-        res = subprocess.run(cmd, capture_output=True, text=True, check=True)
-        logger.info("Cleanup stdout:")
-        for line in res.stdout.splitlines():
-            logger.info(f"  [CLEANUP] {line}")
-        logger.info("✅ Tasks cleanup completed successfully.")
-    except subprocess.CalledProcessError as e:
-        logger.error(f"❌ Tasks cleanup failed with exit code {e.returncode}!")
-        logger.error(f"Cleanup stdout:\n{e.stdout}")
-        logger.error(f"Cleanup stderr:\n{e.stderr}")
 
     logger.info("=========================================")
     logger.info("🎉 UNIFIED CRON WORKFLOW COMPLETED")
