@@ -233,18 +233,8 @@ async def hybrid_search(
     s_match = re.search(r"(?:speaker|s):([^\s]+)", query)
     if s_match:
         s_name = s_match.group(1).lower()
-        rows = connection.execute(
-            "SELECT video_id, speaker_tag FROM speakers WHERE LOWER(name) LIKE ?", (f"%{s_name}%",)
-        ).fetchall()
-        if rows:
-            conditions = []
-            for r in rows:
-                escaped_tag = r["speaker_tag"].replace("'", "''")
-                conditions.append(f"(video_id = {r['video_id']} AND speaker = '{escaped_tag}')")
-            where_clauses.append(f"({' OR '.join(conditions)})")
-        else:
-            escaped_s_name = s_name.replace("'", "''")
-            where_clauses.append(f"speaker = '{escaped_s_name}'")
+        escaped_s_name = s_name.replace("'", "''")
+        where_clauses.append(f"speaker = '{escaped_s_name}'")
 
     clean_query = re.sub(r"(?:video_id|speaker|s|v):[^\s]+", "", query).strip()
 
@@ -413,13 +403,6 @@ async def hybrid_search(
 
     if video_ids:
         placeholders = ",".join(["?"] * len(video_ids))
-
-        # Fetch Speakers
-        rows_s = connection.execute(
-            f"SELECT video_id, speaker_tag, name FROM speakers WHERE video_id IN ({placeholders})", video_ids
-        ).fetchall()
-        for r in rows_s:
-            speaker_map[(r["video_id"], r["speaker_tag"])] = r["name"]
 
         # Fetch Video Metadata (source_file_id, title)
         rows_v = connection.execute(
