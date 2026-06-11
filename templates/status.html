@@ -214,6 +214,26 @@
                 </div>
             </div>
 
+            <!-- Missing Transcripts (Auto-heal situations) -->
+            <div id="missing-transcripts-container" class="hidden animate-in fade-in slide-in-from-top-4 duration-500 mt-4">
+                <div class="bg-rose-50 border border-rose-200 rounded-2xl p-4 flex flex-col gap-3">
+                    <div class="flex items-center gap-2">
+                        <div class="w-8 h-8 rounded-xl bg-rose-100 flex items-center justify-center text-rose-600">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                            </svg>
+                        </div>
+                        <div>
+                            <h4 class="text-[10px] font-black text-rose-800 uppercase tracking-widest">Отсутствуют файлы транскриптов</h4>
+                            <p class="text-[8px] text-rose-600 font-bold uppercase tracking-tight">В базе есть метаданные, но файлы транскрипции (RAW/NORMALIZED) пропали на диске</p>
+                        </div>
+                    </div>
+                    <div id="missing-transcripts-list" class="flex flex-col gap-1.5">
+                        <!-- List items will be injected here -->
+                    </div>
+                </div>
+            </div>
+
 
         </div>
 
@@ -608,6 +628,45 @@
                 }
             }
 
+            // 8. Update Missing Transcripts Block
+            const missingTranscriptsContainer = document.getElementById('missing-transcripts-container');
+            const missingTranscriptsList = document.getElementById('missing-transcripts-list');
+            if (missingTranscriptsContainer && missingTranscriptsList && data.stats) {
+                if (data.stats.missing_transcripts_list && data.stats.missing_transcripts_list.length > 0) {
+                    missingTranscriptsContainer.classList.remove('hidden');
+                    missingTranscriptsList.innerHTML = data.stats.missing_transcripts_list.map(item => `
+                        <div class="flex items-center justify-between group">
+                            <div class="flex flex-col min-w-0 pr-4">
+                                <span class="text-[9px] font-bold text-rose-950 truncate">${item.title}</span>
+                                <span class="text-[7px] text-rose-500 font-bold uppercase tracking-wider">${item.reason}</span>
+                            </div>
+                            <div class="h-px flex-1 bg-rose-200/50 mr-4"></div>
+                            <div class="flex items-center gap-2 shrink-0">
+                                ${item.source_url ? `
+                                    <a href="${item.source_url}" target="_blank" class="p-1 bg-blue-50 text-blue-600 rounded hover:bg-blue-100 transition-all shadow-sm shrink-0" title="Открыть диск">
+                                        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                                        </svg>
+                                    </a>
+                                ` : ''}
+                                <button onclick="reindexVideo(${item.id})" class="p-1 bg-emerald-50 text-emerald-600 rounded hover:bg-emerald-100 transition-all shadow-sm shrink-0" title="Переиндексировать полностью">
+                                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path>
+                                    </svg>
+                                </button>
+                                <button onclick="confirmDeleteVideo(${item.id}, '${item.title.replace(/'/g, "\\'")}', '${item.file_id}')" class="p-1 bg-rose-50 text-rose-600 rounded hover:bg-rose-100 transition-all shadow-sm shrink-0" title="Удалить из индекса">
+                                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                    </svg>
+                                </button>
+                            </div>
+                        </div>
+                    `).join('');
+                } else {
+                    missingTranscriptsContainer.classList.add('hidden');
+                }
+            }
+
 
         } catch (e) {
             console.error("Failed to update progress UI:", e);
@@ -717,6 +776,30 @@
         }
 
         closeDeleteModal();
+    }
+
+    async function reindexVideo(videoId) {
+        if (!confirm(`Запустить полную переиндексацию файла #${videoId}? Старый индекс и чанки будут удалены.`)) return;
+        try {
+            const res = await fetch(`/api/v1/indexed/videos/${videoId}/reindex`, { method: 'POST' });
+            if (res.ok) {
+                const toast = document.createElement('div');
+                toast.className = "fixed bottom-8 left-8 z-[200] px-5 py-2.5 bg-[#3A3630] text-[#FAF9F6] rounded-xl text-[9px] font-black uppercase tracking-widest shadow-2xl animate-in slide-in-from-bottom-4 duration-200";
+                toast.textContent = `Задача переиндексации #${videoId} добавлена в queue`;
+                document.body.appendChild(toast);
+                setTimeout(() => {
+                    toast.classList.add('animate-out', 'fade-out', 'slide-out-to-bottom-4');
+                    setTimeout(() => toast.remove(), 200);
+                }, 2000);
+                updateProgressUI();
+            } else {
+                const errData = await res.json();
+                alert(`Ошибка запуска переиндексации: ${errData.detail || res.statusText}`);
+            }
+        } catch (e) {
+            console.error(e);
+            alert(`Ошибка при запуске переиндексации: ${e.message}`);
+        }
     }
 
     connectLogs();

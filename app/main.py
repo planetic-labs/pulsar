@@ -398,6 +398,48 @@ async def api_worker_progress(_: str = Depends(require_admin)):
                     }
                 )
 
+        # Detail missing transcripts
+        stats["missing_transcripts_list"] = []
+        stats["missing_transcripts_count"] = 0
+
+        sql_orig_videos = (
+            "SELECT id, title, source_file_id, source_url, status "
+            "FROM videos WHERE original_id IS NULL AND "
+            "status NOT IN ('pending', 'failed', 'skipped_silent', 'skipped_no_space')"
+        )
+        orig_videos = conn.execute(sql_orig_videos).fetchall()
+
+        app_settings = get_app_settings()
+        for v in orig_videos:
+            file_id = v["source_file_id"]
+            if not file_id:
+                continue
+            raw_path = app_settings.get_raw_transcript_path(file_id)
+            norm_path = app_settings.get_normalized_transcript_path(file_id)
+
+            raw_missing = not raw_path.exists()
+            norm_missing = not norm_path.exists()
+
+            if raw_missing or norm_missing:
+                reasons = []
+                if raw_missing:
+                    reasons.append("нет RAW")
+                if norm_missing:
+                    reasons.append("нет NORMALIZED")
+                reason_str = ", ".join(reasons)
+
+                stats["missing_transcripts_list"].append(
+                    {
+                        "id": v["id"],
+                        "title": v["title"],
+                        "file_id": file_id,
+                        "source_url": v["source_url"] or f"https://drive.google.com/file/d/{file_id}/view",
+                        "reason": reason_str,
+                    }
+                )
+
+        stats["missing_transcripts_count"] = len(stats["missing_transcripts_list"])
+
         # Detail duplicate MD5 files (removed from UI, kept empty lists for API compatibility)
         stats["duplicate_md5_list"] = []
         stats["duplicate_md5_count"] = 0
@@ -711,11 +753,118 @@ async def api_indexed_delete_video(video_id: int, _: str = Depends(require_admin
         except Exception as e:
             logger.error(f"Failed to delete file {f_path}: {e}")
 
-    # Delete the video row from SQLite
-    with db_connection(pg_settings) as conn:
-        conn.execute("DELETE FROM videos WHERE id = ?", (video_id,))
-
     return {"status": "success"}
+
+
+@app.post("/api/v1/indexed/videos/{video_id}/reindex")
+async def api_reindex_video(video_id: int, _: str = Depends(require_admin)):
+    """Triggers a clean reindexing of a video, removing old chunks and queues a new download task."""
+    pg_settings = get_sqlite_settings()
+    q_settings = get_manticore_settings()
+    app_settings = get_app_settings()
+
+    from app.manticore import get_manticore_client
+
+    with db_connection(pg_settings) as conn:
+        video_row = conn.execute("SELECT source_file_id, title FROM videos WHERE id = ?", (video_id,)).fetchone()
+        if not video_row:
+            raise HTTPException(status_code=404, detail="Video not found")
+
+        source_file_id = video_row["source_file_id"]
+        title = video_row["title"]
+
+        # Fetch chunks to delete
+        chunk_rows = conn.execute("SELECT id FROM chunks WHERE video_id = ?", (video_id,)).fetchall()
+
+    # Delete from Manticore if they exist
+    chunk_ids = [c["id"] for c in chunk_rows]
+    if chunk_ids:
+        try:
+            manticore = get_manticore_client()
+            manticore.delete(
+                collection_name=q_settings.table_name,
+                ids=chunk_ids,
+            )
+        except Exception as e:
+            logger.error(f"Failed to delete Manticore points for video {video_id}: {e}")
+
+    # Delete local files if they exist
+    if source_file_id:
+        wav_p = app_settings.audio_dir / f"{source_file_id}.wav"
+        ogg_p = app_settings.audio_dir / f"{source_file_id}.ogg"
+        for p in [wav_p, ogg_p]:
+            try:
+                if p.exists():
+                    p.unlink()
+            except Exception as e:
+                logger.error(f"Failed to delete {p}: {e}")
+
+        downloads_dir = app_settings.downloads_dir
+        if downloads_dir.exists():
+            for p in downloads_dir.glob(f"{source_file_id}*"):
+                try:
+                    if p.exists():
+                        p.unlink()
+                except Exception as e:
+                    logger.error(f"Failed to delete temp video {p}: {e}")
+
+        raw_path = app_settings.get_raw_transcript_path(source_file_id)
+        try:
+            if raw_path.exists():
+                raw_path.unlink()
+                if raw_path.parent.exists() and raw_path.parent not in (
+                    app_settings.raw_transcripts_dir,
+                    app_settings.normalized_transcripts_dir,
+                ):
+                    if not any(raw_path.parent.iterdir()):
+                        raw_path.parent.rmdir()
+        except Exception as e:
+            logger.error(f"Failed to delete raw transcript {raw_path}: {e}")
+
+        norm_path = app_settings.get_normalized_transcript_path(source_file_id)
+        try:
+            if norm_path.exists():
+                norm_path.unlink()
+                if norm_path.parent.exists() and norm_path.parent not in (
+                    app_settings.raw_transcripts_dir,
+                    app_settings.normalized_transcripts_dir,
+                ):
+                    if not any(norm_path.parent.iterdir()):
+                        norm_path.parent.rmdir()
+        except Exception as e:
+            logger.error(f"Failed to delete normalized transcript {norm_path}: {e}")
+
+    # Update SQLite: delete chunks, set status to pending, add task
+    with db_connection(pg_settings) as conn:
+        conn.execute("DELETE FROM chunks WHERE video_id = ?", (video_id,))
+        conn.execute(
+            "UPDATE videos SET status = 'pending', duration_sec = NULL, "
+            "size_bytes = NULL, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+            (video_id,),
+        )
+        conn.execute(
+            "INSERT INTO tasks (task_type, payload, status) VALUES (?, ?, ?)",
+            (
+                "stage_1_download",
+                json.dumps(
+                    {
+                        "file_id": source_file_id,
+                        "title": title,
+                        "diarize": True,
+                    },
+                    ensure_ascii=False,
+                ),
+                "pending",
+            ),
+        )
+        conn.commit()
+
+    # Auto-start worker if needed
+    worker = get_worker()
+    if not worker.is_running:
+        asyncio.create_task(worker.run())
+
+    return {"status": "ok", "queued": True}
 
 
 @app.post("/api/v1/worker/duplicates/swap")
