@@ -26,7 +26,7 @@ def test_cron_main_success(mocker):
     def mock_run_impl(args, **kwargs):
         mock_res = MagicMock()
         mock_res.returncode = 0
-        if any("check_integrity" in str(arg) for arg in args):
+        if any("verify_integrity" in str(arg) for arg in args):
             mock_res.stdout = (
                 "INTEGRITY_ISSUES:{"
                 '"status": "completed", '
@@ -51,7 +51,7 @@ def test_cron_main_success(mocker):
     called_cmds = [call[0][0] for call in mock_run.call_args_list]
     assert any("backup.py" in str(cmd) for cmd in called_cmds)
     assert any("sync_index.py" in str(cmd) for cmd in called_cmds)
-    assert any("check_integrity" in str(cmd) for cmd in called_cmds)
+    assert any("verify_integrity" in str(cmd) for cmd in called_cmds)
     assert not mock_notify.called
 
 
@@ -59,7 +59,7 @@ def test_cron_main_with_integrity_issues(mocker):
     def mock_run_impl(args, **kwargs):
         mock_res = MagicMock()
         mock_res.returncode = 0
-        if any("check_integrity" in str(arg) for arg in args):
+        if any("verify_integrity" in str(arg) for arg in args):
             mock_res.stdout = (
                 "INTEGRITY_ISSUES:{"
                 '"status": "completed", '
@@ -94,7 +94,7 @@ def test_cron_main_subprocess_failure(mocker):
 
         mock_res = MagicMock()
         mock_res.returncode = 0
-        if any("check_integrity" in str(arg) for arg in args):
+        if any("verify_integrity" in str(arg) for arg in args):
             mock_res.stdout = (
                 "INTEGRITY_ISSUES:{"
                 '"status": "completed", '
@@ -124,7 +124,7 @@ def test_cron_main_worker_running(mocker):
     def mock_run_impl(args, **kwargs):
         mock_res = MagicMock()
         mock_res.returncode = 0
-        if any("check_integrity" in str(arg) for arg in args):
+        if any("verify_integrity" in str(arg) for arg in args):
             mock_res.stdout = (
                 "INTEGRITY_ISSUES:{"
                 '"status": "worker_running", '

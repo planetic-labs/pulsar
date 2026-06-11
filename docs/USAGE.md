@@ -59,5 +59,5 @@ This will clear the Manticore table and re-process all transcriptions from SQLit
 ### Integrity Check
 Run this script inside the container to ensure SQLite and Manticore are in sync:
 ```bash
-docker compose exec app uv run scripts/check_integrity.py
+docker compose exec app uv run scripts/verify_integrity.py
 ```

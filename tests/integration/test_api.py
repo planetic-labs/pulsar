@@ -556,63 +556,63 @@ def test_api_worker_duplicates_save(client, tmp_db):
 
 
 def test_check_integrity_duplicates(tmp_db, mocker, monkeypatch):
-    from scripts.check_integrity import check_integrity
+    from scripts.verify_integrity import verify_integrity as check_integrity
 
     # Mock settings and Qdrant client to avoid side effects
-    monkeypatch.setattr("scripts.check_integrity.get_sqlite_settings", lambda: tmp_db)
-    mock_qdrant = mocker.patch("scripts.check_integrity.get_manticore_client")
+    monkeypatch.setattr("scripts.verify_integrity.get_sqlite_settings", lambda: tmp_db)
+    mock_qdrant = mocker.patch("scripts.verify_integrity.get_manticore_client")
     mock_qdrant.return_value.scroll.return_value = ([], None)
-    mocker.patch("scripts.check_integrity.get_manticore_settings")
+    mocker.patch("scripts.verify_integrity.get_manticore_settings")
 
     from app.db import db_connection
 
     # Insert a duplicate video that has a chunk (this is a logic error!)
     with db_connection(tmp_db) as conn:
+        # Temporarily disable foreign keys to insert an orphan duplicate reference
+        conn.execute("PRAGMA foreign_keys = OFF")
+        # Temporarily drop unique index on md5 to insert duplicate originals
+        conn.execute("DROP INDEX IF EXISTS uidx_videos_md5_original")
+
         cursor = conn.cursor()
         cursor.execute(
             """
             INSERT INTO videos (
-                source_file_id, title, is_original, original_id, md5_checksum,
-                processing_status
-            ) VALUES (?, ?, ?, ?, ?, ?)
+                source_file_id, title, original_id, md5_checksum,
+                status
+            ) VALUES (?, ?, ?, ?, ?)
             """,
-            ("file_dup_id", "Dup Video", 0, None, "test-md5", "skipped_duplicate_md5"),
+            ("file_dup_id", "Dup Video", 9999, "test-md5", "skipped_duplicate_md5"),
         )
         dup_id = cursor.lastrowid
 
-        # Insert a transcript
+        # Insert a chunk for this duplicate (creates duplicate has chunks issue)
         cursor.execute(
-            "INSERT INTO transcripts (video_id, language) VALUES (?, ?)",
-            (dup_id, "ru"),
-        )
-        trans_id = cursor.lastrowid
-
-        # Insert a chunk for this duplicate (creates an issue)
-        cursor.execute(
-            "INSERT INTO chunks (video_id, transcript_id, chunk_index, start_sec, end_sec, text) "
-            "VALUES (?, ?, 0, 0.0, 10.0, 'corrupted chunk')",
-            (dup_id, trans_id),
+            "INSERT INTO chunks (video_id, chunk_index, start_sec, end_sec, text) "
+            "VALUES (?, 0, 0.0, 10.0, 'corrupted chunk')",
+            (dup_id,),
         )
 
         # Also insert two originals with the same MD5 (creates another issue)
         cursor.execute(
             """
             INSERT INTO videos (
-                source_file_id, title, is_original, md5_checksum,
-                processing_status
-            ) VALUES (?, ?, 1, ?, 'completed')
+                source_file_id, title, md5_checksum,
+                status
+            ) VALUES (?, ?, ?, 'completed')
             """,
             ("file_orig1_id", "Orig 1", "same-md5"),
         )
         cursor.execute(
             """
             INSERT INTO videos (
-                source_file_id, title, is_original, md5_checksum,
-                processing_status
-            ) VALUES (?, ?, 1, ?, 'completed')
+                source_file_id, title, md5_checksum,
+                status
+            ) VALUES (?, ?, ?, 'completed')
             """,
             ("file_orig2_id", "Orig 2", "same-md5"),
         )
+
+        conn.execute("PRAGMA foreign_keys = ON")
 
     # Run check_integrity
     res = check_integrity()
@@ -722,20 +722,21 @@ def test_api_indexed_toggle_short(client, tmp_db, tmp_path, mocker, mock_qdrant)
 
 
 def test_check_integrity_chunk_mismatch(tmp_db, mocker, monkeypatch, tmp_path):
+    import gzip
     import json
 
-    from scripts.check_integrity import check_integrity
+    from app.config import get_app_settings
+    from scripts.verify_integrity import verify_integrity as check_integrity
 
     # Mock settings and Qdrant client to avoid side effects
-    monkeypatch.setattr("scripts.check_integrity.get_sqlite_settings", lambda: tmp_db)
-    mock_qdrant = mocker.patch("scripts.check_integrity.get_manticore_client")
+    monkeypatch.setattr("scripts.verify_integrity.get_sqlite_settings", lambda: tmp_db)
+    mock_qdrant = mocker.patch("scripts.verify_integrity.get_manticore_client")
     mock_qdrant.return_value.scroll.return_value = ([], None)
-    mocker.patch("scripts.check_integrity.get_manticore_settings")
+    mocker.patch("scripts.verify_integrity.get_manticore_settings")
 
     from app.db import db_connection
 
-    # Create dummy transcript file that requires 2 chunks if is_short is False
-    trans_file = tmp_path / "integrity_transcript.json"
+    # Create dummy transcript files that require 2 chunks if is_short is False
     dummy_data = {
         "utterances": [
             {"start": 0.0, "end": 10.0, "text": "a" * 300},
@@ -743,38 +744,39 @@ def test_check_integrity_chunk_mismatch(tmp_db, mocker, monkeypatch, tmp_path):
             {"start": 20.0, "end": 30.0, "text": "c" * 10},
         ]
     }
-    trans_file.write_text(json.dumps(dummy_data), encoding="utf-8")
 
-    # Insert a video and a transcript
+    app_settings = get_app_settings()
+    raw_path = app_settings.get_raw_transcript_path("file_video_id")
+    norm_path = app_settings.get_normalized_transcript_path("file_video_id")
+
+    raw_path.parent.mkdir(parents=True, exist_ok=True)
+    norm_path.parent.mkdir(parents=True, exist_ok=True)
+
+    with gzip.open(raw_path, "wt", encoding="utf-8") as f:
+        json.dump(dummy_data, f)
+    with gzip.open(norm_path, "wt", encoding="utf-8") as f:
+        json.dump(dummy_data, f)
+
+    # Insert a video
     with db_connection(tmp_db) as conn:
         cursor = conn.cursor()
         cursor.execute(
             """
             INSERT INTO videos (
-                source_file_id, title, is_original,
-                processing_status, is_short
-            ) VALUES (?, ?, ?, ?, ?)
+                source_file_id, title, status, is_short
+            ) VALUES (?, ?, ?, ?)
             """,
-            ("file_video_id", "Integrity Video", 1, "completed", 0),
+            ("file_video_id", "Integrity Video", "completed", 0),
         )
         video_id = cursor.lastrowid
-
-        cursor.execute(
-            """
-            INSERT INTO transcripts (video_id, language, normalized_json_path)
-            VALUES (?, ?, ?)
-            """,
-            (video_id, "ru", str(trans_file)),
-        )
-        trans_id = cursor.lastrowid
 
         # Insert only 1 chunk in SQLite (causes a mismatch since 2 chunks are expected)
         cursor.execute(
             """
-            INSERT INTO chunks (video_id, transcript_id, chunk_index, start_sec, end_sec, text)
-            VALUES (?, ?, ?, ?, ?, ?)
+            INSERT INTO chunks (video_id, chunk_index, start_sec, end_sec, text)
+            VALUES (?, ?, ?, ?, ?)
             """,
-            (video_id, trans_id, 0, 0.0, 10.0, "initial chunk"),
+            (video_id, 0, 0.0, 10.0, "initial chunk"),
         )
 
     # Run check_integrity
