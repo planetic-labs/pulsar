@@ -43,8 +43,28 @@ class SearchResult:
 _morph = pymorphy3.MorphAnalyzer()
 
 
+def _get_float(p_load: dict[str, Any], key: str, default: float = 0.0) -> float:
+    val = p_load.get(key)
+    if val is None:
+        return default
+    try:
+        return float(val)
+    except (ValueError, TypeError):
+        return default
+
+
+def _get_int(p_load: dict[str, Any], key: str, default: int = 0) -> int:
+    val = p_load.get(key)
+    if val is None:
+        return default
+    try:
+        return int(val)
+    except (ValueError, TypeError):
+        return default
+
+
 def _simple_highlight(text: str, query: str) -> str:
-    clean_query = re.sub(r"(video_id|speaker|s|v):[^\s]+", "", query).strip()
+    clean_query = re.sub(r"(video_id|v):[^\s]+", "", query).strip()
     query_words = re.findall(r"[а-яА-ЯёЁa-zA-Z0-9]+", clean_query.lower())
     if not query_words:
         return text
@@ -230,13 +250,7 @@ async def hybrid_search(
         v_id = int(v_match.group(1))
         where_clauses.append(f"video_id = {v_id}")
 
-    s_match = re.search(r"(?:speaker|s):([^\s]+)", query)
-    if s_match:
-        s_name = s_match.group(1).lower()
-        escaped_s_name = s_name.replace("'", "''")
-        where_clauses.append(f"speaker = '{escaped_s_name}'")
-
-    clean_query = re.sub(r"(?:video_id|speaker|s|v):[^\s]+", "", query).strip()
+    clean_query = re.sub(r"(?:video_id|v):[^\s]+", "", query).strip()
 
     where_clause = " AND ".join(where_clauses) if where_clauses else None
 
@@ -398,7 +412,6 @@ async def hybrid_search(
 
     # 1. Collect all video IDs to fetch missing metadata
     video_ids = list({p.payload.get("video_id") for p in points if p.payload})
-    speaker_map = {}
     video_metadata = {}
 
     if video_ids:
@@ -451,44 +464,18 @@ async def hybrid_search(
         if not source_url and source_file_id:
             source_url = f"https://drive.google.com/file/d/{source_file_id}/view"
 
-        raw_tags = payload.get("speaker") or ""
-        mapped_names = []
-        for tag in str(raw_tags).split(", "):
-            if not tag:
-                continue
-            name = speaker_map.get((v_id, tag.strip()))
-            mapped_names.append(name if name else f"Speaker {tag}")
-
-        def get_float(p_load, key, default=0.0):
-            val = p_load.get(key)
-            if val is None:
-                return default
-            try:
-                return float(val)
-            except (ValueError, TypeError):
-                return default
-
-        def get_int(p_load, key, default=0):
-            val = p_load.get(key)
-            if val is None:
-                return default
-            try:
-                return int(val)
-            except (ValueError, TypeError):
-                return default
-
-        chunk_id = get_int(payload, "chunk_id") or get_int(payload, "id")
-        start_sec = get_float(payload, "start_sec")
-        end_sec = get_float(payload, "end_sec")
+        chunk_id = _get_int(payload, "chunk_id") or _get_int(payload, "id")
+        start_sec = _get_float(payload, "start_sec")
+        end_sec = _get_float(payload, "end_sec")
 
         results.append(
             SearchResult(
                 chunk_id=chunk_id,
-                video_id=get_int(payload, "video_id"),
+                video_id=_get_int(payload, "video_id"),
                 title=title,
                 source_file_id=source_file_id,
                 source_url=source_url,
-                chunk_index=get_int(payload, "chunk_index"),
+                chunk_index=_get_int(payload, "chunk_index"),
                 start_sec=start_sec,
                 end_sec=end_sec,
                 start_ts=format_timestamp(start_sec),
@@ -503,7 +490,7 @@ async def hybrid_search(
                 lexical_score=lexical_score,
                 semantic_score=semantic_score,
                 vector_score=combined_score,
-                speaker=", ".join(mapped_names) if mapped_names else None,
+                speaker=None,
                 alternative_texts={},
             )
         )
