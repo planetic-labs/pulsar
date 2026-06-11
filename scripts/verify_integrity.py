@@ -1,6 +1,5 @@
 import json
 import logging
-import random
 import sys
 from pathlib import Path
 from typing import Any
@@ -375,11 +374,10 @@ def verify_integrity() -> dict[str, Any]:
     else:
         print("✅ В Manticore нет лишних данных.")
 
-    # Check sample Manticore metadata vs SQLite
+    # Check all Manticore metadata vs SQLite
     metadata_errors = 0
-    print("--- Выборочная проверка метаданных (Manticore vs SQLite) ---")
-    sample_ids = random.sample(list(db_chunk_ids), min(len(db_chunk_ids), 100)) if db_chunk_ids else []
-    for s_id in sample_ids:
+    print("--- Полная проверка метаданных (Manticore vs SQLite) ---")
+    for s_id in db_chunk_ids:
         db_text = db_chunk_map.get(s_id)
         m_chunk = q_point_map.get(s_id)
         if not m_chunk:
@@ -389,12 +387,17 @@ def verify_integrity() -> dict[str, Any]:
             continue
         q_text = m_chunk["text"]
         if db_text and q_text and db_text.strip() != q_text.strip():
-            print(f"❌ Несоответствие текста для чанка {s_id}!")
+            if metadata_errors < 10:
+                print(f"❌ Несоответствие текста для чанка {s_id}!")
+                print(f"  SQLite: {db_text.strip()[:100]}...")
+                print(f"  Manticore: {q_text.strip()[:100]}...")
             metadata_errors += 1
             issues.append(f"Text mismatch for chunk ID {s_id} in Manticore vs SQLite")
 
     if metadata_errors == 0:
-        print("✅ Выборочная проверка метаданных пройдена.")
+        print(f"✅ Полная проверка метаданных пройдена ({len(db_chunk_ids)} чанков проверено).")
+    else:
+        print(f"❌ Полная проверка метаданных выявила {metadata_errors} ошибок!")
 
     print("\n=== [3] ЛОГИЧЕСКИЕ ОШИБКИ И ЭВРИСТИКА ===")
 
