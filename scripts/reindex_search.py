@@ -13,7 +13,7 @@ if str(ROOT_DIR) not in sys.path:
 from app.config import get_embedding_settings, get_manticore_settings, get_sqlite_settings
 from app.db import db_connection, init_db
 from app.embeddings import UnifiedEmbeddingClient
-from app.manticore import get_manticore_client, init_manticore
+from app.manticore import date_to_int, get_manticore_client, init_manticore
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
@@ -50,7 +50,7 @@ async def rebuild_semantic_index(full_reindex: bool = False):
         sql = """
             SELECT
                 c.id as chunk_id, c.video_id, c.chunk_index,
-                c.start_sec, c.end_sec, c.text, c.speaker_tags,
+                c.start_sec, c.end_sec, c.text, NULL as speaker_tags,
                 v.title, v.source_file_id, v.source_url, v.is_short, v.is_4k, v.recorded_date
             FROM chunks c
             JOIN videos v ON v.id = c.video_id
@@ -79,9 +79,11 @@ async def rebuild_semantic_index(full_reindex: bool = False):
                 if not batch_rows:
                     continue
 
-            texts = [r["text"] for r in batch_rows if r["text"] and len(r["text"].strip()) > 1]
-            if not texts:
+            batch_rows = [r for r in batch_rows if r["text"] and len(r["text"].strip()) > 1]
+            if not batch_rows:
                 continue
+
+            texts = [r["text"] for r in batch_rows]
 
             try:
                 # 1. Get both Dense and Sparse embeddings from unified client
@@ -101,16 +103,15 @@ async def rebuild_semantic_index(full_reindex: bool = False):
                             "vector": vectors,
                             "payload": {
                                 "chunk_id": row["chunk_id"],
-                                "video_id": row["video_id"],
+                                "video_id": str(row["video_id"]),
                                 "chunk_index": row["chunk_index"],
                                 "start_sec": row["start_sec"],
                                 "end_sec": row["end_sec"],
                                 "text": row["text"],
-                                "speaker": row["speaker_tags"],
                                 "title": row["title"],
                                 "source_file_id": row["source_file_id"],
                                 "source_url": row["source_url"],
-                                "recorded_date": row["recorded_date"],
+                                "recorded_date": date_to_int(row["recorded_date"]),
                                 "is_short": bool(row["is_short"]),
                                 "is_4k": bool(row["is_4k"]),
                                 "is_primary": True,

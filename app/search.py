@@ -8,7 +8,7 @@ import pymorphy3
 
 from app.config import get_embedding_settings, get_manticore_settings
 from app.embeddings import UnifiedEmbeddingClient
-from app.manticore import get_manticore_client, models
+from app.manticore import date_to_int, get_manticore_client, int_to_date, models
 
 logger = logging.getLogger(__name__)
 
@@ -121,12 +121,13 @@ def _build_quote_regex(phrase: str) -> str:
             drop_len = 2 if len(w) < 7 else 3
             root = w[:-drop_len]
             regex_parts.append(rf"\b{re.escape(root)}[а-яА-ЯёЁa-zA-Z0-9]*\b")
-    # Use [\s\S] to match across any character including newlines.
-    # Limit gap to 60 characters - enough for a few small words/punctuation between anchors.
-    return r"[\s\S]{0,60}?".join(regex_parts)
+    # Limit gap to exactly 10 words (any sequence of alphanumeric characters) between the anchors.
+    # [^а-яА-ЯёЁa-zA-Z0-9]+ matches punctuation and whitespace.
+    separator = r"(?:[^а-яА-ЯёЁa-zA-Z0-9]+[а-яА-ЯёЁa-zA-Z0-9]+){0,10}?[^а-яА-ЯёЁa-zA-Z0-9]+"
+    return separator.join(regex_parts)
 
 
-def _build_manticore_phrase_query(query: str, slop: int = 20) -> str | None:
+def _build_manticore_phrase_query(query: str, slop: int = 10) -> str | None:
     """Build a Manticore Search proximity query syntax like '"word1 word2"~10'."""
     words = re.findall(r"[а-яА-ЯёЁa-zA-Z0-9]+", query.lower())
     if not words:
@@ -244,9 +245,9 @@ async def hybrid_search(
         # User requirement: ignore date filters for short videos
         if video_type != "short":
             if date_from:
-                where_clauses.append(f"recorded_date >= '{date_from}T00:00:00'")
+                where_clauses.append(f"recorded_date >= {date_to_int(date_from)}")
             if date_to:
-                where_clauses.append(f"recorded_date <= '{date_to}T23:59:59'")
+                where_clauses.append(f"recorded_date <= {date_to_int(date_to)}")
 
     v_match = re.search(r"(?:video_id|v):(\d+)", query)
     v_id = None
@@ -263,7 +264,7 @@ async def hybrid_search(
 
     if search_mode == "quote" and clean_query:
         # --- FAST INDEXED PHRASE SEARCH (Manticore) ---
-        phrase_query = _build_manticore_phrase_query(clean_query, slop=20)
+        phrase_query = _build_manticore_phrase_query(clean_query, slop=10)
         if not phrase_query:
             return []
 
@@ -276,56 +277,13 @@ async def hybrid_search(
             limit=limit * 3,
         )
 
-        if points:
-            candidate_ids = [p.id for p in points]
-            ids_str = ",".join(str(x) for x in candidate_ids)
-
-            # 2. Fetch combined text of 3 adjacent chunks from SQLite for context/display
-            sql = f"""
-                SELECT
-                    c1.id,
-                    c1.text as t1, IFNULL(c2.text, '') as t2, IFNULL(c3.text, '') as t3,
-                    c1.start_sec as s1, c1.end_sec as e1,
-                    c2.start_sec as s2, c2.end_sec as e2,
-                    c3.start_sec as s3, c3.end_sec as e3,
-                    (c1.text || ' ' || IFNULL(c2.text, '') || ' ' || IFNULL(c3.text, '')) as combined_text
-                FROM chunks c1
-                LEFT JOIN chunks c2 ON c1.video_id = c2.video_id AND c2.chunk_index = c1.chunk_index + 1
-                LEFT JOIN chunks c3 ON c1.video_id = c3.video_id AND c3.chunk_index = c1.chunk_index + 2
-                WHERE c1.id IN ({ids_str})
-            """
-            rows = connection.execute(sql).fetchall()
-
-            id_to_quote_data = {
-                r["id"]: {
-                    "combined_text": r["combined_text"],
-                    "chunks_data": [
-                        {"text": r["t1"], "start_sec": r["s1"], "end_sec": r["e1"]},
-                        {"text": r["t2"], "start_sec": r["s2"], "end_sec": r["e2"]},
-                        {"text": r["t3"], "start_sec": r["s3"], "end_sec": r["e3"]},
-                    ],
-                }
-                for r in rows
+        scores_map = {
+            p.id: {
+                "combined": 100.0,
+                "match_type": "quote",
             }
-
-            # Filter points to only those that we successfully loaded context for
-            valid_points = []
-            scores_map = {}
-            for p in points:
-                if p.id in id_to_quote_data:
-                    valid_points.append(p)
-                    q_data = id_to_quote_data[p.id]
-                    scores_map[p.id] = {
-                        "combined": 100.0,
-                        "match_type": "quote",
-                        "quote_phrases": [clean_query],
-                        "override_text": q_data["combined_text"],
-                        "quote_data": q_data,
-                    }
-            points = valid_points
-        else:
-            points = []
-            scores_map = {}
+            for p in points
+        }
 
     elif where_clause and not clean_query:
         res_scroll = manticore.scroll(
@@ -442,22 +400,14 @@ async def hybrid_search(
         lexical_score = float(point_data.get("lexical", 0.0))
         m_type = point_data.get("match_type", "hybrid" if clean_query else "filter")
 
-        # Text extraction (with override and cropping for quote mode)
-        full_text = point_data.get("override_text") or str(payload.get("text") or "")
-
-        if m_type == "quote":
-            # For quote mode, crop around the best match
-            pattern = _build_quote_regex(clean_query)
-            if pattern:
-                query_words = re.findall(r"[а-яА-ЯёЁa-zA-Z0-9]{3,}", clean_query.lower())
-                q_word_count = len(query_words) if query_words else 1
-                full_text = _crop_around_match(full_text, pattern, q_word_count)
-
-        # Use standard individual-word highlighting for everyone, but quote-aware for quote mode
-        if m_type == "quote":
-            highlighted_text = _quote_highlight(full_text, [clean_query])
-        else:
-            highlighted_text = _simple_highlight(full_text, clean_query)
+        full_text = str(payload.get("text") or "")
+        highlighted_text = payload.get("highlighted_text")
+        if not highlighted_text:
+            # Fallback to local python regex highlighter if Manticore highlight is not available
+            if m_type == "quote":
+                highlighted_text = _quote_highlight(full_text, [clean_query])
+            else:
+                highlighted_text = _simple_highlight(full_text, clean_query)
 
         v_id = payload.get("video_id")
         v_meta = video_metadata.get(v_id, {})
@@ -471,6 +421,15 @@ async def hybrid_search(
         chunk_id = _get_int(payload, "chunk_id") or _get_int(payload, "id")
         start_sec = _get_float(payload, "start_sec")
         end_sec = _get_float(payload, "end_sec")
+
+        rec_date_raw = payload.get("recorded_date")
+        rec_date_int = None
+        if rec_date_raw is not None:
+            try:
+                rec_date_int = int(rec_date_raw)
+            except (ValueError, TypeError):
+                pass
+        recorded_date_str = int_to_date(rec_date_int)
 
         results.append(
             SearchResult(
@@ -487,7 +446,7 @@ async def hybrid_search(
                 text=highlighted_text,
                 combined_score=combined_score,
                 match_type=m_type,
-                recorded_date=payload.get("recorded_date"),
+                recorded_date=recorded_date_str,
                 is_short=bool(payload.get("is_short", False)),
                 is_4k=bool(payload.get("is_4k", False)),
                 raw_text=full_text,

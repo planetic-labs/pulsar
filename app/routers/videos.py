@@ -5,16 +5,19 @@ import logging
 from typing import Any
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Request, Response
+from fastapi.responses import StreamingResponse
 
 from app.auth import require_access_token, require_admin
 from app.config import (
     get_app_settings,
     get_embedding_settings,
+    get_google_drive_settings,
     get_manticore_settings,
     get_sqlite_settings,
 )
 from app.db import db_connection
 from app.embeddings import UnifiedEmbeddingClient
+from app.google_drive import GoogleDriveClient
 from app.manticore import get_manticore_client
 
 logger = logging.getLogger(__name__)
@@ -145,7 +148,7 @@ async def api_update_chunk(chunk_id: int, request: Request, _: str = Depends(req
                         "vector": vectors,
                         "payload": {
                             "chunk_id": chunk_id,
-                            "video_id": row["video_id"],
+                            "video_id": str(row["video_id"]),
                             "chunk_index": row["chunk_index"],
                             "start_sec": row["start_sec"],
                             "end_sec": row["end_sec"],
@@ -224,3 +227,56 @@ async def api_delete_speaker(speaker_id: str, _: str = Depends(require_admin)) -
 
     m_client.delete(collection_name="speaker_registry", ids=[speaker_id])
     return {"status": "deleted"}
+
+
+@router.get("/videos/{video_id}/file")
+async def video_file(video_id: int, request: Request) -> Response:
+    require_access_token(request)
+
+    pg_settings = get_sqlite_settings()
+    with db_connection(pg_settings) as connection:
+        row = connection.execute(
+            "SELECT * FROM videos WHERE id = ?",
+            (video_id,),
+        ).fetchone()
+
+    if not row:
+        raise HTTPException(status_code=404)
+
+    if row["source_file_id"]:
+        drive_client = GoogleDriveClient(get_google_drive_settings())
+
+        # Open the stream from Google Drive
+        resp = await drive_client.open_media_stream(row["source_file_id"], range_header=request.headers.get("range"))
+
+        # Prepare headers for the browser
+        headers = {
+            "Accept-Ranges": "bytes",
+        }
+        if resp.headers.get("Content-Range"):
+            headers["Content-Range"] = str(resp.headers.get("Content-Range"))
+
+        # We DON'T pass Content-Length here to avoid mismatch errors if the stream closes early
+        # or if there's any discrepancy. Browsers will handle chunked or unknown length for video tags.
+
+        async def stream_from_resp(r):
+            try:
+                # Use smaller chunks for better reactivity
+                async for chunk in r.aiter_bytes(chunk_size=256 * 1024):
+                    yield chunk
+            except Exception as e:
+                logger.error(f"Streaming error for video {video_id}: {e}")
+            finally:
+                await r.aclose()
+                # Close the associated client
+                if hasattr(r, "_client"):
+                    await r._client.aclose()
+
+        return StreamingResponse(
+            stream_from_resp(resp),
+            status_code=resp.status_code,
+            media_type=row["mime_type"] or "video/mp4",
+            headers=headers,
+        )
+
+    raise HTTPException(status_code=404, detail="Local video streaming is not supported")

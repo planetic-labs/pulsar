@@ -35,6 +35,26 @@ def str_to_manticore_id(val: str | int) -> int:
         return int(hashlib.md5(val.encode("utf-8")).hexdigest()[:15], 16)
 
 
+def date_to_int(date_str: str | None) -> int:
+    if not date_str:
+        return 0
+    clean_date = date_str.strip()[:10]
+    clean_date = clean_date.replace("-", "")
+    try:
+        return int(clean_date)
+    except ValueError:
+        return 0
+
+
+def int_to_date(date_int: int | None) -> str | None:
+    if not date_int:
+        return None
+    val_str = str(date_int)
+    if len(val_str) != 8:
+        return None
+    return f"{val_str[:4]}-{val_str[4:6]}-{val_str[6:]}"
+
+
 class ManticoreClient:
     def __init__(self, url: str):
         self.url = url.rstrip("/")
@@ -170,7 +190,18 @@ class ManticoreClient:
         else:
             if isinstance(query, str):
                 escaped_query = query.replace("'", "''")
-                sql = f"SELECT *, weight() as w FROM {collection_name} WHERE MATCH('{escaped_query}')"
+                snippet_sql = (
+                    f", SNIPPET(text, '{escaped_query}', "
+                    f"'limit=10000', 'around=1000', "
+                    f"'before_match=<mark>', 'after_match=</mark>') as highlighted_text"
+                )
+                if using and using != "default":
+                    sql = (
+                        f"SELECT *, weight() as w {snippet_sql} "
+                        f"FROM {collection_name} WHERE MATCH('@{using} {escaped_query}')"
+                    )
+                else:
+                    sql = f"SELECT *, weight() as w {snippet_sql} FROM {collection_name} WHERE MATCH('{escaped_query}')"
                 if where_clause:
                     sql += f" AND {where_clause}"
                 sql += f" LIMIT {limit}"
@@ -213,9 +244,11 @@ class ManticoreClient:
         return points
 
     def retrieve(self, collection_name: str, ids: list[Any]) -> list[Record]:
+        if not ids:
+            return []
         m_ids = [str_to_manticore_id(x) for x in ids]
         ids_str = ",".join(str(x) for x in m_ids)
-        sql = f"SELECT * FROM {collection_name} WHERE id IN ({ids_str})"
+        sql = f"SELECT * FROM {collection_name} WHERE id IN ({ids_str}) LIMIT {len(ids)}"
         res = self._execute_sql(sql)
         records = []
         if res and len(res) > 0:
@@ -270,7 +303,7 @@ def init_manticore():
         `video_id` string,
         `source_file_id` string,
         `source_url` string,
-        `recorded_date` string,
+        `recorded_date` int,
         `chunk_index` int,
         `start_sec` float,
         `end_sec` float,

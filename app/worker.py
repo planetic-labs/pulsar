@@ -16,7 +16,7 @@ from app.config import (
 from app.db import db_connection
 from app.embeddings import UnifiedEmbeddingClient
 from app.google_drive import GoogleDriveClient
-from app.manticore import get_manticore_client
+from app.manticore import date_to_int, get_manticore_client
 from app.repository import update_video_status
 from app.transcription.deepgram import DeepgramEngine
 from scripts.ingest_drive_file import (
@@ -531,9 +531,9 @@ class Worker:
                                 "text": row["text"],
                                 "start_sec": row["start_sec"],
                                 "end_sec": row["end_sec"],
-                                "video_id": video_id,
+                                "video_id": str(video_id),
                                 "title": v_row["title"],
-                                "recorded_date": v_row["recorded_date"],
+                                "recorded_date": date_to_int(v_row["recorded_date"]),
                                 "is_short": bool(v_row["is_short"]),
                                 "is_4k": bool(v_row["is_4k"]),
                                 "source_file_id": v_row["source_file_id"],
