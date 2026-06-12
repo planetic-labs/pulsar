@@ -7,7 +7,7 @@ from typing import Any
 from fastapi import APIRouter, HTTPException, Request, Response
 from fastapi.responses import HTMLResponse, RedirectResponse
 
-from app.auth import is_valid_token, login_user, require_access_token
+from app.auth import require_access_token
 from app.config import get_app_settings, get_sqlite_settings
 from app.core import templates
 from app.db import db_connection
@@ -48,16 +48,6 @@ async def index_page(
     """Renders the main video indexing search engine home page."""
     app_settings = get_app_settings()
     pg_settings = get_sqlite_settings()
-
-    # URL Token Auth
-    token_param = request.query_params.get("token")
-    allowed_modes = {"hybrid", "semantic", "keyword"}
-    safe_mode = mode if mode in allowed_modes else "hybrid"
-    if token_param and is_valid_token(token_param):
-        redirect_url = request.url_for("index_page").include_query_params(q=q or "", mode=safe_mode)
-        response: Response = RedirectResponse(url=str(redirect_url))
-        login_user(response, request, str(token_param))
-        return response
 
     try:
         current_token = require_access_token(request)

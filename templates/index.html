@@ -575,7 +575,7 @@
         playerTitle.textContent = title;
         playerMeta.textContent = ts;
 
-        video.src = `/videos/${videoId}/file?token={{ token }}#t=${startSec}`;
+        video.src = `/videos/${videoId}/file#t=${startSec}`;
         video.play();
         
         // Visual cue on video
