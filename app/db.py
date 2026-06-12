@@ -79,6 +79,7 @@ def init_db(connection: sqlite3.Connection) -> None:
             is_4k BOOLEAN DEFAULT FALSE,
             is_missing BOOLEAN DEFAULT FALSE,
             is_excluded BOOLEAN DEFAULT FALSE,
+            is_silent BOOLEAN DEFAULT FALSE,
             original_id INTEGER REFERENCES videos(id) ON DELETE SET NULL,
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
             updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -88,6 +89,13 @@ def init_db(connection: sqlite3.Connection) -> None:
             CHECK (duration_sec IS NULL OR duration_sec >= 0)
         )
     """)
+
+    # Migrate: add is_silent column to existing videos table
+    try:
+        connection.execute("ALTER TABLE videos ADD COLUMN is_silent BOOLEAN DEFAULT FALSE")
+        connection.commit()
+    except sqlite3.OperationalError:
+        pass  # Column already exists
 
     # 3. Chunks table (UPDATED: removed speaker_tags, added UNIQUE and CHECK constraints)
     connection.execute("""

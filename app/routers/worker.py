@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-from typing import Any, cast
+from typing import Any
 
 from fastapi import APIRouter, Depends, Form, HTTPException
 
@@ -89,22 +89,8 @@ async def api_worker_progress(_: str = Depends(require_access_token)) -> dict[st
                 stats["pending"] = r["c"]
             if r["status"] == "failed":
                 stats["failed"] = r["c"]
-            if r["status"] == "skipped_silent":
-                stats["skipped_silent"] = r["c"]
             if r["status"] == "skipped_no_space":
                 stats["skipped_no_space"] = r["c"]
-
-        # Detail skipped silent
-        skipped_silent_count = stats.get("skipped_silent", 0)
-        if isinstance(skipped_silent_count, int) and skipped_silent_count > 0:
-            sql_ss = "SELECT id, payload FROM tasks WHERE status = 'skipped_silent' ORDER BY updated_at DESC LIMIT 20"
-            ss_rows = conn.execute(sql_ss).fetchall()
-            for ssr in ss_rows:
-                try:
-                    p = json.loads(ssr["payload"])
-                    stats["skipped_silent_list"].append({"id": ssr["id"], "title": p.get("title") or "Unknown"})
-                except Exception:
-                    pass
 
         # Detail skipped no space
         skipped_no_space_count = stats.get("skipped_no_space", 0)
@@ -171,7 +157,7 @@ async def api_worker_progress(_: str = Depends(require_access_token)) -> dict[st
 
         sql_orig_videos = (
             "SELECT id, title, source_file_id, source_url, status "
-            "FROM videos WHERE original_id IS NULL AND "
+            "FROM videos WHERE original_id IS NULL AND is_silent = 0 AND "
             "status NOT IN ('pending', 'failed', 'skipped_silent', 'skipped_no_space')"
         )
         orig_videos = conn.execute(sql_orig_videos).fetchall()
@@ -649,3 +635,89 @@ async def api_reindex_all(clear_manticore: bool = False, _: str = Depends(requir
         asyncio.create_task(worker.run())
 
     return {"status": "queued", "count": count}
+
+
+@router.post("/api/v1/reindex/integrity")
+async def api_reindex_integrity(_: str = Depends(require_access_token)) -> dict[str, Any]:
+    """Queues all videos with detected integrity issues for reindexing."""
+    settings = get_sqlite_settings()
+    import re
+
+    with db_connection(settings) as conn:
+        ii_rows = conn.execute("SELECT id, message FROM integrity_issues").fetchall()
+
+        video_ids = set()
+        for row in ii_rows:
+            msg: str = row["message"]
+            id_match = (
+                re.search(r"\(ID:(\d+)\)", msg)
+                or re.search(r"Video (\d+):", msg)
+                or re.search(r"video ID (\d+):", msg, re.IGNORECASE)
+            )
+            if id_match:
+                video_ids.add(int(id_match.group(1)))
+
+        if not video_ids:
+            return {"status": "success", "count": 0, "message": "Нет видео с проблемами целостности."}
+
+        count = 0
+        for vid in video_ids:
+            v_row = conn.execute("SELECT source_file_id, title FROM videos WHERE id = ?", (vid,)).fetchone()
+            if not v_row:
+                continue
+
+            source_file_id = v_row["source_file_id"]
+            title = v_row["title"]
+
+            # Check if task already exists to avoid duplicates
+            sql_check = """
+                SELECT 1 FROM tasks
+                WHERE status IN ('pending', 'running')
+                  AND (
+                    video_id = ?
+                    OR json_extract(payload, '$.file_id') = ?
+                    OR json_extract(payload, '$.video_id') = ?
+                  )
+            """
+            exists = conn.execute(sql_check, (vid, source_file_id, vid)).fetchone()
+            if exists:
+                continue
+
+            # Queue stage_1_download with reindex flag
+            payload = {"file_id": source_file_id, "title": title, "diarize": True, "reindex": True, "video_id": vid}
+            conn.execute(
+                "INSERT INTO tasks (task_type, payload, status, priority, video_id) VALUES (?, ?, ?, ?, ?)",
+                ("stage_1_download", json.dumps(payload, ensure_ascii=False), "pending", 8, vid),
+            )
+
+            # Reset video status to pending
+            conn.execute(
+                """
+                UPDATE videos
+                SET status = 'pending', duration_sec = NULL, size_bytes = NULL,
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE id = ?
+                """,
+                (vid,),
+            )
+
+            # Remove matching integrity issues
+            for row in ii_rows:
+                msg = row["message"]
+                id_match = (
+                    re.search(r"\(ID:(\d+)\)", msg)
+                    or re.search(r"Video (\d+):", msg)
+                    or re.search(r"video ID (\d+):", msg, re.IGNORECASE)
+                )
+                if id_match and int(id_match.group(1)) == vid:
+                    conn.execute("DELETE FROM integrity_issues WHERE id = ?", (row["id"],))
+
+            count += 1
+
+    # Auto-start worker
+    if count > 0:
+        worker = get_worker()
+        if not worker.is_running:
+            asyncio.create_task(worker.run())
+
+    return {"status": "success", "count": count}

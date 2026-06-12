@@ -123,6 +123,18 @@ async def api_indexed_delete_video(video_id: int, _: str = Depends(require_admin
         if not video_row:
             raise HTTPException(status_code=404, detail="Video not found")
 
+        source_file_id = video_row["source_file_id"]
+
+        # Check for active running or pending tasks to avoid conflicts
+        sql_check = """
+            SELECT id FROM tasks
+            WHERE status IN ('pending', 'running')
+              AND (video_id = ? OR json_extract(payload, '$.file_id') = ? OR json_extract(payload, '$.video_id') = ?)
+        """
+        active_task = conn.execute(sql_check, (video_id, source_file_id, video_id)).fetchone()
+        if active_task:
+            raise HTTPException(status_code=400, detail="Нельзя удалить видео, которое сейчас обрабатывается воркером.")
+
         chunk_rows = conn.execute("SELECT id FROM chunks WHERE video_id = ?", (video_id,)).fetchall()
 
     # Delete points from Manticore if they exist
@@ -191,21 +203,31 @@ async def api_indexed_delete_video(video_id: int, _: str = Depends(require_admin
         except Exception as e:
             logger.error(f"Failed to delete file {f_path}: {e}")
 
-    # Actually delete the video row
+    # Actually delete the video row and its associated integrity issues
     with db_connection(pg_settings) as conn:
         conn.execute("DELETE FROM videos WHERE id = ?", (video_id,))
+
+        # Remove matching integrity issues
+        import re
+
+        ii_rows = conn.execute("SELECT id, message FROM integrity_issues").fetchall()
+        for row in ii_rows:
+            msg = row["message"]
+            id_match = (
+                re.search(r"\(ID:(\d+)\)", msg)
+                or re.search(r"Video (\d+):", msg)
+                or re.search(r"video ID (\d+):", msg, re.IGNORECASE)
+            )
+            if id_match and int(id_match.group(1)) == video_id:
+                conn.execute("DELETE FROM integrity_issues WHERE id = ?", (row["id"],))
 
     return {"status": "success"}
 
 
 @router.post("/api/v1/indexed/videos/{video_id}/reindex")
 async def api_reindex_video(video_id: int, _: str = Depends(require_admin)) -> dict[str, str]:
-    """Triggers a clean reindexing of a video by removing local cache and re-queuing download."""
+    """Triggers a clean reindexing of a video by queuing a download task with reindex flag."""
     pg_settings = get_sqlite_settings()
-    q_settings = get_manticore_settings()
-    app_settings = get_app_settings()
-
-    from app.manticore import get_manticore_client
 
     with db_connection(pg_settings) as conn:
         video_row = conn.execute("SELECT source_file_id, title FROM videos WHERE id = ?", (video_id,)).fetchone()
@@ -215,88 +237,51 @@ async def api_reindex_video(video_id: int, _: str = Depends(require_admin)) -> d
         source_file_id = video_row["source_file_id"]
         title = video_row["title"]
 
-        # Fetch chunks to delete
-        chunk_rows = conn.execute("SELECT id FROM chunks WHERE video_id = ?", (video_id,)).fetchall()
-
-    # Delete from Manticore if they exist
-    chunk_ids = [c["id"] for c in chunk_rows]
-    if chunk_ids:
-        try:
-            manticore = get_manticore_client()
-            manticore.delete(
-                collection_name=q_settings.table_name,
-                ids=chunk_ids,
+        # Check for active running or pending tasks to avoid conflicts
+        sql_check = """
+            SELECT id FROM tasks
+            WHERE status IN ('pending', 'running')
+              AND (video_id = ? OR json_extract(payload, '$.file_id') = ? OR json_extract(payload, '$.video_id') = ?)
+        """
+        active_task = conn.execute(sql_check, (video_id, source_file_id, video_id)).fetchone()
+        if active_task:
+            raise HTTPException(
+                status_code=400, detail="Видео уже находится в обработке или в очереди. Пожалуйста, подождите."
             )
-        except Exception as e:
-            logger.error(f"Failed to delete Manticore points for video {video_id}: {e}")
 
-    # Delete local files if they exist
-    if source_file_id:
-        wav_p = app_settings.audio_dir / f"{source_file_id}.wav"
-        ogg_p = app_settings.audio_dir / f"{source_file_id}.ogg"
-        for p in [wav_p, ogg_p]:
-            try:
-                if p.exists():
-                    p.unlink()
-            except Exception as e:
-                logger.error(f"Failed to delete {p}: {e}")
-
-        downloads_dir = app_settings.downloads_dir
-        if downloads_dir.exists():
-            for p in downloads_dir.glob(f"{source_file_id}*"):
-                try:
-                    if p.exists():
-                        p.unlink()
-                except Exception as e:
-                    logger.error(f"Failed to delete temp video {p}: {e}")
-
-        raw_path = app_settings.get_raw_transcript_path(source_file_id)
-        try:
-            if raw_path.exists():
-                raw_path.unlink()
-                if raw_path.parent.exists() and raw_path.parent not in (
-                    app_settings.raw_transcripts_dir,
-                    app_settings.normalized_transcripts_dir,
-                ):
-                    if not any(raw_path.parent.iterdir()):
-                        raw_path.parent.rmdir()
-        except Exception as e:
-            logger.error(f"Failed to delete raw transcript {raw_path}: {e}")
-
-        norm_path = app_settings.get_normalized_transcript_path(source_file_id)
-        try:
-            if norm_path.exists():
-                norm_path.unlink()
-                if norm_path.parent.exists() and norm_path.parent not in (
-                    app_settings.raw_transcripts_dir,
-                    app_settings.normalized_transcripts_dir,
-                ):
-                    if not any(norm_path.parent.iterdir()):
-                        norm_path.parent.rmdir()
-        except Exception as e:
-            logger.error(f"Failed to delete normalized transcript {norm_path}: {e}")
-
-    # Update SQLite: delete chunks, set status to pending, add task
-    with db_connection(pg_settings) as conn:
-        conn.execute("DELETE FROM chunks WHERE video_id = ?", (video_id,))
+        # Update SQLite: set status to pending, reset metadata
         conn.execute(
             "UPDATE videos SET status = 'pending', duration_sec = NULL, "
             "size_bytes = NULL, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
             (video_id,),
         )
+
+        # Remove matching integrity issues
+        import re
+
+        ii_rows = conn.execute("SELECT id, message FROM integrity_issues").fetchall()
+        for row in ii_rows:
+            msg = row["message"]
+            id_match = (
+                re.search(r"\(ID:(\d+)\)", msg)
+                or re.search(r"Video (\d+):", msg)
+                or re.search(r"video ID (\d+):", msg, re.IGNORECASE)
+            )
+            if id_match and int(id_match.group(1)) == video_id:
+                conn.execute("DELETE FROM integrity_issues WHERE id = ?", (row["id"],))
+
+        # Insert stage_1_download task with reindex=True
         conn.execute(
-            "INSERT INTO tasks (task_type, payload, status) VALUES (?, ?, ?)",
+            "INSERT INTO tasks (task_type, payload, status, priority, video_id) VALUES (?, ?, ?, ?, ?)",
             (
                 "stage_1_download",
                 json.dumps(
-                    {
-                        "file_id": source_file_id,
-                        "title": title,
-                        "diarize": True,
-                    },
+                    {"file_id": source_file_id, "title": title, "diarize": True, "reindex": True, "video_id": video_id},
                     ensure_ascii=False,
                 ),
                 "pending",
+                8,
+                video_id,
             ),
         )
 
@@ -331,7 +316,7 @@ async def api_indexed_ls(folder_id: str | None = None, _: str = Depends(require_
         video_sql = """
             SELECT
                 v.id, v.title, v.mime_type, v.size_bytes, v.duration_sec,
-                v.updated_at, v.source_file_id, v.is_short, v.is_4k,
+                v.updated_at, v.source_file_id, v.is_short, v.is_4k, v.is_silent,
                 (v.original_id IS NOT NULL) AS is_md5_duplicate,
                 (SELECT COUNT(*) FROM chunks c WHERE c.video_id = v.id) as chunk_count
             FROM videos v
@@ -374,6 +359,7 @@ async def api_indexed_ls(folder_id: str | None = None, _: str = Depends(require_
                 "is_short": bool(r["is_short"]),
                 "is_4k": bool(r["is_4k"]),
                 "is_md5_duplicate": bool(r["is_md5_duplicate"]),
+                "is_silent": bool(r["is_silent"]),
                 "source_file_id": r["source_file_id"],
                 "duration_sec": r["duration_sec"],
                 "chunk_count": r["chunk_count"],

@@ -173,6 +173,76 @@ class Worker:
                 {"active": True, "title": title, "progress": 0, "speed": "", "status_text": "Инициализация"}
             )
 
+            # Perform clean-up if this is a reindexing task
+            if payload.get("reindex") and payload.get("video_id"):
+                video_id = payload["video_id"]
+                logger.info(f"Очистка данных перед переиндексацией для видео ID {video_id} ({title})")
+
+                # 1. Delete vector points from Manticore
+                q_settings = get_manticore_settings()
+                try:
+                    manticore = get_manticore_client()
+                    with db_connection(get_sqlite_settings()) as conn:
+                        chunk_rows = conn.execute("SELECT id FROM chunks WHERE video_id = ?", (video_id,)).fetchall()
+                    chunk_ids = [c["id"] for c in chunk_rows]
+                    if chunk_ids:
+                        manticore.delete(collection_name=q_settings.table_name, ids=chunk_ids)
+                        logger.info(f"Удалено {len(chunk_ids)} векторов из Manticore для видео {video_id}")
+                except Exception as e:
+                    logger.error(f"Ошибка при очистке векторов в Manticore для видео {video_id}: {e}")
+
+                # 2. Delete local files from storage
+                from app.config import get_app_settings
+
+                app_settings = get_app_settings()
+                wav_p = app_settings.audio_dir / f"{file_id}.wav"
+                ogg_p = app_settings.audio_dir / f"{file_id}.ogg"
+                for p in [wav_p, ogg_p]:
+                    try:
+                        if p.exists():
+                            p.unlink()
+                    except Exception as e:
+                        logger.error(f"Не удалось удалить файл {p}: {e}")
+
+                downloads_dir = app_settings.downloads_dir
+                if downloads_dir.exists():
+                    for p in downloads_dir.glob(f"{file_id}*"):
+                        try:
+                            if p.exists():
+                                p.unlink()
+                        except Exception as e:
+                            logger.error(f"Не удалось удалить временный файл {p}: {e}")
+
+                raw_path = app_settings.get_raw_transcript_path(file_id)
+                try:
+                    if raw_path.exists():
+                        raw_path.unlink()
+                        if raw_path.parent.exists() and raw_path.parent not in (
+                            app_settings.raw_transcripts_dir,
+                            app_settings.normalized_transcripts_dir,
+                        ):
+                            if not any(raw_path.parent.iterdir()):
+                                raw_path.parent.rmdir()
+                except Exception as e:
+                    logger.error(f"Не удалось удалить сырой транскрипт {raw_path}: {e}")
+
+                norm_path = app_settings.get_normalized_transcript_path(file_id)
+                try:
+                    if norm_path.exists():
+                        norm_path.unlink()
+                        if norm_path.parent.exists() and norm_path.parent not in (
+                            app_settings.raw_transcripts_dir,
+                            app_settings.normalized_transcripts_dir,
+                        ):
+                            if not any(norm_path.parent.iterdir()):
+                                norm_path.parent.rmdir()
+                except Exception as e:
+                    logger.error(f"Не удалось удалить нормализованный транскрипт {norm_path}: {e}")
+
+                # 3. Delete chunks in SQLite
+                with db_connection(get_sqlite_settings()) as conn:
+                    conn.execute("DELETE FROM chunks WHERE video_id = ?", (video_id,))
+
             sql_q = "SELECT COUNT(*) as c FROM tasks WHERE status IN ('pending', 'running')"
             with db_connection(get_sqlite_settings()) as conn:
                 c_row = conn.execute(sql_q).fetchone()
@@ -300,10 +370,44 @@ class Worker:
                         conn.execute(sql_skip, (json.dumps(new_payload), task_id))
                     logger.error(f"Недостаточно места. Файл {title} пропущен.")
             except SilentVideoError:
-                logger.warning(f"Пропуск видео без звука: {title}")
-                sql = "UPDATE tasks SET status = 'skipped_silent', updated_at = CURRENT_TIMESTAMP WHERE id = ?"
+                logger.warning(f"Видео без звука: {title}. Добавляем в индекс с пометкой (без звука).")
+                parent_folder_id = payload.get("parent_folder_id")
+                md5 = payload.get("md5") or payload.get("md5_checksum")
+
+                if not parent_folder_id or not md5:
+                    try:
+                        drive_settings = get_google_drive_settings()
+                        drive_client = GoogleDriveClient(drive_settings)
+                        drive_file = await drive_client.get_file(file_id)
+                        if not parent_folder_id and drive_file.parents:
+                            parent_folder_id = drive_file.parents[0]
+                        if not md5:
+                            md5 = drive_file.md5_checksum
+                    except Exception as e:
+                        logger.error(f"Не удалось получить метаданные для видео без звука {file_id}: {e}")
+
                 with db_connection(get_sqlite_settings()) as conn:
-                    conn.execute(sql, (task_id,))
+                    from app.repository import upsert_video
+
+                    video_id = upsert_video(
+                        conn,
+                        source_file_id=file_id,
+                        parent_folder_id=parent_folder_id,
+                        md5_checksum=md5,
+                        title=title,
+                        source_url=f"https://drive.google.com/file/d/{file_id}/view",
+                        mime_type=payload.get("mime_type") or "video/mp4",
+                        size_bytes=None,
+                        duration_sec=None,
+                        is_short=False,
+                        status="indexed_chunks_ready",
+                    )
+                    conn.execute("UPDATE videos SET is_silent = 1 WHERE id = ?", (video_id,))
+                    conn.execute(
+                        "UPDATE tasks SET status = 'completed', video_id = ?, "
+                        "updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                        (video_id, task_id),
+                    )
             except Exception:
                 # Ошибка пробрасывается выше в _consume_stage для обработки в _handle_task_failure
                 raise
