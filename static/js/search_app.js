@@ -154,22 +154,25 @@ window.addEventListener('click', function(e) {
 
     sliderFrom.oninput = updateTimelineVisuals;
     sliderTo.oninput = updateTimelineVisuals;
-    
-    sliderFrom.onchange = () => {
-        const {d1s, d2s} = updateTimelineVisuals();
-        dateFromInput.value = d1s;
-        dateToInput.value = d2s;
-        document.getElementById('search-form').submit();
-    };
-    
-    sliderTo.onchange = () => {
-        const {d1s, d2s} = updateTimelineVisuals();
-        dateFromInput.value = d1s;
-        dateToInput.value = d2s;
-        document.getElementById('search-form').submit();
-    };
 
     setSlidersFromInputs();
+
+    // Delay attaching onchange handlers to prevent browser autofill/restoration from triggering infinite page reload loops
+    setTimeout(() => {
+        sliderFrom.onchange = () => {
+            const {d1s, d2s} = updateTimelineVisuals();
+            dateFromInput.value = d1s;
+            dateToInput.value = d2s;
+            document.getElementById('search-form').submit();
+        };
+        
+        sliderTo.onchange = () => {
+            const {d1s, d2s} = updateTimelineVisuals();
+            dateFromInput.value = d1s;
+            dateToInput.value = d2s;
+            document.getElementById('search-form').submit();
+        };
+    }, 100);
 })();
 
 let activeChunkId = null;
@@ -436,3 +439,22 @@ function closeSearchModeModal() {
     const modal = document.getElementById('search-mode-modal');
     if (modal) modal.classList.add('hidden');
 }
+
+// Expose functions globally for inline HTML event handlers (e.g., onclick)
+window.copyToClipboard = copyToClipboard;
+window.toggleSearchHelp = toggleSearchHelp;
+window.toggleTimeline = toggleTimeline;
+window.toggleDropdown = toggleDropdown;
+window.setFilter = setFilter;
+window.syncAndSubmit = syncAndSubmit;
+window.openDatePicker = openDatePicker;
+window.clearDates = clearDates;
+window.playFragment = playFragment;
+window.closePlayer = closePlayer;
+window.editChunk = editChunk;
+window.saveSpeaker = saveSpeaker;
+window.manageSpeakers = manageSpeakers;
+window.closeSpeakers = closeSpeakers;
+window.showSearchModeHelp = showSearchModeHelp;
+window.closeSearchModeModal = closeSearchModeModal;
+
