@@ -617,6 +617,15 @@ def verify_integrity() -> dict[str, Any]:
         else:
             print("✅ Таймкоды чанков логически верны.")
 
+    # Save the found issues to the DB, clearing previous ones
+    try:
+        with db_connection(sqlite_settings) as conn:
+            conn.execute("DELETE FROM integrity_issues")
+            for issue in issues:
+                conn.execute("INSERT INTO integrity_issues (message) VALUES (?)", (issue,))
+    except Exception as db_err:
+        print(f"❌ Failed to save integrity issues to database: {db_err}")
+
     print("\n=== ПРОВЕРКА ЗАВЕРШЕНА ===")
     return {
         "status": "completed",
