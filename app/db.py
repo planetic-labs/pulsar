@@ -258,5 +258,14 @@ def init_db(connection: sqlite3.Connection) -> None:
         )
     """)
 
+    # 10. Integrity issues table (for verify_integrity.py results)
+    connection.execute("""
+        CREATE TABLE IF NOT EXISTS integrity_issues (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            message TEXT NOT NULL,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+
     connection.commit()
     logger.info("SQLite database schema initialized.")
