@@ -61,14 +61,14 @@ async def main():
             v_id_str = row_dict.get("video_id")
             c_idx = row_dict.get("chunk_index")
 
-            if not v_id_str:
+            if not v_id_str or c_idx is None:
                 skipped_no_vid += 1
                 continue
 
             try:
                 v_id = int(v_id_str)
                 c_idx = int(c_idx)
-            except ValueError:
+            except (ValueError, TypeError):
                 skipped_no_match += 1
                 continue
 

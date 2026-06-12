@@ -31,6 +31,21 @@
         }
     </script>
     <style>
+        /* Layout scaffolding to prevent layout jumps before Tailwind loads */
+        .flex { display: flex; }
+        .flex-1 { flex: 1 1 0%; }
+        .flex-col { flex-direction: column; }
+        .h-full { height: 100%; }
+        #sidebar { display: none; }
+        @media (min-width: 1024px) {
+            .lg\:flex-row { flex-direction: row; }
+            #sidebar { display: flex !important; width: 18rem; flex-shrink: 0; }
+            #player-column { display: block !important; width: 400px; flex-shrink: 0; }
+        }
+        @media (min-width: 1280px) {
+            #player-column { width: 500px; }
+        }
+
         body { font-family: 'Plus Jakarta Sans', sans-serif; background-color: #FAF9F6; color: #4A453E; }
         .sidebar-active { background-color: #F2F0EB; color: #5F6683; font-weight: 700; }
         ::-webkit-scrollbar { width: 4px; }
