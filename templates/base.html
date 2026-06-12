@@ -139,10 +139,12 @@
             }
         }
 
-        // Register Service Worker for PWA
+        // Unregister Service Worker if any to prevent fetch errors and page loading issues
         if ('serviceWorker' in navigator) {
-            window.addEventListener('load', () => {
-                navigator.serviceWorker.register('/sw.js');
+            navigator.serviceWorker.getRegistrations().then((registrations) => {
+                for (let registration of registrations) {
+                    registration.unregister();
+                }
             });
         }
     </script>

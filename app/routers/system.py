@@ -84,9 +84,5 @@ async def service_worker() -> Response:
 self.addEventListener('install', (e) => {
   self.skipWaiting();
 });
-self.addEventListener('fetch', (event) => {
-  // Pass-through for now
-  event.respondWith(fetch(event.request));
-});
 """
     return Response(content=content, media_type="application/javascript")

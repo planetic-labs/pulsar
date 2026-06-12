@@ -49,6 +49,14 @@ async def index_page(
     app_settings = get_app_settings()
     pg_settings = get_sqlite_settings()
 
+    # Debug log for request loops
+    logger.info(
+        "INDEX_PAGE: Path=%s, Query=%s, UA=%s",
+        request.url.path,
+        request.url.query,
+        request.headers.get("user-agent"),
+    )
+
     try:
         current_token = require_access_token(request)
     except HTTPException:
