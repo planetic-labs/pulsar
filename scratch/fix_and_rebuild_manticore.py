@@ -4,7 +4,7 @@ import sqlite3
 import time
 
 from app.config import get_embedding_settings, get_manticore_settings, get_sqlite_settings
-from app.manticore import get_manticore_client
+from app.manticore import date_to_int, get_manticore_client
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
@@ -45,7 +45,7 @@ async def main():
         `video_id` string,
         `source_file_id` string,
         `source_url` string,
-        `recorded_date` string,
+        `recorded_date` int,
         `chunk_index` int,
         `start_sec` float,
         `end_sec` float,
@@ -109,7 +109,7 @@ async def main():
             v_id_str = row_dict.get("video_id")
             c_idx = row_dict.get("chunk_index")
 
-            if not v_id_str:
+            if not v_id_str or c_idx is None:
                 skipped_no_vid += 1
                 continue
 
@@ -146,7 +146,7 @@ async def main():
                         "video_id": str(v_id),
                         "source_file_id": row_dict.get("source_file_id") or "",
                         "source_url": row_dict.get("source_url") or "",
-                        "recorded_date": row_dict.get("recorded_date") or "",
+                        "recorded_date": date_to_int(row_dict.get("recorded_date")),
                         "chunk_index": int(c_idx),
                         "start_sec": float(row_dict.get("start_sec") or 0.0),
                         "end_sec": float(row_dict.get("end_sec") or 0.0),

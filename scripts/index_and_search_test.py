@@ -12,7 +12,7 @@ if str(ROOT_DIR) not in sys.path:
 
 from app.config import get_embedding_settings, get_manticore_settings, get_sqlite_settings
 from app.embeddings import UnifiedEmbeddingClient
-from app.manticore import get_manticore_client, init_manticore
+from app.manticore import date_to_int, get_manticore_client, init_manticore
 from app.search import hybrid_search
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
@@ -101,7 +101,7 @@ async def main():
                             "title": row["title"],
                             "source_file_id": row["source_file_id"],
                             "source_url": row["source_url"],
-                            "recorded_date": row["recorded_date"],
+                            "recorded_date": date_to_int(row["recorded_date"]),
                             "is_short": bool(row["is_short"]),
                             "is_4k": bool(row["is_4k"]),
                             "is_primary": True,

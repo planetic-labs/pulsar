@@ -10,7 +10,7 @@ if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
 from app.config import get_manticore_settings, get_sqlite_settings
-from app.manticore import get_manticore_client, init_manticore
+from app.manticore import date_to_int, get_manticore_client, init_manticore
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
@@ -58,7 +58,7 @@ async def index_sqlite_to_manticore(manticore, table_name: str, db_path: str | P
                             "title": r["title"] or "",
                             "source_file_id": r["source_file_id"] or "",
                             "source_url": r["source_url"] or "",
-                            "recorded_date": r["recorded_date"] or "",
+                            "recorded_date": date_to_int(r["recorded_date"]),
                             "is_short": 1 if r["is_short"] else 0,
                             "is_4k": 1 if r["is_4k"] else 0,
                             "is_primary": 1,
