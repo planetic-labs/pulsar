@@ -200,6 +200,7 @@ async function loadVideos(folderId = 'root') {
                     const label4k = item.is_4k ? '<span class="px-1.5 py-0.5 bg-amber-100 text-amber-700 text-[8px] font-black uppercase tracking-widest rounded-md shrink-0">4K</span>' : '';
                     const labelShort = item.is_short ? '<span class="px-1.5 py-0.5 bg-teal-100 text-teal-700 text-[8px] font-black uppercase tracking-widest rounded-md shrink-0">Short</span>' : '';
                     const labelDuplicate = item.is_md5_duplicate ? '<span class="px-1.5 py-0.5 bg-red-100 text-red-700 text-[8px] font-black uppercase tracking-widest rounded-md shrink-0">Дубликат</span>' : '';
+                    const labelSilent = item.is_silent ? '<span class="px-1.5 py-0.5 bg-rose-100 text-rose-700 text-[8px] font-black uppercase tracking-widest rounded-md shrink-0">Без звука</span>' : '';
 
                     const searchBtn = item.is_md5_duplicate ? '' : `
                                         <a href="/?q=v:${item.id}" class="p-1.5 text-warm-300 hover:text-brand-500 hover:bg-brand-50 rounded-lg transition-all" title="Открыть в поиске">
@@ -232,6 +233,7 @@ async function loadVideos(folderId = 'root') {
                                         ${label4k}
                                         ${labelShort}
                                         ${labelDuplicate}
+                                        ${labelSilent}
                                     </div>
                                 </div>
                             </div>

@@ -1,0 +1,36 @@
+<!-- Speaker Management Modal -->
+<div id="speaker-modal" class="fixed inset-0 z-[100] flex items-center justify-center p-4 lg:p-6 hidden">
+    <div class="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onclick="closeSpeakers()"></div>
+    <div class="relative w-full max-w-md bg-white border border-[#E5E1D8] rounded-[2rem] shadow-2xl overflow-hidden flex flex-col max-h-[80vh] animate-in zoom-in-95 duration-200">
+        <div class="p-6 lg:p-8 border-b border-[#E5E1D8] bg-[#FAF9F6] flex justify-between items-start">
+            <div>
+                <h2 class="text-[10px] font-black text-brand-500 uppercase tracking-[0.3em] mb-1">Speaker Reference</h2>
+                <h3 id="speaker-video-title" class="text-base font-bold text-[#3A3630]"></h3>
+            </div>
+            <button onclick="closeSpeakers()" class="p-2 text-warm-400 hover:text-[#3A3630] transition-colors">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M6 18L18 6M6 6l12 12"></path></svg>
+            </button>
+        </div>
+        <div id="speaker-list" class="p-6 lg:p-8 overflow-y-auto space-y-6 custom-scrollbar">
+            <!-- Speakers will be loaded here -->
+        </div>
+    </div>
+</div>
+
+<!-- Search Mode Info Modal -->
+<div id="search-mode-modal" class="hidden fixed inset-0 z-[120] flex items-center justify-center p-4" onclick="closeSearchModeModal()">
+    <div class="absolute inset-0 bg-slate-900/60 backdrop-blur-sm"></div>
+    <div class="relative bg-white w-full max-w-md rounded-[2.5rem] shadow-2xl border border-brand-100 overflow-hidden animate-in zoom-in-95 duration-200" onclick="event.stopPropagation()">
+        <div class="p-8">
+            <div class="flex items-center gap-4 mb-6">
+                <div class="w-12 h-12 bg-brand-50 rounded-2xl flex items-center justify-center shadow-inner shrink-0">
+                    <svg class="w-6 h-6 text-brand-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                </div>
+                <h3 id="mode-help-title" class="text-sm font-black text-[#3A3630] uppercase tracking-tight leading-tight">Подсказка</h3>
+            </div>
+            <div id="mode-help-text" class="text-[13px] font-medium text-warm-600 leading-relaxed mb-8 italic text-center">
+            </div>
+            <button onclick="closeSearchModeModal()" class="w-full py-3.5 bg-brand-500 text-white font-black text-[10px] uppercase tracking-widest rounded-2xl hover:bg-brand-600 shadow-lg shadow-brand-500/20 active:scale-95 transition-all">Закрыть</button>
+        </div>
+    </div>
+</div>

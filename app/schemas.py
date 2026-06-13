@@ -8,7 +8,6 @@ from pydantic import BaseModel
 class SearchResultItem(BaseModel):
     chunk_id: int
     video_id: int
-    transcript_id: int
     title: str
     source_file_id: str | None
     source_url: str | None
@@ -36,18 +35,10 @@ class SearchResponse(BaseModel):
 class VideoStatusItem(BaseModel):
     id: int
     title: str
-    source_type: str
     source_file_id: str | None
     processing_status: str
-    local_video_path: str | None
-    local_audio_path: str | None
     transcript_count: int
     chunk_count: int
     updated_at: datetime
     created_at: datetime | None = None
     primary_engine: str | None = None
-
-
-class FeedbackRequest(BaseModel):
-    title: str
-    description: str

@@ -4,6 +4,16 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+IS_CONTAINER = Path("/.dockerenv").exists() or str(PROJECT_ROOT) == "/app"
+
+
+def resolve_host_path(path: Path | str) -> Path:
+    p = Path(path)
+    if not IS_CONTAINER and len(p.parts) > 1 and p.parts[0] == "/" and p.parts[1] == "app":
+        return PROJECT_ROOT / Path(*p.parts[2:])
+    return p
+
 
 def _load_dotenv_file(dotenv_path: Path) -> None:
     if not dotenv_path.exists():
@@ -59,6 +69,8 @@ class EmbeddingSettings:
     model_id: str = "BAAI/bge-m3"
     dimension: int = 1024
     cache_lru_size: int = 20
+    provider: str = "custom"
+    openrouter_providers: list[str] | None = None
 
 
 @dataclass(frozen=True)
@@ -74,9 +86,9 @@ class VoiceSettings:
 
 
 @dataclass(frozen=True)
-class QdrantSettings:
+class ManticoreSettings:
     url: str
-    collection_name: str = "chunks_m3"
+    table_name: str = "chunks"
 
 
 @dataclass(frozen=True)
@@ -91,8 +103,6 @@ class AppSettings:
     storage_dir: Path
     data_dir: Path
     disk_space_buffer_gb: int
-    github_pat: str
-    github_repo: str
     max_audio_size_mb: int = 20
     ark_jwks_url: str | None = None
     ark_webhook_secret: str | None = None
@@ -102,9 +112,17 @@ class AppSettings:
     def raw_transcripts_dir(self) -> Path:
         return self.storage_dir / "transcripts" / "raw"
 
+    def get_raw_transcript_path(self, source_file_id: str) -> Path:
+        prefix = source_file_id[:2] if len(source_file_id) >= 2 else source_file_id
+        return self.raw_transcripts_dir / prefix / f"{source_file_id}.json.gz"
+
     @property
     def normalized_transcripts_dir(self) -> Path:
         return self.storage_dir / "transcripts" / "normalized"
+
+    def get_normalized_transcript_path(self, source_file_id: str) -> Path:
+        prefix = source_file_id[:2] if len(source_file_id) >= 2 else source_file_id
+        return self.normalized_transcripts_dir / prefix / f"{source_file_id}.json.gz"
 
     @property
     def downloads_dir(self) -> Path:
@@ -113,10 +131,6 @@ class AppSettings:
     @property
     def audio_dir(self) -> Path:
         return self.storage_dir / "audio"
-
-    @property
-    def voice_samples_dir(self) -> Path:
-        return self.storage_dir / "voice_samples"
 
     def resolve_path(self, path: str | Path | None) -> Path | None:
         if not path:
@@ -137,20 +151,27 @@ def _env_bool(name: str, default: bool) -> bool:
 def get_sqlite_settings() -> SQLiteSettings:
     app_settings = get_app_settings()
     default_db = app_settings.data_dir / "pulsar.db"
-    return SQLiteSettings(db_path=Path(os.getenv("SQLITE_DB_PATH", str(default_db))))
+    db_path = Path(os.getenv("SQLITE_DB_PATH", str(default_db)))
+    return SQLiteSettings(db_path=resolve_host_path(db_path))
 
 
 def get_embedding_settings() -> EmbeddingSettings:
+    providers_raw = os.getenv("EMBEDDING_OPENROUTER_PROVIDERS")
+    openrouter_providers = [p.strip() for p in providers_raw.split(",")] if providers_raw else None
     return EmbeddingSettings(
         api_url=os.getenv("EMBEDDING_API_URL", ""),
         api_token=os.getenv("EMBEDDING_API_TOKEN", ""),
+        model_id=os.getenv("EMBEDDING_MODEL_ID", "BAAI/bge-m3"),
+        dimension=int(os.getenv("EMBEDDING_DIMENSION", "1024")),
         cache_lru_size=int(os.getenv("EMBEDDING_CACHE_LRU_SIZE", "20")),
+        provider=os.getenv("EMBEDDING_PROVIDER", "custom"),
+        openrouter_providers=openrouter_providers,
     )
 
 
-def get_qdrant_settings() -> QdrantSettings:
-    return QdrantSettings(
-        url=os.getenv("QDRANT_URL", "http://qdrant:6333"), collection_name=os.getenv("QDRANT_COLLECTION", "chunks_m3")
+def get_manticore_settings() -> ManticoreSettings:
+    return ManticoreSettings(
+        url=os.getenv("MANTICORE_URL", "http://manticore:9308"), table_name=os.getenv("MANTICORE_TABLE", "chunks")
     )
 
 
@@ -163,9 +184,11 @@ def get_local_ai_settings() -> LocalAISettings:
 
 def get_google_drive_settings() -> GoogleDriveSettings:
     scopes_raw = os.getenv("GOOGLE_DRIVE_SCOPES", "https://www.googleapis.com/auth/drive.readonly")
+    credentials_path = Path(os.getenv("GOOGLE_DRIVE_CREDENTIALS_PATH", "/app/config/service-key.json"))
+    download_dir = Path(os.getenv("GOOGLE_DRIVE_DOWNLOAD_DIR", "/app/downloads"))
     return GoogleDriveSettings(
-        credentials_path=Path(os.getenv("GOOGLE_DRIVE_CREDENTIALS_PATH", "/app/config/service-key.json")),
-        download_dir=Path(os.getenv("GOOGLE_DRIVE_DOWNLOAD_DIR", "/app/downloads")),
+        credentials_path=resolve_host_path(credentials_path),
+        download_dir=resolve_host_path(download_dir),
         scopes=tuple(s.strip() for s in scopes_raw.split(",") if s.strip()),
     )
 
@@ -187,6 +210,8 @@ def get_deepgram_settings() -> DeepgramSettings:
 
 
 def get_app_settings() -> AppSettings:
+    storage_dir = Path(os.getenv("APP_STORAGE_DIR", "/app/storage"))
+    data_dir = Path(os.getenv("APP_DATA_DIR", "/app/data"))
     return AppSettings(
         access_token=os.getenv("APP_ACCESS_TOKEN", "change-me"),
         session_secret_key=os.getenv("SESSION_SECRET_KEY", "change-me-to-something-very-secret"),
@@ -195,11 +220,9 @@ def get_app_settings() -> AppSettings:
         results_limit=int(os.getenv("APP_RESULTS_LIMIT", "20")),
         download_concurrency=int(os.getenv("INGEST_DOWNLOAD_CONCURRENCY", "1")),
         process_concurrency=int(os.getenv("INGEST_PROCESS_CONCURRENCY", "1")),
-        storage_dir=Path(os.getenv("APP_STORAGE_DIR", "/app/storage")),
-        data_dir=Path(os.getenv("APP_DATA_DIR", "/app/data")),
+        storage_dir=resolve_host_path(storage_dir),
+        data_dir=resolve_host_path(data_dir),
         disk_space_buffer_gb=int(os.getenv("DISK_SPACE_BUFFER_GB", "3")),
-        github_pat=os.getenv("GITHUB_PAT", ""),
-        github_repo=os.getenv("GITHUB_REPO", "planetic-labs/pulsar"),
         max_audio_size_mb=int(os.getenv("MAX_AUDIO_SIZE_MB", "20")),
         ark_jwks_url=os.getenv("ARK_JWKS_URL"),
         ark_webhook_secret=os.getenv("ARK_WEBHOOK_SECRET"),

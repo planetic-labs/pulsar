@@ -77,31 +77,108 @@ def get_docker_compose_cmd() -> list[str]:
         return ["docker", "compose"]
 
 
+def clean_manticore_json():
+    logger.info("Step 1/4: Checking Manticore configuration integrity (manticore.json)...")
+    try:
+        compose_cmd = get_docker_compose_cmd()
+        # Read manticore.json from manticore container
+        cmd = compose_cmd + ["exec", "-T", "manticore", "cat", "/var/lib/manticore/manticore.json"]
+        res = subprocess.run(cmd, capture_output=True, text=True, check=True)
+        config = json.loads(res.stdout)
+
+        # We only want 'chunks' index in configuration. If other indexes exist, clean them up.
+        indexes = config.get("indexes", {})
+        dirty = False
+        allowed_indexes = {"chunks"}
+
+        for idx_name in list(indexes.keys()):
+            if idx_name not in allowed_indexes:
+                logger.warning(f"Found orphaned index '{idx_name}' in manticore.json. Removing it...")
+                indexes.pop(idx_name)
+                dirty = True
+
+        if dirty:
+            # Write cleaned configuration back
+            cleaned_json = json.dumps(config, separators=(",", ":"))
+            write_cmd = compose_cmd + [
+                "exec",
+                "-T",
+                "manticore",
+                "sh",
+                "-c",
+                f"echo '{cleaned_json}' > /var/lib/manticore/manticore.json",
+            ]
+            subprocess.run(write_cmd, check=True)
+            logger.info("Successfully cleaned manticore.json. Restarting Manticore container to apply changes...")
+
+            # Restart manticore to apply changes
+            restart_cmd = compose_cmd + ["restart", "manticore"]
+            subprocess.run(restart_cmd, check=True)
+            logger.info("Manticore container restarted and configuration applied.")
+        else:
+            logger.info("Manticore configuration is clean.")
+    except Exception as e:
+        logger.error(f"Failed to check/clean manticore.json: {e}")
+
+
+def is_worker_active() -> tuple[bool, int]:
+    """Проверяет, есть ли активные или ожидающие задачи в очереди воркера."""
+    try:
+        from app.config import get_sqlite_settings
+        from app.db import db_connection
+
+        sqlite_settings = get_sqlite_settings()
+        with db_connection(sqlite_settings) as conn:
+            active_tasks = conn.execute(
+                "SELECT COUNT(*) as cnt FROM tasks WHERE status IN ('pending', 'running')"
+            ).fetchone()
+            count = active_tasks["cnt"] if active_tasks else 0
+            return count > 0, count
+    except Exception as e:
+        logger.error(f"Failed to check worker status: {e}")
+        # Из соображений безопасности считаем, что воркер активен, если проверка упала
+        return True, 0
+
+
 def main():
     logger.info("=========================================")
     logger.info("🚀 STARTING UNIFIED CRON WORKFLOW")
     logger.info("=========================================")
 
-    # 1. Execute Sync Index
-    logger.info("Step 1/2: Running index synchronization in container...")
+    # Проверяем активность воркера перед выполнением любых операций (включая чистку Manticore)
+    active, tasks_count = is_worker_active()
+    if active:
+        msg = (
+            "<b>ℹ️ Выполнение регламентных задач Pulsar отложено:</b> "
+            f"воркер сейчас занят обработкой задач (в очереди: {tasks_count})."
+        )
+        logger.info(f"Worker is active ({tasks_count} tasks in queue). Postponing all cron steps.")
+        send_telegram_notification(msg)
+        return
+
+    # 0. Clean Manticore config metadata
+    clean_manticore_json()
+
+    # 1. Execute Tasks Cleanup
+    logger.info("Step 2/4: Running tasks history cleanup in container...")
     try:
         compose_cmd = get_docker_compose_cmd()
-        cmd = compose_cmd + ["exec", "-T", "pulsar", "uv", "run", "python", "scripts/sync_index.py"]
+        cmd = compose_cmd + ["exec", "-T", "pulsar", "uv", "run", "python", "scripts/cleanup_tasks.py"]
         res = subprocess.run(cmd, capture_output=True, text=True, check=True)
-        logger.info("Sync stdout:")
+        logger.info("Cleanup stdout:")
         for line in res.stdout.splitlines():
-            logger.info(f"  [SYNC] {line}")
-        logger.info("✅ Index synchronization completed successfully.")
+            logger.info(f"  [CLEANUP] {line}")
+        logger.info("✅ Tasks cleanup completed successfully.")
     except subprocess.CalledProcessError as e:
-        logger.error(f"❌ Index synchronization failed with exit code {e.returncode}!")
-        logger.error(f"Sync stdout:\n{e.stdout}")
-        logger.error(f"Sync stderr:\n{e.stderr}")
+        logger.error(f"❌ Tasks cleanup failed with exit code {e.returncode}!")
+        logger.error(f"Cleanup stdout:\n{e.stdout}")
+        logger.error(f"Cleanup stderr:\n{e.stderr}")
 
     # 2. Execute Integrity Check
-    logger.info("Step 2/2: Running database and index integrity checks in container...")
+    logger.info("Step 3/4: Running database and index integrity checks in container...")
     try:
         compose_cmd = get_docker_compose_cmd()
-        cmd = compose_cmd + ["exec", "-T", "pulsar", "uv", "run", "python", "scripts/check_integrity.py"]
+        cmd = compose_cmd + ["exec", "-T", "pulsar", "uv", "run", "python", "scripts/verify_integrity.py"]
         res = subprocess.run(cmd, capture_output=True, text=True, check=True)
 
         # Log stdout/stderr lines except the JSON wrapper line
@@ -134,16 +211,14 @@ def main():
         deleted_norm = result.get("deleted_norm_count", 0)
         reindexed_videos = result.get("reindexed_videos_count", 0)
         reindexed_chunks = result.get("reindexed_chunks_count", 0)
-        deleted_qdrant_points = result.get("deleted_qdrant_points_count", 0)
+        deleted_manticore_points = result.get("deleted_manticore_points_count", 0)
 
         # Build notification text
         notification_lines = []
 
         if issues:
             logger.warning(f"❌ Integrity check completed with {len(issues)} issues found!")
-            notification_lines.append("<b>⚠️ Обнаружены отклонения при проверке целостности Pulsar!</b>\n")
-            for idx, err in enumerate(issues, 1):
-                notification_lines.append(f"{idx}. {err}")
+            notification_lines.append(result.get("summary") or "")
             notification_lines.append("")
         else:
             logger.info("✅ Integrity check completed. No critical issues found.")
@@ -157,8 +232,8 @@ def main():
             auto_corrected.append(
                 f"• Отправлено на повторную индексацию: {reindexed_videos} видео ({reindexed_chunks} чанков)"
             )
-        if deleted_qdrant_points > 0:
-            auto_corrected.append(f"• Удалено сиротских векторов из Qdrant: {deleted_qdrant_points}")
+        if deleted_manticore_points > 0:
+            auto_corrected.append(f"• Удалено сиротских векторов из Manticore: {deleted_manticore_points}")
 
         if auto_corrected:
             if not issues:
@@ -173,6 +248,21 @@ def main():
         if isinstance(e, subprocess.CalledProcessError):
             logger.error(f"Integrity check stdout:\n{e.stdout}")
             logger.error(f"Integrity check stderr:\n{e.stderr}")
+
+    # 3. Execute Sync Index
+    logger.info("Step 4/4: Running index synchronization in container...")
+    try:
+        compose_cmd = get_docker_compose_cmd()
+        cmd = compose_cmd + ["exec", "-T", "pulsar", "uv", "run", "python", "scripts/sync_index.py"]
+        res = subprocess.run(cmd, capture_output=True, text=True, check=True)
+        logger.info("Sync stdout:")
+        for line in res.stdout.splitlines():
+            logger.info(f"  [SYNC] {line}")
+        logger.info("✅ Index synchronization completed successfully.")
+    except subprocess.CalledProcessError as e:
+        logger.error(f"❌ Index synchronization failed with exit code {e.returncode}!")
+        logger.error(f"Sync stdout:\n{e.stdout}")
+        logger.error(f"Sync stderr:\n{e.stderr}")
 
     logger.info("=========================================")
     logger.info("🎉 UNIFIED CRON WORKFLOW COMPLETED")

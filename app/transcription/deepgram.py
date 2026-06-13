@@ -223,7 +223,6 @@ class DeepgramEngine(TranscriptionEngine):
                             "start": s_start,
                             "end": s_end,
                             "transcript": sentence.get("text") or "",
-                            "speaker": p.get("speaker"),
                             "confidence": 1.0,
                         }
                     )
@@ -251,7 +250,6 @@ class DeepgramEngine(TranscriptionEngine):
                     "end": float(u_end),
                     "text": str(utt.get("transcript", "") or utt.get("text", "")),
                     "confidence": float(utt.get("confidence", 1.0)),
-                    "speaker": utt.get("speaker"),
                 }
             )
 

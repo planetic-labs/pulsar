@@ -83,7 +83,7 @@ def main():
 
     try:
         compose_cmd = get_docker_compose_cmd()
-        cmd = compose_cmd + ["exec", "-T", "pulsar", "uv", "run", "python", "scripts/check_integrity.py"]
+        cmd = compose_cmd + ["exec", "-T", "pulsar", "uv", "run", "python", "scripts/verify_integrity.py"]
         res = subprocess.run(cmd, capture_output=True, text=True, check=True)
 
         # Log stdout lines
@@ -116,16 +116,14 @@ def main():
         deleted_norm = result.get("deleted_norm_count", 0)
         reindexed_videos = result.get("reindexed_videos_count", 0)
         reindexed_chunks = result.get("reindexed_chunks_count", 0)
-        deleted_qdrant_points = result.get("deleted_qdrant_points_count", 0)
+        deleted_manticore_points = result.get("deleted_manticore_points_count", 0)
 
         # Build notification text
         notification_lines = []
 
         if issues:
             logger.warning(f"❌ Integrity check completed with {len(issues)} issues found!")
-            notification_lines.append("<b>⚠️ Обнаружены отклонения при проверке целостности Pulsar!</b>\n")
-            for idx, err in enumerate(issues, 1):
-                notification_lines.append(f"{idx}. {err}")
+            notification_lines.append(result.get("summary") or "")
             notification_lines.append("")
         else:
             logger.info("✅ Integrity check completed. No critical issues found.")
@@ -140,8 +138,8 @@ def main():
             auto_corrected.append(
                 f"• Отправлено на повторную индексацию: {reindexed_videos} видео ({reindexed_chunks} чанков)"
             )
-        if deleted_qdrant_points > 0:
-            auto_corrected.append(f"• Удалено сиротских векторов из Qdrant: {deleted_qdrant_points}")
+        if deleted_manticore_points > 0:
+            auto_corrected.append(f"• Удалено сиротских векторов из Manticore: {deleted_manticore_points}")
 
         if auto_corrected:
             notification_lines.append("<b>🔄 Автоматически исправлено:</b>")

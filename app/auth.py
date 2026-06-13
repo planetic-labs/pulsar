@@ -133,12 +133,7 @@ def is_valid_token(token: str | None) -> bool:
 
 
 def get_session_token(request: Request) -> str | None:
-    # 1. Check Query Params (direct link)
-    token = request.query_params.get("token")
-    if token:
-        return str(token)
-
-    # 2. Check Session (managed by SessionMiddleware)
+    # 1. Check Session (managed by SessionMiddleware)
     access_token = request.session.get("access_token")
     if access_token:
         return str(access_token)
