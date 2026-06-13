@@ -97,7 +97,8 @@ class CustomEmbeddingProvider(BaseEmbeddingProvider):
                 response.raise_for_status()
                 res = response.json()
 
-                for item in res["data"]:
+                sorted_data = sorted(res["data"], key=lambda x: x.get("index", 0))
+                for item in sorted_data:
                     dense = item["embedding"]
                     sparse = None
                     if "embeddings_sparse" in item:

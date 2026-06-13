@@ -1197,10 +1197,7 @@
         if (state.active) {
           card.classList.remove("opacity-40");
           title.innerText = state.title;
-          status.innerText =
-            stageId === "stage_3_index"
-              ? `${state.status_text} (MOCK)`
-              : state.status_text;
+          status.innerText = state.status_text;
           bar.style.width = `${state.progress}%`;
 
           if (

@@ -227,10 +227,6 @@ async def hybrid_search(
     manticore = get_manticore_client()
     settings = get_manticore_settings()
 
-    # Force lexical search since vec column was removed from Manticore
-    if search_mode in ("semantic", "hybrid"):
-        search_mode = "lexical"
-
     # 1. Parse Filters
     where_clauses: list[str] = []
 

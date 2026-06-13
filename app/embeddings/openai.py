@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 from collections.abc import Callable
 from typing import Any
@@ -75,30 +76,40 @@ class OpenAIEmbeddingProvider(BaseEmbeddingProvider):
         url = self._get_url()
         headers = {"Authorization": f"Bearer {self.settings.api_token}"} if self.settings.api_token else {}
 
-        results: list[tuple[list[float], models.SparseVector | None]] = []
         total = len(texts)
-        batch_size = 50
+        batch_size = 500  # Увеличиваем батч до 500
+        results: list[tuple[list[float], models.SparseVector | None] | None] = [None] * total
+        completed_count = 0
+
+        async def process_batch(start_idx: int, batch_texts: list[str], client: httpx.AsyncClient) -> None:
+            nonlocal completed_count
+            current_end = min(start_idx + len(batch_texts), total)
+            logger.info(f"OpenAI: Параллельный запрос батча (фрагменты {start_idx} - {current_end} из {total})....")
+
+            payload = self._build_payload(batch_texts)
+            response = await client.post(url, json=payload, headers=headers)
+            response.raise_for_status()
+            res = response.json()
+
+            sorted_data = sorted(res["data"], key=lambda x: x.get("index", 0))
+            for idx, item in enumerate(sorted_data):
+                dense = item["embedding"]
+                global_idx = start_idx + idx
+                if global_idx < total:
+                    results[global_idx] = (dense, None)
+
+            completed_count += len(batch_texts)
+            if progress_callback:
+                progress_callback(completed_count, total)
+
         async with httpx.AsyncClient(timeout=300.0) as client:
+            tasks = []
             for i in range(0, total, batch_size):
                 batch = texts[i : i + batch_size]
-                current_end = min(i + batch_size, total)
-                logger.info(
-                    f"OpenAI: Обработка батча {i // batch_size + 1} (фрагменты {i} - {current_end} из {total})..."
-                )
+                tasks.append(process_batch(i, batch, client))
 
-                if progress_callback:
-                    progress_callback(i, total)
+            await asyncio.gather(*tasks)
 
-                payload = self._build_payload(batch)
-                response = await client.post(url, json=payload, headers=headers)
-                response.raise_for_status()
-                res = response.json()
-
-                for item in res["data"]:
-                    dense = item["embedding"]
-                    results.append((dense, None))
-
-        if progress_callback:
-            progress_callback(total, total)
-
-        return results
+        # Гарантируем, что все элементы заполнены
+        final_results = [r for r in results if r is not None]
+        return final_results
