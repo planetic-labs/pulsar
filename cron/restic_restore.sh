@@ -46,7 +46,7 @@ echo "Select snapshot to restore (default: latest):"
 read -p "Snapshot ID: " SNAPSHOT_ID
 SNAPSHOT_ID=${SNAPSHOT_ID:-latest}
 
-RESTORE_DIR="$PROJECT_ROOT/backups/tmp/restore_$SNAPSHOT_ID"
+RESTORE_DIR="$PROJECT_ROOT/tmp/restore_$SNAPSHOT_ID"
 mkdir -p "$RESTORE_DIR"
 
 echo "🔄 Restoring snapshot '$SNAPSHOT_ID' to temporary directory '$RESTORE_DIR'..."
@@ -88,19 +88,14 @@ restic restore "$SNAPSHOT_ID" --target "$RESTORE_DIR"
         fi
 
         echo "🔄 Restoring SQLite database..."
-        DB_RESTORED_PATH=""
-        if [ -f "$RESTORE_DIR$PROJECT_ROOT/backups/tmp/backup_db/pulsar.db" ]; then
-            DB_RESTORED_PATH="$RESTORE_DIR$PROJECT_ROOT/backups/tmp/backup_db/pulsar.db"
-        elif [ -f "$RESTORE_DIR/tmp/pulsar_backup_db/pulsar.db" ]; then
-            DB_RESTORED_PATH="$RESTORE_DIR/tmp/pulsar_backup_db/pulsar.db"
-        fi
+        DB_RESTORED_PATH="$RESTORE_DIR$PROJECT_ROOT/tmp/backup_db/pulsar.db"
 
-        if [ -n "$DB_RESTORED_PATH" ]; then
+        if [ -f "$DB_RESTORED_PATH" ]; then
             mkdir -p "$PROJECT_ROOT/data"
             cp "$DB_RESTORED_PATH" "$PROJECT_ROOT/data/pulsar.db"
             echo "✅ Database restored."
         else
-            echo "❌ Error: SQLite backup file not found in snapshot."
+            echo "❌ Error: SQLite backup file not found in snapshot at $PROJECT_ROOT/tmp/backup_db/pulsar.db."
         fi
 
         echo "🧹 Cleaning up temporary restore directory..."
