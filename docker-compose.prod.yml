@@ -2,8 +2,8 @@ services:
   manticore:
     image: manticoresearch/manticore:latest
     restart: always
-    # ports:
-    #   - "127.0.0.1:9308:9308"
+    ports:
+      - "127.0.0.1:9308:9308"
     networks:
       - homelab-net
     volumes:
