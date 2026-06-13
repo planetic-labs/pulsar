@@ -134,13 +134,6 @@ def chunk_from_utterances(
         prefix_parts = []
         suffix_parts = []
 
-        # 1. Берем префикс из предыдущего чанка, если он закрылся не по паузе
-        if idx > 0:
-            _, prev_closed_by_pause = chunks_meta[idx - 1]
-            if not prev_closed_by_pause:
-                prev_sentences = split_into_sentences(base_texts[idx - 1])
-                prefix_parts = prev_sentences[-overlap_sentences:]
-
         # 2. Добавляем суффикс из следующего чанка, если текущий чанк закрылся не по паузе
         if idx < num_chunks - 1:
             if not closed_by_pause:
