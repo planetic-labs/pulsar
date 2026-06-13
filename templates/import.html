@@ -116,16 +116,31 @@
             const li = document.createElement('li');
             li.className = 'flex items-center shrink-0';
             
-            let content = '';
             if (i > 0) {
-                content += '<svg class="w-4 h-4 text-warm-200 mx-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M9 5l7 7-7 7"></path></svg>';
+                const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+                svg.setAttribute('class', 'w-4 h-4 text-warm-200 mx-1');
+                svg.setAttribute('fill', 'none');
+                svg.setAttribute('stroke', 'currentColor');
+                svg.setAttribute('viewBox', '0 0 24 24');
+                svg.innerHTML = '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M9 5l7 7-7 7"></path>';
+                li.appendChild(svg);
             } else {
-                content += '<svg class="w-4 h-4 mr-2" fill="currentColor" viewBox="0 0 20 20"><path d="M10.707 2.293a1 1 0 00-1.414 0l-7 7a1 1 0 001.414 1.414L4 10.414V17a1 1 0 001 1h2a1 1 0 001-1v-2a1 1 0 011-1h2a1 1 0 011 1v2a1 1 0 001 1h2a1 1 0 001-1v-6.586l.293.293a1 1 0 001.414-1.414l-7-7z"></path></svg>';
+                const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+                svg.setAttribute('class', 'w-4 h-4 mr-2');
+                svg.setAttribute('fill', 'currentColor');
+                svg.setAttribute('viewBox', '0 0 20 20');
+                svg.innerHTML = '<path d="M10.707 2.293a1 1 0 00-1.414 0l-7 7a1 1 0 001.414 1.414L4 10.414V17a1 1 0 001 1h2a1 1 0 001-1v-2a1 1 0 011-1h2a1 1 0 011 1v2a1 1 0 001 1h2a1 1 0 001-1v-6.586l.293.293a1 1 0 001.414-1.414l-7-7z"></path>';
+                li.appendChild(svg);
             }
             
-            content += `<a href="javascript:void(0)" onclick="loadDriveFolder('${b.id}', '${b.name.replace(/'/g, "\\'")}', true)" class="px-3 py-2 rounded-xl transition-all truncate max-w-[150px] sm:max-w-[200px] block ${isLast ? 'text-brand-600 bg-warm-50 pointer-events-none' : 'text-warm-400 hover:text-brand-600 hover:bg-warm-50'}">${b.name}</a>`;
-            
-            li.innerHTML = content;
+            const a = document.createElement('a');
+            a.href = 'javascript:void(0)';
+            a.textContent = b.name;
+            a.className = `px-3 py-2 rounded-xl transition-all truncate max-w-[150px] sm:max-w-[200px] block ${isLast ? 'text-brand-600 bg-warm-50 pointer-events-none' : 'text-warm-400 hover:text-brand-600 hover:bg-warm-50'}`;
+            if (!isLast) {
+                a.addEventListener('click', () => loadDriveFolder(b.id, b.name, true));
+            }
+            li.appendChild(a);
             bcList.appendChild(li);
         });
     }
@@ -214,12 +229,16 @@
                                 <div class="flex items-center justify-between">
                                     <div class="flex items-center gap-3">
                                         <svg class="w-5 h-5 text-brand-200 group-hover:text-brand-400 transition-colors shrink-0" fill="currentColor" viewBox="0 0 20 20"><path d="M2 6a2 2 0 012-2h5l2 2h5a2 2 0 012 2v6a2 2 0 01-2 2H4a2 2 0 01-2-2V6z"></path></svg>
-                                        <span class="text-xs font-bold text-[#3A3630] uppercase tracking-tight">${item.name}</span>
+                                        <span class="folder-name text-xs font-bold text-[#3A3630] uppercase tracking-tight"></span>
                                     </div>
-                                    ${(item.owner && currentFolderId === 'root') ? `<span class="text-[9px] font-black text-warm-300 uppercase tracking-widest bg-warm-50 px-2 py-0.5 rounded-md border border-warm-100">${item.owner}</span>` : ''}
+                                    ${(item.owner && currentFolderId === 'root') ? `<span class="owner-name text-[9px] font-black text-warm-300 uppercase tracking-widest bg-warm-50 px-2 py-0.5 rounded-md border border-warm-100"></span>` : ''}
                                 </div>
                             </td>
                         `;
+                        tr.querySelector('.folder-name').textContent = item.name;
+                        if (item.owner && currentFolderId === 'root') {
+                            tr.querySelector('.owner-name').textContent = item.owner;
+                        }
                     } else {
                         let statusIcon = '';
                         if (isQueued) {
@@ -243,13 +262,11 @@
                                             ${statusIcon}
                                         </div>
 
-                                        <input type="checkbox" class="file-checkbox w-4 h-4 rounded border-[#E5E1D8] text-brand-500 focus:ring-brand-500 shrink-0" 
-                                               data-id="${item.id}" data-name="${item.name.replace(/"/g, '&quot;')}" data-indexed="${isIndexed}" data-queued="${isQueued}">
+                                        <input type="checkbox" class="file-checkbox w-4 h-4 rounded border-[#E5E1D8] text-brand-500 focus:ring-brand-500 shrink-0">
                                         
                                         <!-- Action Icons -->
                                         <div class="flex items-center gap-1 shrink-0">
-                                            <button onclick="event.stopPropagation(); processIngestBatch([{id: '${item.id}', name: '${item.name.replace(/'/g, "\\'")}', indexed: ${isIndexed}, queued: ${isQueued}}])" 
-                                                    class="p-1.5 text-warm-300 hover:text-brand-500 hover:bg-brand-50 rounded-lg transition-all" title="${isIndexed ? 'Переиндексировать' : 'Индексировать'}">
+                                            <button class="ingest-btn p-1.5 text-warm-300 hover:text-brand-500 hover:bg-brand-50 rounded-lg transition-all" title="${isIndexed ? 'Переиндексировать' : 'Индексировать'}">
                                                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
                                             </button>
                                             <a href="${item.web_view_link || '#'}" target="_blank" onclick="event.stopPropagation();" 
@@ -258,11 +275,25 @@
                                             </a>
                                         </div>
 
-                                        <span class="text-xs font-bold text-[#3A3630] truncate uppercase tracking-tight">${item.name}</span>
+                                        <span class="file-name text-xs font-bold text-[#3A3630] truncate uppercase tracking-tight"></span>
                                     </div>
                                 </div>
                             </td>
                         `;
+                        const cb = tr.querySelector('.file-checkbox');
+                        cb.dataset.id = item.id;
+                        cb.dataset.name = item.name;
+                        cb.dataset.indexed = isIndexed;
+                        cb.dataset.queued = isQueued;
+
+                        const fileNameSpan = tr.querySelector('.file-name');
+                        fileNameSpan.textContent = item.name;
+
+                        const ingestBtn = tr.querySelector('.ingest-btn');
+                        ingestBtn.addEventListener('click', (e) => {
+                            e.stopPropagation();
+                            processIngestBatch([{ id: item.id, name: item.name, indexed: isIndexed, queued: isQueued }]);
+                        });
                     }
                     container.appendChild(tr);
                 });
@@ -398,7 +429,14 @@
         if (hasSkips) {
             const skipContainer = document.getElementById('progress-skip-container');
             const skipUl = document.getElementById('progress-skip-list');
-            skipUl.innerHTML = skipList.map(f => `<li class="truncate" title="${f.name}">${f.name}</li>`).join('');
+            skipUl.innerHTML = '';
+            skipList.forEach(f => {
+                const li = document.createElement('li');
+                li.className = 'truncate';
+                li.title = f.name;
+                li.textContent = f.name;
+                skipUl.appendChild(li);
+            });
             skipContainer.classList.remove('hidden');
         }
 

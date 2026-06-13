@@ -905,12 +905,27 @@
         msg.className =
           "mb-1 border-l-2 border-brand-500/20 pl-2 py-0.5 hover:bg-white/5 transition-colors";
 
-        let content = event.data;
-        const tsMatch = content.match(/^\[(.*?)\]/);
+        const escapeHTML = (str) => str.replace(/[&<>'"]/g, 
+          tag => ({
+            '&': '&amp;',
+            '<': '&lt;',
+            '>': '&gt;',
+            "'": '&#39;',
+            '"': '&quot;'
+          }[tag] || tag)
+        );
+
+        let rawContent = event.data;
+        const tsMatch = rawContent.match(/^\[(.*?)\]/);
+        let content;
         if (tsMatch) {
+          const timestamp = tsMatch[1];
+          const remaining = rawContent.replace(tsMatch[0], "");
           content =
-            `<span class="text-warm-500 font-bold mr-2">${tsMatch[1]}</span>` +
-            content.replace(tsMatch[0], "");
+            `<span class="text-warm-500 font-bold mr-2">${escapeHTML(timestamp)}</span>` +
+            escapeHTML(remaining);
+        } else {
+          content = escapeHTML(rawContent);
         }
 
         msg.innerHTML = content;
