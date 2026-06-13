@@ -294,9 +294,9 @@ async function editChunk(chunkId, currentText, btn) {
                 actionsDiv.remove();
                 textP.style.display = 'block';
                 card.onclick = originalOnClick;
-                const editBtn = card.querySelector('button[onclick*="editChunk"]');
+                const editBtn = card.querySelector('button[data-raw-text]');
                 if (editBtn) {
-                    editBtn.setAttribute('onclick', `event.stopPropagation(); editChunk('${chunkId}', \`${newText.replace(/`/g, '\\`')}\`, this)`);
+                    editBtn.setAttribute('data-raw-text', newText);
                 }
                 
                 card.classList.add('ring-2', 'ring-green-400');
