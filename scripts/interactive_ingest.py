@@ -13,7 +13,7 @@ if str(ROOT_DIR) not in sys.path:
 from app.config import get_app_settings, get_deepgram_settings, get_google_drive_settings, get_sqlite_settings
 from app.db import db_connection
 from app.google_drive import DriveFile, GoogleDriveClient
-from app.repository import check_transcript_exists, get_video_by_source_file_id
+from app.repository import get_video_by_source_file_id
 from scripts.ingest_drive_file import ingest_drive_file
 
 
@@ -45,15 +45,17 @@ async def main() -> None:
 
     # Filter only new or forced
     to_process: list[DriveFile] = []
+    app_settings = get_app_settings()
     with db_connection(pg_settings) as conn:
         for f in files:
-            existing_video = get_video_by_source_file_id(conn, source_type="google_drive", source_file_id=f.file_id)
+            existing_video = get_video_by_source_file_id(conn, source_file_id=f.file_id)
 
             if not existing_video:
                 to_process.append(f)
             else:
-                # Video exists, but maybe this transcript doesn't?
-                if not check_transcript_exists(conn, existing_video["id"]) or args.force:
+                raw_path = app_settings.get_raw_transcript_path(f.file_id)
+                norm_path = app_settings.get_normalized_transcript_path(f.file_id)
+                if not (raw_path.exists() and norm_path.exists()) or args.force:
                     to_process.append(f)
 
     to_process = to_process[: args.limit]

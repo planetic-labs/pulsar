@@ -31,6 +31,21 @@
         }
     </script>
     <style>
+        /* Layout scaffolding to prevent layout jumps before Tailwind loads */
+        .flex { display: flex; }
+        .flex-1 { flex: 1 1 0%; }
+        .flex-col { flex-direction: column; }
+        .h-full { height: 100%; }
+        #sidebar { display: none; }
+        @media (min-width: 1024px) {
+            .lg\:flex-row { flex-direction: row; }
+            #sidebar { display: flex !important; width: 18rem; flex-shrink: 0; }
+            #player-column { display: block !important; width: 400px; flex-shrink: 0; }
+        }
+        @media (min-width: 1280px) {
+            #player-column { width: 500px; }
+        }
+
         body { font-family: 'Plus Jakarta Sans', sans-serif; background-color: #FAF9F6; color: #4A453E; }
         .sidebar-active { background-color: #F2F0EB; color: #5F6683; font-weight: 700; }
         ::-webkit-scrollbar { width: 4px; }
@@ -139,12 +154,53 @@
             }
         }
 
-        // Register Service Worker for PWA
+        // Unregister Service Worker if any to prevent fetch errors and page loading issues
         if ('serviceWorker' in navigator) {
-            window.addEventListener('load', () => {
-                navigator.serviceWorker.register('/sw.js');
+            navigator.serviceWorker.getRegistrations().then((registrations) => {
+                for (let registration of registrations) {
+                    registration.unregister();
+                }
             });
         }
+
+        function copyToClipboard(text, btnElement) {
+            navigator.clipboard.writeText(text).then(() => {
+                if (btnElement) {
+                    const originalHTML = btnElement.innerHTML;
+                    btnElement.innerHTML = `
+                        <svg class="w-3.5 h-3.5 text-emerald-500 scale-110 transition-transform" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
+                            <polyline points="20 6 9 17 4 12"></polyline>
+                        </svg>
+                    `;
+                    btnElement.classList.remove('bg-warm-50', 'border-warm-200', 'text-warm-500');
+                    btnElement.classList.add('bg-emerald-50', 'border-emerald-200');
+                    
+                    setTimeout(() => {
+                        btnElement.innerHTML = originalHTML;
+                        btnElement.classList.remove('bg-emerald-50', 'border-emerald-200');
+                        btnElement.classList.add('bg-warm-50', 'border-warm-200', 'text-warm-500');
+                    }, 2000);
+                }
+            }).catch(err => {
+                console.error('Failed to copy text: ', err);
+            });
+        }
+        window.copyToClipboard = copyToClipboard;
+
+        function escapeHTML(str) {
+            if (!str) return '';
+            return str.replace(/[&<>'\"\\]/g, 
+                tag => ({
+                    '&': '&amp;',
+                    '<': '&lt;',
+                    '>': '&gt;',
+                    "'": '&#39;',
+                    '"': '&quot;',
+                    '\\': '&#92;'
+                }[tag] || tag)
+            );
+        }
+        window.escapeHTML = escapeHTML;
     </script>
 </body>
 </html>

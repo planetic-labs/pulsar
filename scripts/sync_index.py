@@ -229,13 +229,14 @@ async def main():
 
         # Clear previous notification flags (is_missing, is_excluded) to ensure we start fresh
         logger.info("Clearing previous notification flags (is_missing, is_excluded)...")
-        conn.execute("UPDATE videos SET is_missing = 0, is_excluded = 0 WHERE source_type = 'google_drive'")
+        conn.execute("UPDATE videos SET is_missing = 0, is_excluded = 0")
 
         # Get all local videos from DB
         videos = conn.execute("""
             SELECT id, source_file_id, title, parent_folder_id, recorded_date,
-                   is_4k, processing_status, source_url, is_missing, is_excluded
-            FROM videos WHERE source_type = 'google_drive'
+                   is_4k, status AS processing_status, source_url, is_missing, is_excluded,
+                   (original_id IS NULL) AS is_original
+            FROM videos
         """).fetchall()
         for v in videos:
             if v["source_file_id"]:
@@ -256,16 +257,11 @@ async def main():
 
         # Get active indexing tasks to avoid duplicate re-indexing queuing
         indexing_tasks = conn.execute(
-            "SELECT payload FROM tasks WHERE task_type = 'stage_3_index' AND status IN ('pending', 'running')"
+            "SELECT video_id FROM tasks "
+            "WHERE task_type = 'stage_3_index' AND status IN ('pending', 'running') AND video_id IS NOT NULL"
         ).fetchall()
         for t in indexing_tasks:
-            try:
-                payload = json.loads(t["payload"])
-                vid = payload.get("video_id")
-                if vid:
-                    active_indexing_ids.add(vid)
-            except Exception:
-                pass
+            active_indexing_ids.add(t["video_id"])
 
     if not root_folders:
         logger.warning("No root folders configured for indexing in the database. Exiting.")
@@ -338,7 +334,7 @@ async def main():
 
     # Map existing titles to their source_file_id to check for duplicates (exclude MD5 duplicates)
     title_to_file_id = {
-        v["title"]: v["source_file_id"] for v in local_videos.values() if v["title"] and not v.get("is_md5_duplicate")
+        v["title"]: v["source_file_id"] for v in local_videos.values() if v["title"] and v.get("is_original")
     }
 
     with db_connection(sqlite_settings) as conn:
@@ -350,7 +346,7 @@ async def main():
             # Check if this filename is already indexed under another file_id
             existing_fid = title_to_file_id.get(name)
             is_md5_dup = False
-            if file_id in local_videos and local_videos[file_id].get("is_md5_duplicate"):
+            if file_id in local_videos and not local_videos[file_id].get("is_original"):
                 is_md5_dup = True
 
             if existing_fid and existing_fid != file_id and not is_md5_dup:
@@ -386,8 +382,10 @@ async def main():
                     if lv["processing_status"] in ("indexed_chunks_ready", "transcribed", "indexing"):
                         if lv["id"] not in active_indexing_ids:
                             conn.execute(
-                                "INSERT INTO tasks (task_type, payload, status, priority) VALUES (?, ?, ?, ?)",
+                                "INSERT INTO tasks (video_id, task_type, payload, status, priority) "
+                                "VALUES (?, ?, ?, ?, ?)",
                                 (
+                                    lv["id"],
                                     "stage_3_index",
                                     json.dumps({"video_id": lv["id"], "title": name}, ensure_ascii=False),
                                     "pending",

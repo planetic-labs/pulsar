@@ -300,58 +300,6 @@
         }
     }
 
-    // Timeline Logic Mobile
-    (function() {
-        const sliderFrom = document.getElementById('timeline-slider-from-mob');
-        const sliderTo = document.getElementById('timeline-slider-to-mob');
-        const rangeBar = document.getElementById('timeline-range-bar-mob');
-        const rangeText = document.getElementById('timeline-range-text-mob');
-        const dateFromInput = document.getElementById('f-date-from-mob');
-        const dateToInput = document.getElementById('f-date-to-mob');
-        
-        const startTimestamp = new Date('2020-01-01T00:00:00').getTime();
-        const today = new Date();
-        today.setHours(23, 59, 59, 999);
-        const endTimestamp = today.getTime();
-        const totalDuration = endTimestamp - startTimestamp;
-
-        function updateTimelineVisuals() {
-            let valFrom = parseInt(sliderFrom.value);
-            let valTo = parseInt(sliderTo.value);
-            if (valFrom > valTo) { [valFrom, valTo] = [valTo, valFrom]; }
-            rangeBar.style.left = (valFrom / 10) + '%';
-            rangeBar.style.right = (100 - (valTo / 10)) + '%';
-            
-            const d1s = new Date(startTimestamp + (valFrom / 1000) * totalDuration).toISOString().split('T')[0];
-            const d2s = new Date(startTimestamp + (valTo / 1000) * totalDuration).toISOString().split('T')[0];
-            rangeText.innerText = d1s.split('-').join('.') + ' — ' + d2s.split('-').join('.');
-            return {d1s, d2s};
-        }
-
-        function setSlidersFromInputs() {
-            const v1 = dateFromInput.value || '2020-01-01';
-            const v2 = dateToInput.value || new Date().toISOString().split('T')[0];
-            sliderFrom.value = (new Date(v1).getTime() - startTimestamp) / totalDuration * 1000;
-            sliderTo.value = (new Date(v2).getTime() - startTimestamp) / totalDuration * 1000;
-            updateTimelineVisuals();
-        }
-
-        sliderFrom.oninput = updateTimelineVisuals;
-        sliderTo.oninput = updateTimelineVisuals;
-        sliderFrom.onchange = () => {
-            const {d1s} = updateTimelineVisuals();
-            dateFromInput.value = d1s;
-            document.getElementById('search-form').submit();
-        };
-        sliderTo.onchange = () => {
-            const {d2s} = updateTimelineVisuals();
-            dateToInput.value = d2s;
-            document.getElementById('search-form').submit();
-        };
-
-        setSlidersFromInputs();
-    })();
-
     let activeChunkId = null;
 
     function playFragment(videoId, startSec, title, ts, chunkId) {
@@ -375,7 +323,7 @@
         playerTitle.textContent = title;
         playerMeta.textContent = ts;
 
-        video.src = `/videos/${videoId}/file?token={{ token }}#t=${startSec}`;
+        video.src = `/videos/${videoId}/file#t=${startSec}`;
         video.play();
         
         const overlay = document.getElementById('video-overlay');
@@ -447,18 +395,22 @@
 
         sliderFrom.oninput = updateTimelineVisuals;
         sliderTo.oninput = updateTimelineVisuals;
-        sliderFrom.onchange = () => {
-            const {d1s} = updateTimelineVisuals();
-            dateFromInput.value = d1s;
-            document.getElementById('search-form').submit();
-        };
-        sliderTo.onchange = () => {
-            const {d2s} = updateTimelineVisuals();
-            dateToInput.value = d2s;
-            document.getElementById('search-form').submit();
-        };
 
         setSlidersFromInputs();
+
+        // Delay attaching onchange handlers to prevent browser autofill/restoration from triggering infinite page reload loops
+        setTimeout(() => {
+            sliderFrom.onchange = () => {
+                const {d1s} = updateTimelineVisuals();
+                dateFromInput.value = d1s;
+                document.getElementById('search-form').submit();
+            };
+            sliderTo.onchange = () => {
+                const {d2s} = updateTimelineVisuals();
+                dateToInput.value = d2s;
+                document.getElementById('search-form').submit();
+            };
+        }, 100);
     })();
 
     const SEARCH_MODE_INFO = {

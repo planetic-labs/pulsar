@@ -1,14 +1,13 @@
 services:
-  qdrant:
-    image: qdrant/qdrant:latest
+  manticore:
+    image: manticoresearch/manticore:latest
     restart: always
-    # Ограничиваем доступ к Qdrant извне, если не нужно
-    # ports:
-    #   - "127.0.0.1:6333:6333"
+    ports:
+      - "127.0.0.1:9308:9308"
     networks:
       - homelab-net
     volumes:
-      - qdrant_data:/qdrant/storage
+      - manticore_data:/var/lib/manticore
 
   pulsar:
     image: ghcr.io/planetic-labs/pulsar:latest
@@ -22,11 +21,10 @@ services:
       - HF_HOME=/app/models_cache
     env_file: .env
     depends_on:
-      qdrant:
+      manticore:
         condition: service_started
     volumes:
       # Только данные, код уже внутри контейнера
-      - ./downloads:/app/downloads
       - ./data:/app/data
       - ./storage:/app/storage
       - ./models_cache:/app/models_cache
@@ -35,7 +33,7 @@ services:
 
 
 volumes:
-  qdrant_data:
+  manticore_data:
 
 networks:
   homelab-net:

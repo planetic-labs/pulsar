@@ -1,636 +1,1191 @@
-{% extends "base.html" %}
-
-{% block title %}Мониторинг - Pulsar AI{% endblock %}
-
+{% extends "base.html" %} {% block title %}Мониторинг - Pulsar AI{% endblock %}
 {% block content %}
-<div class="flex-1 flex flex-col overflow-hidden px-4 lg:px-10 pb-6 lg:pb-10 pt-6 lg:pt-8">
-    <!-- Header -->
-    <div class="flex items-center justify-between mb-6 shrink-0">
-        <div>
-            <h1 class="text-2xl lg:text-3xl font-black text-[#3A3630] tracking-tight">Мониторинг</h1>
-            <p class="text-sm text-warm-500 mt-1">Очередь обработки и системные логи</p>
-        </div>
-        <div class="flex items-center gap-6">
-            <!-- Worker Control -->
-            <div class="flex items-center gap-3">
-                <div id="worker-status-badge" class="flex items-center gap-2 px-3 py-1.5 rounded-full border text-[9px] font-black uppercase tracking-widest transition-all">
-                    <div id="worker-status-dot" class="w-1.5 h-1.5 rounded-full bg-warm-300"></div>
-                    <span id="worker-status-text">Загрузка...</span>
-                </div>
-                <div class="flex items-center gap-1.5">
-                    <button id="worker-start-btn" onclick="toggleWorker('start')" class="w-8 h-8 flex items-center justify-center bg-green-50 text-green-600 rounded-xl hover:bg-green-100 transition-colors hidden" title="Запустить воркер">
-                        <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM9.555 7.168A1 1 0 008 8v4a1 1 0 001.555.832l3-2a1 1 0 000-1.664l-3-2z" clip-rule="evenodd" /></svg>
-                    </button>
-                    <button id="worker-stop-btn" onclick="toggleWorker('stop')" class="w-8 h-8 flex items-center justify-center bg-rose-50 text-rose-600 rounded-xl hover:bg-rose-100 transition-colors hidden" title="Остановить воркер">
-                        <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8 7a1 1 0 00-1 1v4a1 1 0 001 1h4a1 1 0 001-1V8a1 1 0 00-1-1H8z" clip-rule="evenodd" /></svg>
-                    </button>
-                </div>
-            </div>
-        </div>
+<div
+  class="flex-1 flex flex-col overflow-hidden px-4 lg:px-10 pb-6 lg:pb-10 pt-6 lg:pt-8"
+>
+  <!-- Header -->
+  <div class="flex items-center justify-between mb-6 shrink-0">
+    <div>
+      <h1 class="text-2xl lg:text-3xl font-black text-[#3A3630] tracking-tight">
+        Мониторинг
+      </h1>
+      <p class="text-sm text-warm-500 mt-1">
+        Очередь обработки и системные логи
+      </p>
     </div>
-
-    <!-- Monitoring Grid -->
-    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
-        <!-- Left Column -->
-        <div class="flex flex-col gap-4">
-            
-            <!-- Unified Error Management Block (Moved to Top) -->
-            <div id="failed-tasks-container" class="bg-rose-50 border border-rose-100 rounded-2xl p-4 flex flex-col gap-4 shadow-sm" style="display: none;">
-                <div class="flex items-center justify-between">
-                    <div class="flex items-center gap-3">
-                        <div class="w-8 h-8 rounded-xl bg-rose-500 flex items-center justify-center text-white shadow-sm">
-                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg>
-                        </div>
-                        <div>
-                            <h4 class="text-[10px] font-black text-rose-600 uppercase tracking-widest">Ошибки очереди</h4>
-                            <p class="text-[14px] font-black text-rose-500" id="stats-failed-count">0 задач</p>
-                        </div>
-                    </div>
-                    <button onclick="restartFailedTasks()" class="flex items-center gap-2 px-4 py-2 bg-white border border-rose-200 text-rose-600 rounded-xl text-[9px] font-black uppercase tracking-widest hover:bg-rose-500 hover:text-white transition-all shadow-sm">
-                        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>
-                        Перезапустить всё
-                    </button>
-                </div>
-                <div id="error-items" class="space-y-2"></div>
-            </div>
-
-            <!-- Stage 1: Download -->
-            <div id="card-stage_1_download" class="bg-white border border-[#E5E1D8] rounded-2xl p-4 shadow-sm flex flex-col gap-2 transition-all opacity-40">
-                <div class="flex items-center justify-between">
-                    <div class="flex items-center gap-2">
-                        <div class="w-8 h-8 rounded-xl bg-blue-50 flex items-center justify-center text-blue-500">
-                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg>
-                        </div>
-                        <div>
-                            <h4 class="text-[10px] font-black text-[#3A3630] uppercase tracking-widest">Загрузка</h4>
-                            <p class="text-[8px] text-warm-400 font-bold uppercase tracking-tight truncate max-w-[180px]" id="title-stage_1_download">Ожидание...</p>
-                        </div>
-                    </div>
-                    <div class="text-right">
-                        <span class="text-[9px] font-black text-blue-500 uppercase tracking-widest" id="queue-stage_1_download">В очереди: 0</span>
-                    </div>
-                </div>
-                <div class="relative w-full h-1.5 bg-[#FAF9F6] rounded-full overflow-hidden border border-[#F2F0EB]">
-                    <div id="bar-stage_1_download" class="absolute top-0 left-0 h-full bg-blue-500 transition-all duration-500" style="width: 0%"></div>
-                </div>
-                <div class="flex items-center justify-between text-[8px] font-black uppercase tracking-widest">
-                    <span class="text-warm-300" id="status-stage_1_download">Готов к работе</span>
-                    <span class="text-blue-500" id="metric-stage_1_download">0%</span>
-                </div>
-            </div>
-
-            <!-- Stage 2: Transcribe -->
-            <div id="card-stage_2_transcribe" class="bg-white border border-[#E5E1D8] rounded-2xl p-4 shadow-sm flex flex-col gap-2 transition-all opacity-40">
-                <div class="flex items-center justify-between">
-                    <div class="flex items-center gap-2">
-                        <div class="w-8 h-8 rounded-xl bg-purple-50 flex items-center justify-center text-purple-500">
-                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z"></path></svg>
-                        </div>
-                        <div>
-                            <h4 class="text-[10px] font-black text-[#3A3630] uppercase tracking-widest">Транскрибация</h4>
-                            <p class="text-[8px] text-warm-400 font-bold uppercase tracking-tight truncate max-w-[180px]" id="title-stage_2_transcribe">Ожидание...</p>
-                        </div>
-                    </div>
-                    <div class="text-right flex flex-col items-end gap-1">
-                        <span class="text-[9px] font-black text-purple-500 uppercase tracking-widest" id="queue-stage_2_transcribe">В очереди: 0</span>
-                        <div id="dg-balance-badge" class="flex items-center gap-1.5 px-2 py-1 rounded-lg border border-purple-100 bg-purple-50 text-purple-600 text-[8px] font-black uppercase tracking-widest hidden shadow-sm" title="Баланс Deepgram">
-                            <svg class="w-2.5 h-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
-                            <span id="dg-balance-text">$0.00</span>
-                        </div>
-                    </div>
-                </div>
-                <div class="relative w-full h-1.5 bg-[#FAF9F6] rounded-full overflow-hidden border border-[#F2F0EB]">
-                    <div id="bar-stage_2_transcribe" class="absolute top-0 left-0 h-full bg-purple-500 transition-all duration-500" style="width: 0%"></div>
-                </div>
-                <div class="flex items-center justify-between text-[8px] font-black uppercase tracking-widest">
-                    <span class="text-warm-300" id="status-stage_2_transcribe">Готов к работе</span>
-                    <span class="text-purple-500" id="metric-stage_2_transcribe">0%</span>
-                </div>
-            </div>
-
-            <!-- Stage 3: Index -->
-            <div id="card-stage_3_index" class="bg-white border border-[#E5E1D8] rounded-2xl p-4 shadow-sm flex flex-col gap-2 transition-all opacity-40">
-                <div class="flex items-center justify-between">
-                    <div class="flex items-center gap-2">
-                        <div class="w-8 h-8 rounded-xl bg-emerald-50 flex items-center justify-center text-emerald-500">
-                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
-                        </div>
-                        <div>
-                            <h4 class="text-[10px] font-black text-[#3A3630] uppercase tracking-widest">Индексация</h4>
-                            <p class="text-[8px] text-warm-400 font-bold uppercase tracking-tight truncate max-w-[180px]" id="title-stage_3_index">Ожидание...</p>
-                        </div>
-                    </div>
-                    <div class="text-right">
-                        <span class="text-[9px] font-black text-emerald-500 uppercase tracking-widest" id="queue-stage_3_index">В очереди: 0</span>
-                    </div>
-                </div>
-                <div class="relative w-full h-1.5 bg-[#FAF9F6] rounded-full overflow-hidden border border-[#F2F0EB]">
-                    <div id="bar-stage_3_index" class="absolute top-0 left-0 h-full bg-emerald-500 transition-all duration-500" style="width: 0%"></div>
-                </div>
-                <div class="flex items-center justify-between text-[8px] font-black uppercase tracking-widest mt-1">
-                    <span class="text-warm-300" id="status-stage_3_index">Готов к работе</span>
-                    <span class="text-emerald-500" id="metric-stage_3_index">0%</span>
-                </div>
-            </div>
-
-            <!-- Skipped Silent Videos -->
-            <div id="skipped-silent-container" class="hidden animate-in fade-in slide-in-from-top-4 duration-500">
-                <div class="bg-amber-50 border border-amber-200 rounded-2xl p-4 flex flex-col gap-3">
-                    <div class="flex items-center gap-2">
-                        <div class="w-8 h-8 rounded-xl bg-amber-100 flex items-center justify-center text-amber-600">
-                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" clip-rule="evenodd"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2"></path></svg>
-                        </div>
-                        <div>
-                            <h4 class="text-[10px] font-black text-amber-800 uppercase tracking-widest">Пропущено (без звука)</h4>
-                            <p class="text-[8px] text-amber-600 font-bold uppercase tracking-tight">Файлы проигнорированы из-за отсутствия аудиопотока</p>
-                        </div>
-                    </div>
-                    <div id="skipped-silent-list" class="flex flex-col gap-1.5">
-                        <!-- List items will be injected here -->
-                    </div>
-                </div>
-            </div>
-
-            <!-- Skipped No Space -->
-            <div id="skipped-no-space-container" class="hidden animate-in fade-in slide-in-from-top-4 duration-500">
-                <div class="bg-rose-50 border border-rose-200 rounded-2xl p-4 flex flex-col gap-3">
-                    <div class="flex items-center justify-between gap-2 w-full">
-                        <div class="flex items-center gap-2">
-                            <div class="w-8 h-8 rounded-xl bg-rose-100 flex items-center justify-center text-rose-600">
-                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg>
-                            </div>
-                            <div>
-                                <h4 class="text-[10px] font-black text-rose-800 uppercase tracking-widest">Пропущено (нет места)</h4>
-                                <p class="text-[8px] text-rose-600 font-bold uppercase tracking-tight">Файлы проигнорированы из-за нехватки места на диске</p>
-                            </div>
-                        </div>
-                        <button onclick="restartAllNoSpace()" 
-                                class="px-2.5 py-1.5 bg-rose-100 hover:bg-rose-200 border border-rose-200 rounded-lg text-[8px] font-black text-rose-700 uppercase tracking-widest transition-all shadow-sm flex items-center gap-1 shrink-0">
-                            <svg class="w-2.5 h-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path>
-                            </svg>
-                            <span>Перезапустить все</span>
-                        </button>
-                    </div>
-                    <div id="skipped-no-space-list" class="flex flex-col gap-1.5">
-                        <!-- List items will be injected here -->
-                    </div>
-                </div>
-            </div>
-
-            <!-- Missing on Google Drive -->
-            <div id="missing-on-drive-container" class="hidden animate-in fade-in slide-in-from-top-4 duration-500">
-                <div class="bg-rose-50 border border-rose-200 rounded-2xl p-4 flex flex-col gap-3">
-                    <div class="flex items-center gap-2">
-                        <div class="w-8 h-8 rounded-xl bg-rose-100 flex items-center justify-center text-rose-600">
-                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg>
-                        </div>
-                        <div>
-                            <h4 class="text-[10px] font-black text-rose-800 uppercase tracking-widest">Пропали на Google Drive</h4>
-                            <p class="text-[8px] text-rose-600 font-bold uppercase tracking-tight">Файлы есть в индексе, но отсутствуют на Google Drive</p>
-                        </div>
-                    </div>
-                    <div id="missing-on-drive-list" class="flex flex-col gap-1.5">
-                        <!-- List items will be injected here -->
-                    </div>
-                </div>
-            </div>
-
-            <!-- Excluded by Keywords -->
-            <div id="excluded-by-keywords-container" class="hidden animate-in fade-in slide-in-from-top-4 duration-500 mt-4">
-                <div class="bg-amber-50 border border-amber-200 rounded-2xl p-4 flex flex-col gap-3">
-                    <div class="flex items-center gap-2">
-                        <div class="w-8 h-8 rounded-xl bg-amber-100 flex items-center justify-center text-amber-600">
-                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg>
-                        </div>
-                        <div>
-                            <h4 class="text-[10px] font-black text-amber-800 uppercase tracking-widest">Исключены по ключевым словам</h4>
-                            <p class="text-[8px] text-amber-600 font-bold uppercase tracking-tight">Содержат ключевые слова исключений и подлежат удалению</p>
-                        </div>
-                    </div>
-                    <div id="excluded-by-keywords-list" class="flex flex-col gap-1.5">
-                        <!-- List items will be injected here -->
-                    </div>
-                </div>
-            </div>
-
-            <!-- Duplicate MD5 files -->
-            <div id="duplicate-md5-container" class="hidden animate-in fade-in slide-in-from-top-4 duration-500 mt-4">
-                <div class="bg-orange-50 border border-orange-200 rounded-2xl p-4 flex flex-col gap-3">
-                    <div class="flex items-center gap-2">
-                        <div class="w-8 h-8 rounded-xl bg-orange-100 flex items-center justify-center text-orange-600">
-                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7v8a2 2 0 002 2h6M8 7V5a2 2 0 012-2h4.586a1 1 0 01.707.293l4.414 4.414a1 1 0 01.293.707V15a2 2 0 01-2 2h-2M8 7H6a2 2 0 00-2 2v10a2 2 0 012 2h8a2 2 0 002-2v-2"></path></svg>
-                        </div>
-                        <div>
-                            <h4 class="text-[10px] font-black text-orange-800 uppercase tracking-widest">Дубликаты по MD5 (<span id="duplicate-md5-count">0</span>)</h4>
-                            <p class="text-[8px] text-orange-600 font-bold uppercase tracking-tight">Файлы с совпадающим содержимым на Google Drive</p>
-                        </div>
-                    </div>
-                    <div id="duplicate-md5-list" class="flex flex-col gap-1.5">
-                        <!-- List items will be injected here -->
-                    </div>
-                </div>
-            </div>
+    <div class="flex items-center gap-6">
+      <!-- Worker Control -->
+      <div class="flex items-center gap-3">
+        <div
+          id="worker-status-badge"
+          class="flex items-center gap-2 px-3 py-1.5 rounded-full border text-[9px] font-black uppercase tracking-widest transition-all"
+        >
+          <div
+            id="worker-status-dot"
+            class="w-1.5 h-1.5 rounded-full bg-warm-300"
+          ></div>
+          <span id="worker-status-text">Загрузка...</span>
         </div>
+        <div class="flex items-center gap-1.5">
+          <button
+            id="worker-start-btn"
+            onclick="toggleWorker('start')"
+            class="w-8 h-8 flex items-center justify-center bg-green-50 text-green-600 rounded-xl hover:bg-green-100 transition-colors hidden"
+            title="Запустить воркер"
+          >
+            <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+              <path
+                fill-rule="evenodd"
+                d="M10 18a8 8 0 100-16 8 8 0 000 16zM9.555 7.168A1 1 0 008 8v4a1 1 0 001.555.832l3-2a1 1 0 000-1.664l-3-2z"
+                clip-rule="evenodd"
+              />
+            </svg>
+          </button>
+          <button
+            id="worker-stop-btn"
+            onclick="toggleWorker('stop')"
+            class="w-8 h-8 flex items-center justify-center bg-rose-50 text-rose-600 rounded-xl hover:bg-rose-100 transition-colors hidden"
+            title="Остановить воркер"
+          >
+            <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+              <path
+                fill-rule="evenodd"
+                d="M10 18a8 8 0 100-16 8 8 0 000 16zM8 7a1 1 0 00-1 1v4a1 1 0 001 1h4a1 1 0 001-1V8a1 1 0 00-1-1H8z"
+                clip-rule="evenodd"
+              />
+            </svg>
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
 
-        <!-- Deletion Confirmation Modal -->
-        <div id="delete-video-modal" class="fixed inset-0 z-[150] flex items-center justify-center hidden">
-            <!-- Backdrop -->
-            <div onclick="closeDeleteModal()" class="absolute inset-0 bg-[#1A1814]/40 backdrop-blur-sm"></div>
+  <!-- Monitoring Grid -->
+  <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+    <!-- Left Column -->
+    <div class="flex flex-col gap-4">
+      <!-- Unified Error Management Block (Moved to Top) -->
+      <div
+        id="failed-tasks-container"
+        class="bg-rose-50 border border-rose-100 rounded-2xl p-4 flex flex-col gap-4 shadow-sm"
+        style="display: none"
+      >
+        <div class="flex items-center justify-between">
+          <div class="flex items-center gap-3">
+            <div
+              class="w-8 h-8 rounded-xl bg-rose-500 flex items-center justify-center text-white shadow-sm"
+            >
+              <svg
+                class="w-4 h-4"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  stroke-width="2.5"
+                  d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
+                ></path>
+              </svg>
+            </div>
+            <div>
+              <h4
+                class="text-[10px] font-black text-rose-600 uppercase tracking-widest"
+              >
+                Ошибки очереди
+              </h4>
+              <p
+                class="text-[14px] font-black text-rose-500"
+                id="stats-failed-count"
+              >
+                0 задач
+              </p>
+            </div>
+          </div>
+          <button
+            onclick="restartFailedTasks()"
+            class="flex items-center gap-2 px-4 py-2 bg-white border border-rose-200 text-rose-600 rounded-xl text-[9px] font-black uppercase tracking-widest hover:bg-rose-500 hover:text-white transition-all shadow-sm"
+          >
+            <svg
+              class="w-3.5 h-3.5"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+              ></path>
+            </svg>
+            Перезапустить всё
+          </button>
+        </div>
+        <div id="error-items" class="space-y-2"></div>
+      </div>
 
-            <!-- Modal Content -->
-            <div class="relative bg-white border border-[#E5E1D8] rounded-3xl p-6 max-w-md w-full mx-4 shadow-2xl animate-in fade-in zoom-in-95 duration-200 flex flex-col gap-4">
-                <div class="flex items-center gap-3">
-                    <div class="w-10 h-10 rounded-2xl bg-rose-50 flex items-center justify-center text-rose-600 shadow-sm shrink-0">
-                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                        </svg>
-                    </div>
-                    <div>
-                        <h3 class="text-base font-black text-[#3A3630] tracking-tight">Удаление из индекса</h3>
-                        <p class="text-xs text-warm-400 font-bold uppercase tracking-wider mt-0.5">Требуется подтверждение</p>
-                    </div>
-                </div>
 
-                <div class="bg-warm-50/50 border border-warm-100 rounded-2xl p-4 flex flex-col gap-1">
-                    <span class="text-[9px] font-black text-warm-400 uppercase tracking-widest">Описание файла</span>
-                    <p id="delete-modal-file-title" class="text-sm font-bold text-[#3A3630] leading-relaxed break-words"></p>
-                    <p id="delete-modal-file-id" class="text-[9px] font-mono text-warm-400/80 mt-1"></p>
-                </div>
 
-                <p class="text-xs text-warm-500 leading-relaxed">
-                    Вы действительно хотите удалить этот файл из индекса? Это действие сотрет все транскрипции и фрагменты поиска.
+
+      <!-- Queue Stages Container -->
+      <div id="queue-stages-container" class="hidden flex flex-col gap-4">
+        <!-- Stage 1: Download -->
+        <div
+          id="card-stage_1_download"
+        class="bg-white border border-[#E5E1D8] rounded-2xl p-4 shadow-sm flex flex-col gap-2 transition-all opacity-40"
+      >
+        <div class="flex items-center justify-between">
+          <div class="flex items-center gap-2">
+            <div
+              class="w-8 h-8 rounded-xl bg-blue-50 flex items-center justify-center text-blue-500"
+            >
+              <svg
+                class="w-4 h-4"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  stroke-width="2"
+                  d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"
+                ></path>
+              </svg>
+            </div>
+            <div>
+              <h4
+                class="text-[10px] font-black text-[#3A3630] uppercase tracking-widest"
+              >
+                Загрузка
+              </h4>
+              <p
+                class="text-[8px] text-warm-400 font-bold uppercase tracking-tight truncate max-w-[180px]"
+                id="title-stage_1_download"
+              >
+                Ожидание...
+              </p>
+            </div>
+          </div>
+          <div class="text-right">
+            <span
+              class="text-[9px] font-black text-blue-500 uppercase tracking-widest"
+              id="queue-stage_1_download"
+              >В очереди: 0</span
+            >
+          </div>
+        </div>
+        <div
+          class="relative w-full h-1.5 bg-[#FAF9F6] rounded-full overflow-hidden border border-[#F2F0EB]"
+        >
+          <div
+            id="bar-stage_1_download"
+            class="absolute top-0 left-0 h-full bg-blue-500 transition-all duration-500"
+            style="width: 0%"
+          ></div>
+        </div>
+        <div
+          class="flex items-center justify-between text-[8px] font-black uppercase tracking-widest"
+        >
+          <span class="text-warm-300" id="status-stage_1_download"
+            >Готов к работе</span
+          >
+          <span class="text-blue-500" id="metric-stage_1_download">0%</span>
+        </div>
+      </div>
+
+      <!-- Stage 2: Transcribe -->
+      <div
+        id="card-stage_2_transcribe"
+        class="bg-white border border-[#E5E1D8] rounded-2xl p-4 shadow-sm flex flex-col gap-2 transition-all opacity-40"
+      >
+        <div class="flex items-center justify-between">
+          <div class="flex items-center gap-2">
+            <div
+              class="w-8 h-8 rounded-xl bg-purple-50 flex items-center justify-center text-purple-500"
+            >
+              <svg
+                class="w-4 h-4"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  stroke-width="2"
+                  d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z"
+                ></path>
+              </svg>
+            </div>
+            <div>
+              <h4
+                class="text-[10px] font-black text-[#3A3630] uppercase tracking-widest"
+              >
+                Транскрибация
+              </h4>
+              <p
+                class="text-[8px] text-warm-400 font-bold uppercase tracking-tight truncate max-w-[180px]"
+                id="title-stage_2_transcribe"
+              >
+                Ожидание...
+              </p>
+            </div>
+          </div>
+          <div class="text-right flex flex-col items-end gap-1">
+            <span
+              class="text-[9px] font-black text-purple-500 uppercase tracking-widest"
+              id="queue-stage_2_transcribe"
+              >В очереди: 0</span
+            >
+            <div
+              id="dg-balance-badge"
+              class="flex items-center gap-1.5 px-2 py-1 rounded-lg border border-purple-100 bg-purple-50 text-purple-600 text-[8px] font-black uppercase tracking-widest hidden shadow-sm"
+              title="Баланс Deepgram"
+            >
+              <svg
+                class="w-2.5 h-2.5"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  stroke-width="2.5"
+                  d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+                ></path>
+              </svg>
+              <span id="dg-balance-text">$0.00</span>
+            </div>
+          </div>
+        </div>
+        <div
+          class="relative w-full h-1.5 bg-[#FAF9F6] rounded-full overflow-hidden border border-[#F2F0EB]"
+        >
+          <div
+            id="bar-stage_2_transcribe"
+            class="absolute top-0 left-0 h-full bg-purple-500 transition-all duration-500"
+            style="width: 0%"
+          ></div>
+        </div>
+        <div
+          class="flex items-center justify-between text-[8px] font-black uppercase tracking-widest"
+        >
+          <span class="text-warm-300" id="status-stage_2_transcribe"
+            >Готов к работе</span
+          >
+          <span class="text-purple-500" id="metric-stage_2_transcribe">0%</span>
+        </div>
+      </div>
+
+      <!-- Stage 3: Index -->
+      <div
+        id="card-stage_3_index"
+        class="bg-white border border-[#E5E1D8] rounded-2xl p-4 shadow-sm flex flex-col gap-2 transition-all opacity-40"
+      >
+        <div class="flex items-center justify-between">
+          <div class="flex items-center gap-2">
+            <div
+              class="w-8 h-8 rounded-xl bg-emerald-50 flex items-center justify-center text-emerald-500"
+            >
+              <svg
+                class="w-4 h-4"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  stroke-width="2"
+                  d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
+                ></path>
+              </svg>
+            </div>
+            <div>
+              <h4
+                class="text-[10px] font-black text-[#3A3630] uppercase tracking-widest"
+              >
+                Индексация
+              </h4>
+              <p
+                class="text-[8px] text-warm-400 font-bold uppercase tracking-tight truncate max-w-[180px]"
+                id="title-stage_3_index"
+              >
+                Ожидание...
+              </p>
+            </div>
+          </div>
+          <div class="text-right">
+            <span
+              class="text-[9px] font-black text-emerald-500 uppercase tracking-widest"
+              id="queue-stage_3_index"
+              >В очереди: 0</span
+            >
+          </div>
+        </div>
+        <div
+          class="relative w-full h-1.5 bg-[#FAF9F6] rounded-full overflow-hidden border border-[#F2F0EB]"
+        >
+          <div
+            id="bar-stage_3_index"
+            class="absolute top-0 left-0 h-full bg-emerald-500 transition-all duration-500"
+            style="width: 0%"
+          ></div>
+        </div>
+        <div
+          class="flex items-center justify-between text-[8px] font-black uppercase tracking-widest mt-1"
+        >
+          <span class="text-warm-300" id="status-stage_3_index"
+            >Готов к работе</span
+          >
+          <span class="text-emerald-500" id="metric-stage_3_index">0%</span>
+        </div>
+      </div>
+      </div>
+
+
+
+      <!-- Skipped No Space -->
+      <div
+        id="skipped-no-space-container"
+        class="hidden animate-in fade-in slide-in-from-top-4 duration-500"
+      >
+        <div
+          class="bg-rose-50 border border-rose-200 rounded-2xl p-4 flex flex-col gap-3"
+        >
+          <div class="flex items-center justify-between gap-2 w-full">
+            <div class="flex items-center gap-2">
+              <div
+                class="w-8 h-8 rounded-xl bg-rose-100 flex items-center justify-center text-rose-600"
+              >
+                <svg
+                  class="w-4 h-4"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    stroke-width="2"
+                    d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
+                  ></path>
+                </svg>
+              </div>
+              <div>
+                <h4
+                  class="text-[10px] font-black text-rose-800 uppercase tracking-widest"
+                >
+                  Пропущено (нет места)
+                </h4>
+                <p
+                  class="text-[8px] text-rose-600 font-bold uppercase tracking-tight"
+                >
+                  Файлы проигнорированы из-за нехватки места на диске
                 </p>
-
-                <div class="flex items-center justify-end gap-3 mt-2">
-                    <button onclick="closeDeleteModal()" class="px-4 py-2.5 bg-warm-50 hover:bg-warm-100 border border-[#E5E1D8] text-warm-600 rounded-xl text-[9px] font-black uppercase tracking-widest transition-all shadow-sm">
-                        Отмена
-                    </button>
-                    <button onclick="executeDeleteVideo()" class="px-4 py-2.5 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-[9px] font-black uppercase tracking-widest transition-all shadow-md">
-                        Да, удалить
-                    </button>
-                </div>
+              </div>
             </div>
+            <button
+              onclick="restartAllNoSpace()"
+              class="px-2.5 py-1.5 bg-rose-100 hover:bg-rose-200 border border-rose-200 rounded-lg text-[8px] font-black text-rose-700 uppercase tracking-widest transition-all shadow-sm flex items-center gap-1 shrink-0"
+            >
+              <svg
+                class="w-2.5 h-2.5"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  stroke-width="2.5"
+                  d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+                ></path>
+              </svg>
+              <span>Перезапустить все</span>
+            </button>
+          </div>
+          <div id="skipped-no-space-list" class="flex flex-col gap-1.5">
+            <!-- List items will be injected here -->
+          </div>
         </div>
+      </div>
 
-        <!-- Duplicate Details Modal -->
-        <div id="duplicate-info-modal" class="fixed inset-0 z-[150] flex items-center justify-center hidden">
-            <!-- Backdrop -->
-            <div onclick="closeDuplicateModal()" class="absolute inset-0 bg-[#1A1814]/40 backdrop-blur-sm"></div>
 
-            <!-- Modal Content -->
-            <div class="relative bg-white border border-[#E5E1D8] rounded-3xl p-6 max-w-2xl w-full mx-4 shadow-2xl animate-in fade-in zoom-in-95 duration-200 flex flex-col gap-4">
-                <div class="flex items-center gap-3">
-                    <div class="w-10 h-10 rounded-2xl bg-orange-50 flex items-center justify-center text-orange-600 shadow-sm shrink-0">
-                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-                        </svg>
-                    </div>
-                    <div>
-                        <h3 class="text-base font-black text-[#3A3630] tracking-tight">Информация о дубликатах</h3>
-                        <p class="text-xs text-warm-400 font-bold uppercase tracking-wider mt-0.5">Совпадение по MD5 хешу</p>
-                    </div>
-                </div>
 
-                <!-- MD5 Hash info -->
-                <div class="bg-warm-50/50 border border-warm-100 rounded-2xl p-3 flex flex-col gap-1 text-center">
-                    <span class="text-[9px] font-black text-warm-400 uppercase tracking-widest">MD5 Хеш содержимого</span>
-                    <p id="dup-modal-hash" class="text-xs font-mono font-bold text-orange-700 select-all"></p>
-                </div>
-
-                <!-- Files Comparison Grid -->
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <!-- Original File Card -->
-                    <div class="border border-emerald-100 bg-emerald-50/20 rounded-2xl p-4 flex flex-col gap-2">
-                        <span class="text-[9px] font-black text-emerald-600 uppercase tracking-widest">Оригинальный файл (в индексе)</span>
-                        <h4 id="dup-modal-orig-title" class="text-xs font-bold text-[#3A3630] leading-relaxed break-words line-clamp-3"></h4>
-                        <div class="h-px bg-emerald-100/50 my-1"></div>
-                        <div class="text-[10px] text-warm-500 flex flex-col gap-1">
-                            <p class="break-words"><b>Путь:</b> <span id="dup-modal-orig-path" class="font-semibold text-warm-700"></span></p>
-                            <p><b>Размер:</b> <span id="dup-modal-orig-size"></span></p>
-                            <p><b>Длительность:</b> <span id="dup-modal-orig-duration"></span></p>
-                            <p><b>Статус:</b> <span id="dup-modal-orig-status" class="px-1.5 py-0.5 rounded text-[9px] font-bold"></span></p>
-                            <p><b>Добавлен:</b> <span id="dup-modal-orig-created"></span></p>
-                            <p class="truncate font-mono text-[9px] mt-1" title="Google Drive ID"><b>ID:</b> <span id="dup-modal-orig-id"></span></p>
-                        </div>
-                        <div class="mt-auto pt-3">
-                            <a id="dup-modal-orig-link" href="#" target="_blank" class="w-full flex items-center justify-center gap-1.5 px-3 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-[9px] font-black uppercase tracking-widest transition-all shadow-sm">
-                                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" /></svg>
-                                Открыть на диске
-                            </a>
-                        </div>
-                    </div>
-
-                    <!-- Duplicate File Card -->
-                    <div class="border border-orange-100 bg-orange-50/20 rounded-2xl p-4 flex flex-col gap-2">
-                        <span class="text-[9px] font-black text-orange-600 uppercase tracking-widest">Копия (пропущена)</span>
-                        <h4 id="dup-modal-copy-title" class="text-xs font-bold text-[#3A3630] leading-relaxed break-words line-clamp-3"></h4>
-                        <div class="h-px bg-orange-100/50 my-1"></div>
-                        <div class="text-[10px] text-warm-500 flex flex-col gap-1">
-                            <p class="break-words"><b>Путь:</b> <span id="dup-modal-copy-path" class="font-semibold text-warm-700"></span></p>
-                            <p><b>Размер:</b> <span id="dup-modal-copy-size"></span></p>
-                            <p><b>Длительность:</b> <span id="dup-modal-copy-duration"></span></p>
-                            <p><b>Статус:</b> <span id="dup-modal-copy-status" class="px-1.5 py-0.5 rounded text-[9px] font-bold"></span></p>
-                            <p><b>Добавлен:</b> <span id="dup-modal-copy-created"></span></p>
-                            <p class="truncate font-mono text-[9px] mt-1" title="Google Drive ID"><b>ID:</b> <span id="dup-modal-copy-id"></span></p>
-                        </div>
-                        <div class="mt-auto pt-3 flex flex-col gap-2">
-                            <a id="dup-modal-copy-link" href="#" target="_blank" class="w-full flex items-center justify-center gap-1.5 px-3 py-2 bg-orange-600 hover:bg-orange-700 text-white rounded-xl text-[9px] font-black uppercase tracking-widest transition-all shadow-sm">
-                                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" /></svg>
-                                Открыть на диске
-                            </a>
-                            <button id="dup-modal-swap-btn" onclick="executeSwapRoles()" class="w-full flex items-center justify-center gap-1.5 px-3 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-xl text-[9px] font-black uppercase tracking-widest transition-all shadow-sm">
-                                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" /></svg>
-                                Сделать основным
-                            </button>
-                        </div>
-                    </div>
-                </div>
-
-                <div class="flex items-center justify-end gap-3 mt-2">
-                    <button id="dup-modal-save-btn" onclick="executeSaveDuplicate()" class="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-[9px] font-black uppercase tracking-widest transition-all shadow-sm">
-                        Сохранить
-                    </button>
-                    <button onclick="closeDuplicateModal()" class="px-5 py-2.5 bg-warm-50 hover:bg-warm-100 border border-[#E5E1D8] text-warm-600 rounded-xl text-[9px] font-black uppercase tracking-widest transition-all shadow-sm">
-                        Закрыть
-                    </button>
-                </div>
+      <!-- Integrity check issues -->
+      <div
+        id="integrity-issues-container"
+        class="hidden animate-in fade-in slide-in-from-top-4 duration-500 mt-4"
+      >
+        <div
+          class="bg-rose-50/50 border border-rose-200 rounded-2xl p-4 flex flex-col gap-3"
+        >
+          <div class="flex items-center justify-between gap-2">
+            <div class="flex items-center gap-2">
+              <div
+                class="w-8 h-8 rounded-xl bg-rose-100 flex items-center justify-center text-rose-600 shadow-sm"
+              >
+                <svg
+                  class="w-4 h-4"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    stroke-width="2"
+                    d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
+                  />
+                </svg>
+              </div>
+              <div>
+                <h4
+                  class="text-[10px] font-black text-rose-800 uppercase tracking-widest"
+                >
+                  Проблемы целостности
+                </h4>
+                <p
+                  class="text-[8px] text-rose-600 font-bold uppercase tracking-tight"
+                >
+                  Обнаруженные расхождения при последней проверке целостности
+                </p>
+              </div>
             </div>
+            <button
+              onclick="reindexAllIntegrity()"
+              class="p-1.5 bg-rose-100/80 hover:bg-rose-200 text-rose-700 hover:text-rose-800 rounded-xl transition-all shadow-sm flex items-center gap-1.5 font-bold text-[8px] uppercase tracking-wider shrink-0"
+              title="Переиндексировать все проблемные файлы"
+            >
+              <svg
+                class="w-3.5 h-3.5"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  stroke-width="2.5"
+                  d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+                />
+              </svg>
+              <span>Переиндексировать всё</span>
+            </button>
+          </div>
+          <div
+            id="integrity-issues-list"
+            class="flex flex-col gap-2 max-h-[300px] overflow-y-auto pr-1"
+          >
+            <!-- List items will be injected here -->
+          </div>
         </div>
+      </div>
 
-        <!-- Logs Column -->
-        <div class="lg:h-0 lg:min-h-full flex flex-col">
-            <div class="flex items-center justify-between mb-2 px-2 shrink-0">
-                <h3 class="text-[10px] font-black text-warm-400 uppercase tracking-widest flex items-center gap-2">
-                    <div class="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse"></div> Системные логи (Live)
-                </h3>
-                <button onclick="clearLogs()" class="text-[9px] font-black text-warm-300 hover:text-brand-500 uppercase tracking-widest transition-colors">Очистить</button>
-            </div>
-            <div class="flex-1 bg-white border border-[#E5E1D8] rounded-2xl overflow-hidden shadow-sm flex flex-col">
-                <div id="log-console" class="flex-1 bg-[#1A1814] p-5 font-mono text-[10px] text-green-400/70 overflow-y-auto custom-scrollbar border-0">
-                    <div class="text-warm-500 italic opacity-50">Ожидание подключения...</div>
-                </div>
-            </div>
+      <!-- System Healthy Placeholder -->
+      <div
+        id="system-healthy-placeholder"
+        class="hidden bg-[#FAF9F6] border border-[#E5E1D8] rounded-2xl p-8 text-center flex flex-col items-center justify-center gap-3 animate-in fade-in duration-500"
+      >
+        <div
+          class="w-12 h-12 rounded-2xl bg-emerald-50 text-emerald-500 flex items-center justify-center shadow-sm"
+        >
+          <svg
+            class="w-6 h-6"
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+          >
+            <path
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="2.5"
+              d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0"
+            />
+          </svg>
         </div>
+        <div class="flex flex-col gap-1">
+          <h4
+            class="text-xs font-black text-[#3A3630] uppercase tracking-widest"
+          >
+            Система работает штатно
+          </h4>
+          <p class="text-[9px] text-warm-400 font-bold uppercase tracking-tight">
+            Все очереди пусты, ошибок и проблем целостности не обнаружено
+          </p>
+        </div>
+      </div>
     </div>
 
+    <!-- Deletion Confirmation Modal -->
+    <div
+      id="delete-video-modal"
+      class="fixed inset-0 z-[150] flex items-center justify-center hidden"
+    >
+      <!-- Backdrop -->
+      <div
+        onclick="closeDeleteModal()"
+        class="absolute inset-0 bg-[#1A1814]/40 backdrop-blur-sm"
+      ></div>
+
+      <!-- Modal Content -->
+      <div
+        class="relative bg-white border border-[#E5E1D8] rounded-3xl p-6 max-w-md w-full mx-4 shadow-2xl animate-in fade-in zoom-in-95 duration-200 flex flex-col gap-4"
+      >
+        <div class="flex items-center gap-3">
+          <div
+            class="w-10 h-10 rounded-2xl bg-rose-50 flex items-center justify-center text-rose-600 shadow-sm shrink-0"
+          >
+            <svg
+              class="w-5 h-5"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
+              />
+            </svg>
+          </div>
+          <div>
+            <h3 class="text-base font-black text-[#3A3630] tracking-tight">
+              Удаление из индекса
+            </h3>
+            <p
+              class="text-xs text-warm-400 font-bold uppercase tracking-wider mt-0.5"
+            >
+              Требуется подтверждение
+            </p>
+          </div>
+        </div>
+
+        <div
+          class="bg-warm-50/50 border border-warm-100 rounded-2xl p-4 flex flex-col gap-1"
+        >
+          <span
+            class="text-[9px] font-black text-warm-400 uppercase tracking-widest"
+            >Описание файла</span
+          >
+          <p
+            id="delete-modal-file-title"
+            class="text-sm font-bold text-[#3A3630] leading-relaxed break-words"
+          ></p>
+          <p
+            id="delete-modal-file-id"
+            class="text-[9px] font-mono text-warm-400/80 mt-1"
+          ></p>
+        </div>
+
+        <p class="text-xs text-warm-500 leading-relaxed">
+          Вы действительно хотите удалить этот файл из индекса? Это действие
+          сотрет все транскрипции и фрагменты поиска.
+        </p>
+
+        <div class="flex items-center justify-end gap-3 mt-2">
+          <button
+            onclick="closeDeleteModal()"
+            class="px-4 py-2.5 bg-warm-50 hover:bg-warm-100 border border-[#E5E1D8] text-warm-600 rounded-xl text-[9px] font-black uppercase tracking-widest transition-all shadow-sm"
+          >
+            Отмена
+          </button>
+          <button
+            onclick="executeDeleteVideo()"
+            class="px-4 py-2.5 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-[9px] font-black uppercase tracking-widest transition-all shadow-md"
+          >
+            Да, удалить
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Video Details Modal -->
+    <div
+      id="video-details-modal"
+      class="fixed inset-0 z-[150] flex items-center justify-center hidden"
+    >
+      <!-- Backdrop -->
+      <div
+        onclick="closeDetailsModal()"
+        class="absolute inset-0 bg-[#1A1814]/40 backdrop-blur-sm"
+      ></div>
+
+      <!-- Modal Content -->
+      <div
+        class="relative bg-white border border-[#E5E1D8] rounded-3xl p-6 max-w-lg w-full mx-4 shadow-2xl animate-in fade-in zoom-in-95 duration-200 flex flex-col gap-4 max-h-[90vh]"
+      >
+        <div class="flex items-center justify-between shrink-0">
+          <div class="flex items-center gap-3">
+            <div
+              class="w-10 h-10 rounded-2xl bg-brand-50 flex items-center justify-center text-brand-600 shadow-sm shrink-0"
+            >
+              <svg
+                class="w-5 h-5"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  stroke-width="2"
+                  d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+                />
+              </svg>
+            </div>
+            <div>
+              <h3 class="text-base font-black text-[#3A3630] tracking-tight">
+                Информация о файле
+              </h3>
+              <p
+                class="text-xs text-warm-400 font-bold uppercase tracking-wider mt-0.5"
+              >
+                Детализация записи в базе данных
+              </p>
+            </div>
+          </div>
+          <button
+            onclick="closeDetailsModal()"
+            class="text-warm-400 hover:text-brand-500 transition-colors p-1 rounded-lg hover:bg-warm-50"
+          >
+            <svg
+              class="w-5 h-5"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2.5"
+                d="M6 18L18 6M6 6l12 12"
+              ></path>
+            </svg>
+          </button>
+        </div>
+
+        <!-- Content Area -->
+        <div
+          id="details-modal-loading"
+          class="py-12 flex flex-col items-center justify-center"
+        >
+          <svg
+            class="animate-spin h-8 w-8 text-brand-500 mb-3"
+            xmlns="http://www.w3.org/2000/svg"
+            fill="none"
+            viewBox="0 0 24 24"
+          >
+            <circle
+              class="opacity-25"
+              cx="12"
+              cy="12"
+              r="10"
+              stroke="currentColor"
+              stroke-width="4"
+            ></circle>
+            <path
+              class="opacity-75"
+              fill="currentColor"
+              d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+            ></path>
+          </svg>
+          <p
+            class="text-[9px] font-black text-warm-400 uppercase tracking-widest"
+          >
+            Загрузка информации...
+          </p>
+        </div>
+
+        <div
+          id="details-modal-content"
+          class="hidden overflow-y-auto pr-1 flex flex-col gap-4 text-xs"
+        >
+          <!-- Title Banner -->
+          <div
+            class="bg-warm-50/50 border border-warm-100 rounded-2xl p-4 flex flex-col gap-1.5 font-sans"
+          >
+            <span
+              class="text-[8px] font-black text-warm-400 uppercase tracking-widest"
+              >Название файла</span
+            >
+            <p
+              id="details-title"
+              class="text-xs font-bold text-[#3A3630] leading-relaxed break-words"
+            ></p>
+          </div>
+
+          <!-- Meta Grid -->
+          <div class="grid grid-cols-2 gap-3">
+            <div
+              class="bg-warm-50/30 border border-[#FAF9F6] p-3 rounded-xl flex flex-col gap-0.5"
+            >
+              <span
+                class="text-[8px] font-black text-warm-400 uppercase tracking-widest"
+                >ID в системе</span
+              >
+              <span id="details-id" class="font-bold text-[#3A3630]"></span>
+            </div>
+            <div
+              class="bg-warm-50/30 border border-[#FAF9F6] p-3 rounded-xl flex flex-col gap-0.5 min-w-0"
+            >
+              <span
+                class="text-[8px] font-black text-warm-400 uppercase tracking-widest"
+                >ID Google Drive</span
+              >
+              <span
+                id="details-gdrive-id"
+                class="font-mono font-bold text-[#3A3630] truncate select-all"
+              ></span>
+            </div>
+            <div
+              class="bg-warm-50/30 border border-[#FAF9F6] p-3 rounded-xl flex flex-col gap-0.5"
+            >
+              <span
+                class="text-[8px] font-black text-warm-400 uppercase tracking-widest"
+                >Папка</span
+              >
+              <span
+                id="details-folder"
+                class="font-bold text-[#3A3630] truncate"
+              ></span>
+            </div>
+            <div
+              class="bg-warm-50/30 border border-[#FAF9F6] p-3 rounded-xl flex flex-col gap-0.5"
+            >
+              <span
+                class="text-[8px] font-black text-warm-400 uppercase tracking-widest"
+                >Количество фрагментов</span
+              >
+              <span id="details-chunks" class="font-bold text-[#3A3630]"></span>
+            </div>
+            <div
+              class="bg-warm-50/30 border border-[#FAF9F6] p-3 rounded-xl flex flex-col gap-0.5"
+            >
+              <span
+                class="text-[8px] font-black text-warm-400 uppercase tracking-widest"
+                >Длительность</span
+              >
+              <span
+                id="details-duration"
+                class="font-bold text-[#3A3630]"
+              ></span>
+            </div>
+            <div
+              class="bg-warm-50/30 border border-[#FAF9F6] p-3 rounded-xl flex flex-col gap-0.5"
+            >
+              <span
+                class="text-[8px] font-black text-warm-400 uppercase tracking-widest"
+                >Размер файла</span
+              >
+              <span id="details-size" class="font-bold text-[#3A3630]"></span>
+            </div>
+            <div
+              class="bg-warm-50/30 border border-[#FAF9F6] p-3 rounded-xl flex flex-col gap-0.5"
+            >
+              <span
+                class="text-[8px] font-black text-warm-400 uppercase tracking-widest"
+                >Статус обработки</span
+              >
+              <span
+                id="details-status"
+                class="font-bold uppercase tracking-wider text-[9px]"
+              ></span>
+            </div>
+            <div
+              class="bg-warm-50/30 border border-[#FAF9F6] p-3 rounded-xl flex flex-col gap-0.5"
+            >
+              <span
+                class="text-[8px] font-black text-warm-400 uppercase tracking-widest"
+                >Дата записи</span
+              >
+              <span
+                id="details-recorded-date"
+                class="font-bold text-[#3A3630]"
+              ></span>
+            </div>
+          </div>
+
+          <!-- Badges Row -->
+          <div class="flex flex-wrap gap-2 py-1" id="details-badges">
+            <!-- Dynamic Badges -->
+          </div>
+
+          <!-- Additional Details for duplicates -->
+          <div
+            id="details-duplicate-info"
+            class="hidden bg-red-50/50 border border-red-100 rounded-2xl p-4 flex flex-col gap-1"
+          >
+            <span
+              class="text-[8px] font-black text-red-700 uppercase tracking-widest"
+              >Дубликат оригинального файла</span
+            >
+            <p
+              id="details-original-title"
+              class="text-xs font-bold text-red-950 leading-relaxed"
+            ></p>
+          </div>
+
+          <!-- Database dates info -->
+          <div
+            class="grid grid-cols-2 gap-3 border-t border-warm-100 pt-3 text-[8px] font-black text-warm-400 uppercase tracking-widest"
+          >
+            <div>
+              Добавлен:
+              <span id="details-created" class="font-bold text-warm-500"></span>
+            </div>
+            <div>
+              Обновлен:
+              <span id="details-updated" class="font-bold text-warm-500"></span>
+            </div>
+          </div>
+
+          <!-- Details Modal Actions -->
+          <div
+            class="flex items-center justify-end gap-3 pt-2"
+            id="details-action-buttons"
+          >
+            <!-- Action buttons will be injected here -->
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Logs Column -->
+    <div class="lg:h-0 lg:min-h-full flex flex-col">
+      <div class="flex items-center justify-between mb-2 px-2 shrink-0">
+        <h3
+          class="text-[10px] font-black text-warm-400 uppercase tracking-widest flex items-center gap-2"
+        >
+          <div
+            class="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse"
+          ></div>
+          Системные логи (Live)
+        </h3>
+        <button
+          onclick="clearLogs()"
+          class="text-[9px] font-black text-warm-300 hover:text-brand-500 uppercase tracking-widest transition-colors"
+        >
+          Очистить
+        </button>
+      </div>
+      <div
+        class="flex-1 bg-white border border-[#E5E1D8] rounded-2xl overflow-hidden shadow-sm flex flex-col"
+      >
+        <div
+          id="log-console"
+          class="flex-1 bg-[#1A1814] p-5 font-mono text-[10px] text-green-400/70 overflow-y-auto custom-scrollbar border-0"
+        >
+          <div class="text-warm-500 italic opacity-50">
+            Ожидание подключения...
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
 </div>
 
 <script>
-    const logConsole = document.getElementById('log-console');
-    const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const wsUrl = `${wsProtocol}//${window.location.host}/api/v1/logs/stream`;
-    let ws;
+  const logConsole = document.getElementById("log-console");
+  const wsProtocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+  const wsUrl = `${wsProtocol}//${window.location.host}/api/v1/logs/stream`;
+  let ws;
 
-    function connectLogs() {
-        try {
-            ws = new WebSocket(wsUrl);
-            ws.onmessage = (event) => {
-                const msg = document.createElement('div');
-                msg.className = 'mb-1 border-l-2 border-brand-500/20 pl-2 py-0.5 hover:bg-white/5 transition-colors';
-                
-                let content = event.data;
-                const tsMatch = content.match(/^\[(.*?)\]/);
-                if (tsMatch) {
-                    content = `<span class="text-warm-500 font-bold mr-2">${tsMatch[1]}</span>` + content.replace(tsMatch[0], '');
-                }
-                
-                msg.innerHTML = content;
-                
-                const waitingMsg = logConsole.querySelector('.italic');
-                if (waitingMsg) waitingMsg.remove();
-                
-                logConsole.appendChild(msg);
-                if (logConsole.scrollHeight - logConsole.scrollTop < 400) {
-                    logConsole.scrollTop = logConsole.scrollHeight;
-                }
-            };
-            ws.onclose = () => setTimeout(connectLogs, 3000);
-            ws.onerror = (err) => console.error("WebSocket error:", err);
-        } catch (e) {
-            console.error("Connection failed:", e);
+  function connectLogs() {
+    try {
+      ws = new WebSocket(wsUrl);
+      ws.onmessage = (event) => {
+        const msg = document.createElement("div");
+        msg.className =
+          "mb-1 border-l-2 border-brand-500/20 pl-2 py-0.5 hover:bg-white/5 transition-colors";
+
+        let content = event.data;
+        const tsMatch = content.match(/^\[(.*?)\]/);
+        if (tsMatch) {
+          content =
+            `<span class="text-warm-500 font-bold mr-2">${tsMatch[1]}</span>` +
+            content.replace(tsMatch[0], "");
         }
-    }
 
-    function clearLogs() {
-        logConsole.innerHTML = '<div class="text-warm-500 italic opacity-50 text-[9px]">Очищено. Ожидание логов...</div>';
-    }
+        msg.innerHTML = content;
 
-    async function restartFailedTasks() {
-        if (!confirm('Перезапустить все задачи с ошибками?')) return;
-        try {
-            const res = await fetch('/api/v1/tasks/restart_failed', { method: 'POST' });
-            if (res.ok) {
-                const data = await res.json();
-                const toast = document.createElement('div');
-                toast.className = "fixed bottom-8 left-8 z-[100] px-5 py-2.5 bg-[#3A3630] text-[#FAF9F6] rounded-xl text-[9px] font-black uppercase tracking-widest shadow-2xl animate-in slide-in-from-bottom-4 duration-200";
-                toast.textContent = `Перезапущено задач: ${data.count}`;
-                document.body.appendChild(toast);
-                setTimeout(() => {
-                    toast.classList.add('animate-out', 'fade-out', 'slide-out-to-bottom-4');
-                    setTimeout(() => toast.remove(), 200);
-                }, 3000);
-                // Refresh progress UI immediately
-                updateProgressUI();
-            }
-        } catch (e) {
-            console.error(e);
+        const waitingMsg = logConsole.querySelector(".italic");
+        if (waitingMsg) waitingMsg.remove();
+
+        logConsole.appendChild(msg);
+        if (logConsole.scrollHeight - logConsole.scrollTop < 400) {
+          logConsole.scrollTop = logConsole.scrollHeight;
         }
+      };
+      ws.onclose = () => setTimeout(connectLogs, 3000);
+      ws.onerror = (err) => console.error("WebSocket error:", err);
+    } catch (e) {
+      console.error("Connection failed:", e);
     }
+  }
 
-    async function restartTask(taskId) {
-        try {
-            const res = await fetch(`/api/v1/tasks/${taskId}/restart`, { method: 'POST' });
-            if (res.ok) {
-                const toast = document.createElement('div');
-                toast.className = "fixed bottom-8 left-8 z-[100] px-5 py-2.5 bg-[#3A3630] text-[#FAF9F6] rounded-xl text-[9px] font-black uppercase tracking-widest shadow-2xl animate-in slide-in-from-bottom-4 duration-200";
-                toast.textContent = `Задача возвращена в очередь`;
-                document.body.appendChild(toast);
-                setTimeout(() => {
-                    toast.classList.add('animate-out', 'fade-out', 'slide-out-to-bottom-4');
-                    setTimeout(() => toast.remove(), 200);
-                }, 2000);
-                updateProgressUI();
-            }
-        } catch (e) {
-            console.error(e);
+  function clearLogs() {
+    logConsole.innerHTML =
+      '<div class="text-warm-500 italic opacity-50 text-[9px]">Очищено. Ожидание логов...</div>';
+  }
+
+  async function restartFailedTasks() {
+    if (!confirm("Перезапустить все задачи с ошибками?")) return;
+    try {
+      const res = await fetch("/api/v1/tasks/restart_failed", {
+        method: "POST",
+      });
+      if (res.ok) {
+        const data = await res.json();
+        const toast = document.createElement("div");
+        toast.className =
+          "fixed bottom-8 left-8 z-[100] px-5 py-2.5 bg-[#3A3630] text-[#FAF9F6] rounded-xl text-[9px] font-black uppercase tracking-widest shadow-2xl animate-in slide-in-from-bottom-4 duration-200";
+        toast.textContent = `Перезапущено задач: ${data.count}`;
+        document.body.appendChild(toast);
+        setTimeout(() => {
+          toast.classList.add(
+            "animate-out",
+            "fade-out",
+            "slide-out-to-bottom-4",
+          );
+          setTimeout(() => toast.remove(), 200);
+        }, 3000);
+        // Refresh progress UI immediately
+        updateProgressUI();
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  }
+
+  async function restartTask(taskId) {
+    try {
+      const res = await fetch(`/api/v1/tasks/${taskId}/restart`, {
+        method: "POST",
+      });
+      if (res.ok) {
+        const toast = document.createElement("div");
+        toast.className =
+          "fixed bottom-8 left-8 z-[100] px-5 py-2.5 bg-[#3A3630] text-[#FAF9F6] rounded-xl text-[9px] font-black uppercase tracking-widest shadow-2xl animate-in slide-in-from-bottom-4 duration-200";
+        toast.textContent = `Задача возвращена в очередь`;
+        document.body.appendChild(toast);
+        setTimeout(() => {
+          toast.classList.add(
+            "animate-out",
+            "fade-out",
+            "slide-out-to-bottom-4",
+          );
+          setTimeout(() => toast.remove(), 200);
+        }, 2000);
+        updateProgressUI();
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  }
+
+  async function restartAllNoSpace() {
+    try {
+      const res = await fetch("/api/v1/tasks/restart_no_space", {
+        method: "POST",
+      });
+      if (res.ok) {
+        const data = await res.json();
+        const toast = document.createElement("div");
+        toast.className =
+          "fixed bottom-8 left-8 z-[100] px-5 py-2.5 bg-[#3A3630] text-[#FAF9F6] rounded-xl text-[9px] font-black uppercase tracking-widest shadow-2xl animate-in slide-in-from-bottom-4 duration-200";
+        toast.textContent = `Перезапущено задач: ${data.count}`;
+        document.body.appendChild(toast);
+        setTimeout(() => {
+          toast.classList.add(
+            "animate-out",
+            "fade-out",
+            "slide-out-to-bottom-4",
+          );
+          setTimeout(() => toast.remove(), 200);
+        }, 2000);
+        updateProgressUI();
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  }
+
+  async function updateProgressUI() {
+    try {
+      const res = await fetch("/api/v1/worker/progress");
+      if (!res.ok) return;
+      const data = await res.json();
+
+      // Determine collective stages visibility: if any stage is active or has queue counts
+      let hasActiveWorkOrQueue = false;
+      const stages = [
+        "stage_1_download",
+        "stage_2_transcribe",
+        "stage_3_index",
+      ];
+      stages.forEach((stageId) => {
+        const state = data.stages[stageId];
+        const qCount = data.queue_counts[stageId] || 0;
+        if (state && (state.active || qCount > 0)) {
+          hasActiveWorkOrQueue = true;
         }
-    }
+      });
 
-    async function restartAllNoSpace() {
-        try {
-            const res = await fetch('/api/v1/tasks/restart_no_space', { method: 'POST' });
-            if (res.ok) {
-                const data = await res.json();
-                const toast = document.createElement('div');
-                toast.className = "fixed bottom-8 left-8 z-[100] px-5 py-2.5 bg-[#3A3630] text-[#FAF9F6] rounded-xl text-[9px] font-black uppercase tracking-widest shadow-2xl animate-in slide-in-from-bottom-4 duration-200";
-                toast.textContent = `Перезапущено задач: ${data.count}`;
-                document.body.appendChild(toast);
-                setTimeout(() => {
-                    toast.classList.add('animate-out', 'fade-out', 'slide-out-to-bottom-4');
-                    setTimeout(() => toast.remove(), 200);
-                }, 2000);
-                updateProgressUI();
-            }
-        } catch (e) {
-            console.error(e);
+      const queueStagesContainer = document.getElementById("queue-stages-container");
+      if (queueStagesContainer) {
+        if (hasActiveWorkOrQueue) {
+          queueStagesContainer.classList.remove("hidden");
+        } else {
+          queueStagesContainer.classList.add("hidden");
         }
-    }
+      }
 
-    async function deleteTask(taskId) {
-        if (!confirm('Удалить задачу?')) return;
-        try {
-            const res = await fetch(`/api/v1/tasks/${taskId}`, { method: 'DELETE' });
-            if (res.ok) {
-                const row = document.getElementById(`task-row-${taskId}`);
-                if (row) {
-                    row.classList.add('opacity-50', 'bg-rose-50');
-                    setTimeout(() => row.remove(), 200);
-                }
-            }
-        } catch (e) {
-            console.error(e);
+      // 1. Update Stages
+      stages.forEach((stageId) => {
+        const card = document.getElementById(`card-${stageId}`);
+        const bar = document.getElementById(`bar-${stageId}`);
+        const title = document.getElementById(`title-${stageId}`);
+        const queue = document.getElementById(`queue-${stageId}`);
+        const status = document.getElementById(`status-${stageId}`);
+        const metric = document.getElementById(`metric-${stageId}`);
+
+        if (!card) return;
+
+        const state = data.stages[stageId];
+        const qCount = data.queue_counts[stageId] || 0;
+
+        queue.innerText = `В очереди: ${qCount}`;
+
+        if (state.active) {
+          card.classList.remove("opacity-40");
+          title.innerText = state.title;
+          status.innerText = state.status_text;
+          bar.style.width = `${state.progress}%`;
+
+          if (
+            (stageId === "stage_1_download" ||
+              stageId === "stage_2_transcribe") &&
+            state.speed
+          ) {
+            metric.innerText = `${state.progress}% • ${state.speed}`;
+          } else {
+            metric.innerText = `${state.progress}%`;
+          }
+        } else {
+          card.classList.add("opacity-40");
+          title.innerText = "Ожидание...";
+          status.innerText = "Готов к работе";
+          bar.style.width = "0%";
+          metric.innerText = "0%";
         }
-    }
+      });
 
-    function copyToClipboard(text) {
-        navigator.clipboard.writeText(text).then(() => {
-            const toast = document.createElement('div');
-            toast.className = "fixed bottom-8 left-8 z-[100] px-5 py-2.5 bg-[#3A3630] text-[#FAF9F6] rounded-xl text-[9px] font-black uppercase tracking-widest shadow-2xl animate-in slide-in-from-bottom-4 duration-200";
-            toast.textContent = `Текст ошибки скопирована`;
-            document.body.appendChild(toast);
-            setTimeout(() => {
-                toast.classList.add('animate-out', 'fade-out', 'slide-out-to-bottom-4');
-                setTimeout(() => toast.remove(), 200);
-            }, 1500);
-        });
-    }
+      // 2. Update Deepgram Balance
+      if (
+        data.dg_balance &&
+        data.dg_balance.balances &&
+        data.dg_balance.balances.length > 0
+      ) {
+        const badge = document.getElementById("dg-balance-badge");
+        const text = document.getElementById("dg-balance-text");
+        const balance = data.dg_balance.balances[0];
+        const amount = parseFloat(balance.amount);
 
-    async function updateProgressUI() {
-        try {
-            const res = await fetch('/api/v1/worker/progress');
-            if (!res.ok) return;
-            const data = await res.json();
-            
-            // 1. Update Stages
-            const stages = ['stage_1_download', 'stage_2_transcribe', 'stage_3_index'];
-            stages.forEach(stageId => {
-                const card = document.getElementById(`card-${stageId}`);
-                const bar = document.getElementById(`bar-${stageId}`);
-                const title = document.getElementById(`title-${stageId}`);
-                const queue = document.getElementById(`queue-${stageId}`);
-                const status = document.getElementById(`status-${stageId}`);
-                const metric = document.getElementById(`metric-${stageId}`);
-                
-                if (!card) return;
-                
-                const state = data.stages[stageId];
-                const qCount = data.queue_counts[stageId] || 0;
-                
-                queue.innerText = `В очереди: ${qCount}`;
-                
-                if (state.active) {
-                    card.classList.remove('opacity-40');
-                    title.innerText = state.title;
-                    status.innerText = state.status_text;
-                    bar.style.width = `${state.progress}%`;
-                    
-                    if ((stageId === 'stage_1_download' || stageId === 'stage_2_transcribe') && state.speed) {
-                        metric.innerText = `${state.progress}% • ${state.speed}`;
-                    } else {
-                        metric.innerText = `${state.progress}%`;
-                    }
-                } else {
-                    card.classList.add('opacity-40');
-                    title.innerText = 'Ожидание...';
-                    status.innerText = 'Готов к работе';
-                    bar.style.width = '0%';
-                    metric.innerText = '0%';
-                }
-            });
+        text.innerText = `$${amount.toFixed(2)}`;
+        badge.classList.remove("hidden");
 
-            // 2. Update Deepgram Balance
-            if (data.dg_balance && data.dg_balance.balances && data.dg_balance.balances.length > 0) {
-                const badge = document.getElementById('dg-balance-badge');
-                const text = document.getElementById('dg-balance-text');
-                const balance = data.dg_balance.balances[0];
-                const amount = parseFloat(balance.amount);
-                
-                text.innerText = `$${amount.toFixed(2)}`;
-                badge.classList.remove('hidden');
-                
-                // Reset & Set colors
-                badge.classList.remove('border-purple-100', 'bg-purple-50', 'text-purple-600', 'border-rose-100', 'bg-rose-50', 'text-rose-600', 'border-amber-100', 'bg-amber-50', 'text-amber-600');
-                if (amount < 5) {
-                    badge.classList.add('border-rose-100', 'bg-rose-50', 'text-rose-600');
-                } else if (amount < 20) {
-                    badge.classList.add('border-amber-100', 'bg-amber-50', 'text-amber-600');
-                } else {
-                    badge.classList.add('border-purple-100', 'bg-purple-50', 'text-purple-600');
-                }
-            }
+        // Reset & Set colors
+        badge.classList.remove(
+          "border-purple-100",
+          "bg-purple-50",
+          "text-purple-600",
+          "border-rose-100",
+          "bg-rose-50",
+          "text-rose-600",
+          "border-amber-100",
+          "bg-amber-50",
+          "text-amber-600",
+        );
+        if (amount < 5) {
+          badge.classList.add("border-rose-100", "bg-rose-50", "text-rose-600");
+        } else if (amount < 20) {
+          badge.classList.add(
+            "border-amber-100",
+            "bg-amber-50",
+            "text-amber-600",
+          );
+        } else {
+          badge.classList.add(
+            "border-purple-100",
+            "bg-purple-50",
+            "text-purple-600",
+          );
+        }
+      }
 
-            // 3. Update Unified Error Block
-            const failedContainer = document.getElementById('failed-tasks-container');
-            const failedCountEl = document.getElementById('stats-failed-count');
-            const errorItems = document.getElementById('error-items');
-            
-            if (failedContainer && data.stats) {
-                if (data.stats.failed > 0) {
-                    failedContainer.style.display = 'block';
-                    if (failedCountEl) failedCountEl.innerText = `${data.stats.failed} задач`;
-                    
-                    if (errorItems && data.stats.recent_errors && data.stats.recent_errors.length > 0) {
-                        errorItems.innerHTML = data.stats.recent_errors.map(err => `
+      // 3. Update Unified Error Block
+      const failedContainer = document.getElementById("failed-tasks-container");
+      const failedCountEl = document.getElementById("stats-failed-count");
+      const errorItems = document.getElementById("error-items");
+
+      if (failedContainer && data.stats) {
+        if (data.stats.failed > 0) {
+          failedContainer.style.display = "block";
+          if (failedCountEl)
+            failedCountEl.innerText = `${data.stats.failed} задач`;
+
+          if (
+            errorItems &&
+            data.stats.recent_errors &&
+            data.stats.recent_errors.length > 0
+          ) {
+            errorItems.innerHTML = data.stats.recent_errors
+              .map(
+                (err) => `
                             <div class="bg-white border border-rose-100 rounded-xl p-3 flex flex-col gap-1 group relative shadow-sm">
                                 <div class="flex items-center justify-between mb-1">
-                                    <span class="text-[9px] font-black text-rose-600 uppercase tracking-tight truncate max-w-[150px]">${err.title}</span>
-                                    <span class="text-[7px] font-black text-rose-300 uppercase tracking-widest">${err.type}</span>
+                                    <span class="text-[9px] font-black text-rose-600 uppercase tracking-tight truncate max-w-[150px]">${escapeHTML(err.title)}</span>
+                                    <span class="text-[7px] font-black text-rose-400 uppercase tracking-widest">${escapeHTML(err.type)} (попытка ${err.retries}/${err.max_retries})</span>
                                 </div>
-                                <p class="text-[8px] text-rose-700/60 leading-relaxed font-medium line-clamp-2">${err.error}</p>
-                                <button onclick="copyToClipboard('${err.error.replace(/'/g, "\\'").replace(/\n/g, " ")}')" class="absolute top-2 right-2 p-1 bg-rose-50 border border-rose-100 rounded shadow-sm opacity-0 group-hover:opacity-100 transition-opacity">
-                                    <svg class="w-2.5 h-2.5 text-rose-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m-3 8h3m-3 4h3m-6-4h.01M9 16h.01"></path></svg>
+                                <p class="text-[8px] text-rose-700/60 leading-relaxed font-medium line-clamp-2">${escapeHTML(err.error)}</p>
+                                <button onclick="copyToClipboard(this.previousElementSibling.textContent, this)" class="absolute top-2 right-2 p-1 bg-rose-50 border border-rose-100 rounded shadow-sm opacity-0 group-hover:opacity-100 transition-opacity">
+                                    <svg class="w-2.5 h-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 5H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m-3 8h3m-3 4h3m-6-4h.01M9 16h.01"></path></svg>
                                 </button>
                             </div>
-                        `).join('');
-                    }
-                } else {
-                    failedContainer.style.display = 'none';
-                }
-            }
+                        `,
+              )
+              .join("");
+          }
+        } else {
+          failedContainer.style.display = "none";
+        }
+      }
 
-            // 4. Update Skipped Silent Videos Block
-            const skippedContainer = document.getElementById('skipped-silent-container');
-            const skippedList = document.getElementById('skipped-silent-list');
-            if (skippedContainer && skippedList && data.stats) {
-                if (data.stats.skipped_silent_list && data.stats.skipped_silent_list.length > 0) {
-                    skippedContainer.classList.remove('hidden');
-                    skippedList.innerHTML = data.stats.skipped_silent_list.map(item => `
-                        <div class="flex items-center justify-between group">
-                            <span class="text-[9px] font-bold text-amber-900 truncate pr-4">${item.title}</span>
-                            <div class="h-px flex-1 bg-amber-200/50 mr-4"></div>
-                            <div class="flex items-center gap-2">
-                                <span class="text-[7px] font-black text-amber-600/50 uppercase tracking-tighter shrink-0">Без звука</span>
-                                <button onclick="restartTask(${item.id})" class="p-1 bg-amber-100 rounded text-amber-600 opacity-0 group-hover:opacity-100 transition-opacity hover:bg-amber-200" title="Попробовать снова">
-                                    <svg class="w-2.5 h-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>
-                                </button>
-                            </div>
-                        </div>
-                    `).join('');
-                } else {
-                    skippedContainer.classList.add('hidden');
-                }
-            }
 
-            // 5. Update Skipped No Space Block
-            const noSpaceContainer = document.getElementById('skipped-no-space-container');
-            const noSpaceList = document.getElementById('skipped-no-space-list');
-            if (noSpaceContainer && noSpaceList && data.stats) {
-                if (data.stats.skipped_no_space_list && data.stats.skipped_no_space_list.length > 0) {
-                    noSpaceContainer.classList.remove('hidden');
-                    noSpaceList.innerHTML = data.stats.skipped_no_space_list.map(item => `
+
+      // 5. Update Skipped No Space Block
+      const noSpaceContainer = document.getElementById(
+        "skipped-no-space-container",
+      );
+      const noSpaceList = document.getElementById("skipped-no-space-list");
+      if (noSpaceContainer && noSpaceList && data.stats) {
+        if (
+          data.stats.skipped_no_space_list &&
+          data.stats.skipped_no_space_list.length > 0
+        ) {
+          noSpaceContainer.classList.remove("hidden");
+          noSpaceList.innerHTML = data.stats.skipped_no_space_list
+            .map(
+              (item) => `
                         <div class="flex items-center justify-between group">
-                            <span class="text-[9px] font-bold text-rose-900 truncate pr-4">${item.title}</span>
+                            <span class="text-[9px] font-bold text-rose-900 truncate pr-4">${escapeHTML(item.title)}</span>
                             <div class="h-px flex-1 bg-rose-200/50 mr-4"></div>
                             <div class="flex items-center gap-2">
                                 <span class="text-[7px] font-black text-rose-600 uppercase tracking-tighter shrink-0">${item.size}</span>
@@ -639,449 +1194,482 @@
                                 </button>
                             </div>
                         </div>
-                    `).join('');
-                } else {
-                    noSpaceContainer.classList.add('hidden');
-                }
-            }
+                    `,
+            )
+            .join("");
+        } else {
+          noSpaceContainer.classList.add("hidden");
+        }
+      }
 
-            // 6. Update Missing on Google Drive Block
-            const missingContainer = document.getElementById('missing-on-drive-container');
-            const missingList = document.getElementById('missing-on-drive-list');
-            if (missingContainer && missingList && data.stats) {
-                if (data.stats.missing_on_drive_list && data.stats.missing_on_drive_list.length > 0) {
-                    missingContainer.classList.remove('hidden');
-                    missingList.innerHTML = data.stats.missing_on_drive_list.map(item => `
+      // 9. Update Integrity Issues Block
+      const integrityContainer = document.getElementById("integrity-issues-container");
+      const integrityList = document.getElementById("integrity-issues-list");
+      if (integrityContainer && integrityList && data.stats) {
+        if (
+          data.stats.integrity_issues &&
+          data.stats.integrity_issues.length > 0
+        ) {
+          integrityContainer.classList.remove("hidden");
+          integrityList.innerHTML = data.stats.integrity_issues
+            .map(
+              (item) => `
                         <div class="flex items-center justify-between group">
-                            <span class="text-[9px] font-bold text-rose-900 truncate pr-4">${item.title}</span>
+                            <span class="text-[9px] font-bold text-rose-900 truncate pr-4">${escapeHTML(item.message)}</span>
                             <div class="h-px flex-1 bg-rose-200/50 mr-4"></div>
                             <div class="flex items-center gap-2">
-                                ${item.source_url ? `
+                                ${
+                                  item.source_url
+                                    ? `
                                     <a href="${item.source_url}" target="_blank" class="p-1 bg-blue-50 text-blue-600 rounded hover:bg-blue-100 transition-all shadow-sm shrink-0" title="Открыть диск">
                                         <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
                                         </svg>
                                     </a>
-                                ` : ''}
-                                <button onclick="confirmDeleteVideo(${item.id}, '${item.title.replace(/'/g, "\\'")}', '${item.file_id}')" class="p-1 bg-rose-50 text-rose-600 rounded hover:bg-rose-100 transition-all shadow-sm shrink-0" title="Удалить из индекса">
-                                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                                    </svg>
-                                </button>
-                            </div>
-                        </div>
-                    `).join('');
-                } else {
-                    missingContainer.classList.add('hidden');
-                }
-            }
-
-            // 7. Update Excluded by Keywords Block
-            const excludedContainer = document.getElementById('excluded-by-keywords-container');
-            const excludedList = document.getElementById('excluded-by-keywords-list');
-            if (excludedContainer && excludedList && data.stats) {
-                if (data.stats.excluded_by_keyword_list && data.stats.excluded_by_keyword_list.length > 0) {
-                    excludedContainer.classList.remove('hidden');
-                    excludedList.innerHTML = data.stats.excluded_by_keyword_list.map(item => `
-                        <div class="flex items-center justify-between group">
-                            <span class="text-[9px] font-bold text-amber-900 truncate pr-4">${item.title}</span>
-                            <div class="h-px flex-1 bg-amber-200/50 mr-4"></div>
-                            <div class="flex items-center gap-2">
-                                ${item.source_url ? `
-                                    <a href="${item.source_url}" target="_blank" class="p-1 bg-blue-50 text-blue-600 rounded hover:bg-blue-100 transition-all shadow-sm shrink-0" title="Открыть диск">
+                                `
+                                    : ""
+                                }
+                                ${
+                                  item.video_id
+                                    ? `
+                                    <button onclick="openDetailsModal(${item.video_id})" class="p-1 bg-rose-50 text-rose-600 rounded hover:bg-rose-100 transition-all shadow-sm shrink-0" title="Подробнее">
                                         <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
-                                        </svg>
-                                    </a>
-                                ` : ''}
-                                <button onclick="confirmDeleteVideo(${item.id}, '${item.title.replace(/'/g, "\\'")}', '${item.file_id}')" class="p-1 bg-rose-50 text-rose-600 rounded hover:bg-rose-100 transition-all shadow-sm shrink-0" title="Удалить из индекса">
-                                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                                    </svg>
-                                </button>
-                            </div>
-                        </div>
-                    `).join('');
-                } else {
-                    excludedContainer.classList.add('hidden');
-                }
-            }
-
-            // 8. Update Duplicate MD5 Block
-            const duplicateContainer = document.getElementById('duplicate-md5-container');
-            const duplicateList = document.getElementById('duplicate-md5-list');
-            const duplicateCount = document.getElementById('duplicate-md5-count');
-            if (duplicateContainer && duplicateList && data.stats) {
-                if (duplicateCount) {
-                    duplicateCount.innerText = data.stats.duplicate_md5_count || 0;
-                }
-                if (data.stats.duplicate_md5_list && data.stats.duplicate_md5_list.length > 0) {
-                    duplicateContainer.classList.remove('hidden');
-                    duplicateList.innerHTML = data.stats.duplicate_md5_list.map(item => {
-                        const itemEscaped = encodeURIComponent(JSON.stringify(item));
-                        return `
-                            <div class="flex items-center justify-between group">
-                                <span class="text-[9px] font-bold text-orange-900 truncate pr-4" title="${item.title}">
-                                    ${item.title} <span class="font-normal opacity-70">(копия: ${item.original_title})</span>
-                                </span>
-                                <div class="h-px flex-1 bg-orange-200/50 mr-4"></div>
-                                <div class="flex items-center gap-2">
-                                    ${item.source_url ? `
-                                        <a href="${item.source_url}" target="_blank" class="p-1 bg-blue-50 text-blue-600 rounded hover:bg-blue-100 transition-all shadow-sm shrink-0" title="Открыть диск">
-                                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
-                                            </svg>
-                                        </a>
-                                    ` : ''}
-                                    <button onclick="showDuplicateModal('${itemEscaped}')" class="p-1 bg-amber-50 text-amber-600 rounded hover:bg-amber-100 transition-all shadow-sm shrink-0" title="Детальная информация о дубликатах">
-                                        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                                         </svg>
                                     </button>
-                                </div>
+                                    `
+                                    : ""
+                                }
                             </div>
-                        `;
-                    }).join('');
-                } else {
-                    duplicateContainer.classList.add('hidden');
-                }
-            }
-        } catch (e) {
-            console.error("Failed to update progress UI:", e);
+                        </div>
+                    `,
+            )
+            .join("");
+        } else {
+          integrityContainer.classList.add("hidden");
         }
+      }
+
+      // Check if all left widgets are hidden to show healthy state placeholder
+      const failedVisible = data.stats.failed > 0;
+      const noSpaceVisible = data.stats.skipped_no_space_list && data.stats.skipped_no_space_list.length > 0;
+      const integrityIssuesVisible = data.stats.integrity_issues && data.stats.integrity_issues.length > 0;
+
+      const placeholderVisible = !hasActiveWorkOrQueue && !failedVisible && !noSpaceVisible && !integrityIssuesVisible;
+
+      const placeholder = document.getElementById("system-healthy-placeholder");
+      if (placeholder) {
+        if (placeholderVisible) {
+          placeholder.classList.remove("hidden");
+        } else {
+          placeholder.classList.add("hidden");
+        }
+      }
+
+    } catch (e) {
+      console.error("Failed to update progress UI:", e);
+    }
+  }
+
+
+
+  async function updateWorkerStatus() {
+    try {
+      const res = await fetch("/api/v1/worker/status");
+      if (!res.ok) return;
+      const data = await res.json();
+
+      const badge = document.getElementById("worker-status-badge");
+      const dot = document.getElementById("worker-status-dot");
+      const text = document.getElementById("worker-status-text");
+      const startBtn = document.getElementById("worker-start-btn");
+      const stopBtn = document.getElementById("worker-stop-btn");
+
+      if (data.status === "running") {
+        badge.className =
+          "flex items-center gap-2 px-3 py-1.5 rounded-full border border-green-100 bg-green-50 text-green-600 text-[9px] font-black uppercase tracking-widest transition-all";
+        dot.className = "w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse";
+        text.innerText = "Воркер активен";
+        startBtn.classList.add("hidden");
+        stopBtn.classList.remove("hidden");
+        stopBtn.disabled = false;
+        stopBtn.classList.remove("opacity-50", "cursor-not-allowed");
+      } else if (data.status === "stopping") {
+        badge.className =
+          "flex items-center gap-2 px-3 py-1.5 rounded-full border border-amber-100 bg-amber-50 text-amber-600 text-[9px] font-black uppercase tracking-widest transition-all";
+        dot.className = "w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse";
+        text.innerText = "Останавливается...";
+        startBtn.classList.add("hidden");
+        stopBtn.classList.remove("hidden");
+        stopBtn.disabled = true;
+        stopBtn.classList.add("opacity-50", "cursor-not-allowed");
+      } else {
+        badge.className =
+          "flex items-center gap-2 px-3 py-1.5 rounded-full border border-warm-100 bg-warm-50 text-warm-400 text-[9px] font-black uppercase tracking-widest transition-all";
+        dot.className = "w-1.5 h-1.5 rounded-full bg-warm-300";
+        text.innerText = "Воркер остановлен";
+        startBtn.classList.remove("hidden");
+        stopBtn.classList.add("hidden");
+        startBtn.disabled = false;
+        startBtn.classList.remove("opacity-50", "cursor-not-allowed");
+      }
+    } catch (e) {
+      console.error("Failed to update worker status:", e);
+    }
+  }
+
+  async function toggleWorker(action) {
+    try {
+      const res = await fetch(`/api/v1/worker/${action}`, { method: "POST" });
+      if (res.ok) {
+        updateWorkerStatus();
+        // Показываем уведомление
+        const toast = document.createElement("div");
+        toast.className =
+          "fixed bottom-8 left-8 z-[100] px-5 py-2.5 bg-[#3A3630] text-[#FAF9F6] rounded-xl text-[9px] font-black uppercase tracking-widest shadow-2xl animate-in slide-in-from-bottom-4 duration-200";
+        toast.textContent =
+          action === "start"
+            ? "Воркер запускается..."
+            : "Воркер останавливается...";
+        document.body.appendChild(toast);
+        setTimeout(() => {
+          toast.classList.add(
+            "animate-out",
+            "fade-out",
+            "slide-out-to-bottom-4",
+          );
+          setTimeout(() => toast.remove(), 200);
+        }, 2000);
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  }
+
+  let videoIdToDelete = null;
+
+  function confirmDeleteVideo(videoId, fileTitle, fileId) {
+    videoIdToDelete = videoId;
+    document.getElementById("delete-modal-file-title").innerText = fileTitle;
+    document.getElementById("delete-modal-file-id").innerText = `ID: ${fileId}`;
+
+    const modal = document.getElementById("delete-video-modal");
+    modal.classList.remove("hidden");
+  }
+
+  function closeDeleteModal() {
+    const modal = document.getElementById("delete-video-modal");
+    modal.classList.add("hidden");
+    videoIdToDelete = null;
+  }
+  async function executeDeleteVideo() {
+    if (!videoIdToDelete) return;
+
+    try {
+      const res = await fetch(`/api/v1/indexed/videos/${videoIdToDelete}`, {
+        method: "DELETE",
+      });
+      if (res.ok) {
+        const toast = document.createElement("div");
+        toast.className =
+          "fixed bottom-8 left-8 z-[200] px-5 py-2.5 bg-[#3A3630] text-[#FAF9F6] rounded-xl text-[9px] font-black uppercase tracking-widest shadow-2xl animate-in slide-in-from-bottom-4 duration-200";
+        toast.textContent = `Файл #${videoIdToDelete} полностью удален из индекса`;
+        document.body.appendChild(toast);
+        setTimeout(() => {
+          toast.classList.add(
+            "animate-out",
+            "fade-out",
+            "slide-out-to-bottom-4",
+          );
+          setTimeout(() => toast.remove(), 200);
+        }, 2000);
+        updateProgressUI();
+      } else {
+        const errData = await res.json();
+        alert(`Ошибка удаления: ${errData.detail || res.statusText}`);
+      }
+    } catch (e) {
+      console.error(e);
+      alert(`Ошибка при удалении видео: ${e.message}`);
     }
 
-    async function updateWorkerStatus() {
+    closeDeleteModal();
+  }
+
+  async function reindexVideo(videoId) {
+    if (
+      !confirm(
+        `Запустить полную переиндексацию файла #${videoId}? Старый индекс и чанки будут удалены.`,
+      )
+    )
+      return;
+    try {
+      const res = await fetch(`/api/v1/indexed/videos/${videoId}/reindex`, {
+        method: "POST",
+      });
+      if (res.ok) {
+        const toast = document.createElement("div");
+        toast.className =
+          "fixed bottom-8 left-8 z-[200] px-5 py-2.5 bg-[#3A3630] text-[#FAF9F6] rounded-xl text-[9px] font-black uppercase tracking-widest shadow-2xl animate-in slide-in-from-bottom-4 duration-200";
+        toast.textContent = `Задача переиндексации #${videoId} добавлена в queue`;
+        document.body.appendChild(toast);
+        setTimeout(() => {
+          toast.classList.add(
+            "animate-out",
+            "fade-out",
+            "slide-out-to-bottom-4",
+          );
+          setTimeout(() => toast.remove(), 200);
+        }, 2000);
+        updateProgressUI();
+      } else {
+        const errData = await res.json();
+        alert(
+          `Ошибка запуска переиндексации: ${errData.detail || res.statusText}`,
+        );
+      }
+    } catch (e) {
+      console.error(e);
+      alert(`Ошибка при запуске переиндексации: ${e.message}`);
+    }
+  }
+
+  async function reindexAllIntegrity() {
+    if (
+      !confirm(
+        "Вы действительно хотите отправить все файлы с проблемами целостности на переиндексацию?",
+      )
+    )
+      return;
+    try {
+      const res = await fetch("/api/v1/reindex/integrity", {
+        method: "POST",
+      });
+      if (res.ok) {
+        const data = await res.json();
+        const toast = document.createElement("div");
+        toast.className =
+          "fixed bottom-8 left-8 z-[200] px-5 py-2.5 bg-[#3A3630] text-[#FAF9F6] rounded-xl text-[9px] font-black uppercase tracking-widest shadow-2xl animate-in slide-in-from-bottom-4 duration-200";
+        toast.textContent = `Добавлено задач в очередь: ${data.count}`;
+        document.body.appendChild(toast);
+        setTimeout(() => {
+          toast.classList.add(
+            "animate-out",
+            "fade-out",
+            "slide-out-to-bottom-4",
+          );
+          setTimeout(() => toast.remove(), 200);
+        }, 2000);
+        updateProgressUI();
+      } else {
+        const errData = await res.json();
+        alert(
+          `Ошибка запуска переиндексации: ${errData.detail || res.statusText}`,
+        );
+      }
+    } catch (e) {
+      console.error(e);
+      alert(`Ошибка при запуске переиндексации: ${e.message}`);
+    }
+  }
+
+
+
+  function formatDuration(seconds) {
+    if (!seconds) return "—";
+    const h = Math.floor(seconds / 3600);
+    const m = Math.floor((seconds % 3600) / 60);
+    const s = Math.floor(seconds % 60);
+    return h > 0 ? `${h}ч ${m}м` : `${m}м ${s}с`;
+  }
+
+  function formatSizeBytes(bytes) {
+    if (!bytes) return "—";
+    const gb = bytes / 1024 ** 3;
+    if (gb >= 1) return `${gb.toFixed(2)} ГБ`;
+    const mb = bytes / 1024 ** 2;
+    return `${mb.toFixed(2)} МБ`;
+  }
+
+  async function openDetailsModal(videoId) {
+    const modal = document.getElementById("video-details-modal");
+    const loading = document.getElementById("details-modal-loading");
+    const content = document.getElementById("details-modal-content");
+
+    modal.classList.remove("hidden");
+    loading.classList.remove("hidden");
+    content.classList.add("hidden");
+
+    try {
+      const res = await fetch(`/api/v1/indexed/videos/${videoId}`);
+      if (!res.ok) throw new Error("Failed to fetch video details");
+      const data = await res.json();
+
+      // Populate details fields
+      document.getElementById("details-title").innerText =
+        data.title || "Unknown";
+      document.getElementById("details-id").innerText = data.id || "—";
+
+      const gdriveEl = document.getElementById("details-gdrive-id");
+      gdriveEl.innerText = data.source_file_id || "—";
+      gdriveEl.title = data.source_file_id || "";
+
+      document.getElementById("details-folder").innerText =
+        data.folder_name || "Архив (корень)";
+      document.getElementById("details-chunks").innerText =
+        data.chunk_count || "0";
+      document.getElementById("details-duration").innerText = formatDuration(
+        data.duration_sec,
+      );
+      document.getElementById("details-size").innerText = formatSizeBytes(
+        data.size_bytes,
+      );
+
+      // Format status badge
+      const statusEl = document.getElementById("details-status");
+      statusEl.innerText = data.status || "—";
+      statusEl.className = "font-bold uppercase tracking-wider text-[9px] ";
+      if (
+        data.status === "completed" ||
+        data.status === "indexed_chunks_ready"
+      ) {
+        statusEl.classList.add("text-green-600");
+      } else if (data.status === "failed") {
+        statusEl.classList.add("text-rose-600");
+      } else {
+        statusEl.classList.add("text-amber-600");
+      }
+
+      document.getElementById("details-recorded-date").innerText =
+        data.recorded_date || "—";
+
+      // Format badges
+      const badgesEl = document.getElementById("details-badges");
+      badgesEl.innerHTML = "";
+
+      if (data.is_4k) {
+        badgesEl.innerHTML += `<span class="px-2 py-1 bg-amber-100 text-amber-700 text-[8px] font-black uppercase tracking-widest rounded-md">4K</span>`;
+      }
+      if (data.is_short) {
+        badgesEl.innerHTML += `<span class="px-2 py-1 bg-teal-100 text-teal-700 text-[8px] font-black uppercase tracking-widest rounded-md">Short</span>`;
+      }
+      if (data.is_silent) {
+        badgesEl.innerHTML += `<span class="px-2 py-1 bg-indigo-100 text-indigo-700 text-[8px] font-black uppercase tracking-widest rounded-md">Без звука</span>`;
+      }
+      if (data.is_missing) {
+        badgesEl.innerHTML += `<span class="px-2 py-1 bg-red-100 text-red-700 text-[8px] font-black uppercase tracking-widest rounded-md">Пропал на диске</span>`;
+      }
+      if (data.is_excluded) {
+        badgesEl.innerHTML += `<span class="px-2 py-1 bg-gray-100 text-gray-700 text-[8px] font-black uppercase tracking-widest rounded-md">Исключен</span>`;
+      }
+      if (data.original_id) {
+        badgesEl.innerHTML += `<span class="px-2 py-1 bg-rose-100 text-rose-700 text-[8px] font-black uppercase tracking-widest rounded-md">Дубликат</span>`;
+
+        const dupInfo = document.getElementById("details-duplicate-info");
+        document.getElementById("details-original-title").innerText =
+          data.original_title || `Файл ID ${data.original_id}`;
+        dupInfo.classList.remove("hidden");
+      } else {
+        document
+          .getElementById("details-duplicate-info")
+          .classList.add("hidden");
+      }
+
+      // Format dates
+      const formatDate = (isoStr) => {
+        if (!isoStr) return "—";
         try {
-            const res = await fetch('/api/v1/worker/status');
-            if (!res.ok) return;
-            const data = await res.json();
-            
-            const badge = document.getElementById('worker-status-badge');
-            const dot = document.getElementById('worker-status-dot');
-            const text = document.getElementById('worker-status-text');
-            const startBtn = document.getElementById('worker-start-btn');
-            const stopBtn = document.getElementById('worker-stop-btn');
-
-            if (data.status === 'running') {
-                badge.className = "flex items-center gap-2 px-3 py-1.5 rounded-full border border-green-100 bg-green-50 text-green-600 text-[9px] font-black uppercase tracking-widest transition-all";
-                dot.className = "w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse";
-                text.innerText = "Воркер активен";
-                startBtn.classList.add('hidden');
-                stopBtn.classList.remove('hidden');
-                stopBtn.disabled = false;
-                stopBtn.classList.remove('opacity-50', 'cursor-not-allowed');
-            } else if (data.status === 'stopping') {
-                badge.className = "flex items-center gap-2 px-3 py-1.5 rounded-full border border-amber-100 bg-amber-50 text-amber-600 text-[9px] font-black uppercase tracking-widest transition-all";
-                dot.className = "w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse";
-                text.innerText = "Останавливается...";
-                startBtn.classList.add('hidden');
-                stopBtn.classList.remove('hidden');
-                stopBtn.disabled = true;
-                stopBtn.classList.add('opacity-50', 'cursor-not-allowed');
-            } else {
-                badge.className = "flex items-center gap-2 px-3 py-1.5 rounded-full border border-warm-100 bg-warm-50 text-warm-400 text-[9px] font-black uppercase tracking-widest transition-all";
-                dot.className = "w-1.5 h-1.5 rounded-full bg-warm-300";
-                text.innerText = "Воркер остановлен";
-                startBtn.classList.remove('hidden');
-                stopBtn.classList.add('hidden');
-                startBtn.disabled = false;
-                startBtn.classList.remove('opacity-50', 'cursor-not-allowed');
-            }
+          const d = new Date(isoStr);
+          return d.toLocaleString("ru-RU");
         } catch (e) {
-            console.error("Failed to update worker status:", e);
+          return isoStr;
         }
+      };
+      document.getElementById("details-created").innerText = formatDate(
+        data.created_at,
+      );
+      document.getElementById("details-updated").innerText = formatDate(
+        data.updated_at,
+      );
+
+      // Save data to window for action button handlers
+      window.currentVideoDetails = data;
+
+      // Action buttons inside Details Modal
+      const actionBtnsEl = document.getElementById("details-action-buttons");
+      actionBtnsEl.innerHTML = `
+                <button onclick="closeDetailsModal(); reindexVideo(window.currentVideoDetails.id)" class="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-[9px] font-black uppercase tracking-widest transition-all shadow-md flex items-center gap-1.5 font-sans">
+                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path>
+                    </svg>
+                    Переиндексировать
+                </button>
+                ${!data.is_silent ? `
+                <button onclick="closeDetailsModal(); markVideoSilent(window.currentVideoDetails.id)" class="px-4 py-2 bg-slate-600 hover:bg-slate-700 text-white rounded-xl text-[9px] font-black uppercase tracking-widest transition-all shadow-md flex items-center gap-1.5 font-sans">
+                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z"></path>
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M17 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2"></path>
+                    </svg>
+                    Без звука
+                </button>
+                ` : ''}
+                <button onclick="closeDetailsModal(); confirmDeleteVideo(window.currentVideoDetails.id, window.currentVideoDetails.title, window.currentVideoDetails.source_file_id)" class="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-[9px] font-black uppercase tracking-widest transition-all shadow-md flex items-center gap-1.5 font-sans">
+                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                    </svg>
+                    Удалить
+                </button>
+            `;
+
+      loading.classList.add("hidden");
+      content.classList.remove("hidden");
+    } catch (err) {
+      console.error(err);
+      loading.innerHTML = `<p class="text-xs font-bold text-rose-600">Ошибка при загрузке данных: ${err.message}</p>`;
     }
+  }
 
-    async function toggleWorker(action) {
-        try {
-            const res = await fetch(`/api/v1/worker/${action}`, { method: 'POST' });
-            if (res.ok) {
-                updateWorkerStatus();
-                // Показываем уведомление
-                const toast = document.createElement('div');
-                toast.className = "fixed bottom-8 left-8 z-[100] px-5 py-2.5 bg-[#3A3630] text-[#FAF9F6] rounded-xl text-[9px] font-black uppercase tracking-widest shadow-2xl animate-in slide-in-from-bottom-4 duration-200";
-                toast.textContent = action === 'start' ? 'Воркер запускается...' : 'Воркер останавливается...';
-                document.body.appendChild(toast);
-                setTimeout(() => {
-                    toast.classList.add('animate-out', 'fade-out', 'slide-out-to-bottom-4');
-                    setTimeout(() => toast.remove(), 200);
-                }, 2000);
-            }
-        } catch (e) {
-            console.error(e);
-        }
+  function closeDetailsModal() {
+    document.getElementById("video-details-modal").classList.add("hidden");
+  }
+
+  async function markVideoSilent(videoId) {
+    if (!confirm(`Вы уверены, что хотите пометить файл #${videoId} как беззвучный? Все чанки и поисковый индекс будут удалены, а текущие задачи обработки отменены.`)) {
+      return;
     }
-
-    let videoIdToDelete = null;
-    let currentOriginalId = null;
-    let currentDuplicateId = null;
-
-    function confirmDeleteVideo(videoId, fileTitle, fileId) {
-        videoIdToDelete = videoId;
-        document.getElementById('delete-modal-file-title').innerText = fileTitle;
-        document.getElementById('delete-modal-file-id').innerText = `ID: ${fileId}`;
-
-        const modal = document.getElementById('delete-video-modal');
-        modal.classList.remove('hidden');
+    try {
+      const res = await fetch(`/api/v1/indexed/videos/${videoId}/mark_silent`, {
+        method: "POST"
+      });
+      if (res.ok) {
+        const toast = document.createElement("div");
+        toast.className =
+          "fixed bottom-8 left-8 z-[200] px-5 py-2.5 bg-[#3A3630] text-[#FAF9F6] rounded-xl text-[9px] font-black uppercase tracking-widest shadow-2xl animate-in slide-in-from-bottom-4 duration-200";
+        toast.textContent = `Файл #${videoId} помечен как беззвучный`;
+        document.body.appendChild(toast);
+        setTimeout(() => {
+          toast.classList.add(
+            "animate-out",
+            "fade-out",
+            "slide-out-to-bottom-4",
+          );
+          setTimeout(() => toast.remove(), 200);
+        }, 2000);
+        updateProgressUI();
+      } else {
+        const errData = await res.json();
+        alert(`Ошибка при отметке беззвучного файла: ${errData.detail || res.statusText}`);
+      }
+    } catch (e) {
+      console.error(e);
+      alert(`Ошибка при отметке беззвучного файла: ${e.message}`);
     }
+  }
 
-    function closeDeleteModal() {
-        const modal = document.getElementById('delete-video-modal');
-        modal.classList.add('hidden');
-        videoIdToDelete = null;
-    }
-
-    function showDuplicateModal(itemJsonStr) {
-        try {
-            const item = JSON.parse(decodeURIComponent(itemJsonStr));
-            currentDuplicateId = item.id;
-            
-            const formatSize = (bytes) => {
-                if (!bytes) return "неизвестно";
-                const mbs = bytes / (1024 * 1024);
-                return `${mbs.toFixed(1)} МБ (${bytes.toLocaleString()} байт)`;
-            };
-
-            const formatDuration = (seconds) => {
-                if (!seconds) return "неизвестно";
-                const mins = Math.floor(seconds / 60);
-                const secs = Math.floor(seconds % 60);
-                return `${mins} мин ${secs} сек (${seconds.toFixed(1)} сек)`;
-            };
-
-            const formatDate = (dateStr) => {
-                if (!dateStr) return "неизвестно";
-                try {
-                    return new Date(dateStr).toLocaleString('ru-RU');
-                } catch(e) {
-                    return dateStr;
-                }
-            };
-
-            const translateStatus = (status) => {
-                const map = {
-                    'pending': 'В очереди',
-                    'downloading': 'Скачивание',
-                    'transcribing': 'Транскрипция',
-                    'indexing': 'Индексация',
-                    'completed': 'Успешно завершено',
-                    'failed': 'Ошибка',
-                    'skipped_duplicate_md5': 'Дубликат (пропущен)'
-                };
-                return map[status] || status;
-            };
-
-            const getStatusClass = (status) => {
-                if (status === 'completed') return 'bg-emerald-100 text-emerald-800';
-                if (status === 'failed') return 'bg-rose-100 text-rose-800';
-                return 'bg-amber-100 text-amber-800';
-            };
-
-            document.getElementById('dup-modal-hash').innerText = item.md5_checksum || "неизвестно";
-
-            document.getElementById('dup-modal-copy-title').innerText = item.title;
-            document.getElementById('dup-modal-copy-path').innerText = item.folder_path || "Корневой каталог";
-            document.getElementById('dup-modal-copy-size').innerText = formatSize(item.size_bytes);
-            document.getElementById('dup-modal-copy-duration').innerText = formatDuration(item.duration_sec);
-            document.getElementById('dup-modal-copy-status').className = `px-1.5 py-0.5 rounded text-[9px] font-bold ${getStatusClass(item.processing_status)}`;
-            document.getElementById('dup-modal-copy-status').innerText = translateStatus(item.processing_status);
-            document.getElementById('dup-modal-copy-created').innerText = formatDate(item.created_at);
-            document.getElementById('dup-modal-copy-id').innerText = item.file_id || "неизвестно";
-            
-            const copyLink = document.getElementById('dup-modal-copy-link');
-            if (item.source_url) {
-                copyLink.href = item.source_url;
-                copyLink.classList.remove('hidden');
-            } else {
-                copyLink.classList.add('hidden');
-            }
-
-            const orig = item.original;
-            const swapBtn = document.getElementById('dup-modal-swap-btn');
-            if (orig) {
-                currentOriginalId = orig.id;
-                swapBtn.classList.remove('hidden');
-                
-                document.getElementById('dup-modal-orig-title').innerText = orig.title;
-                document.getElementById('dup-modal-orig-path').innerText = orig.folder_path || "Корневой каталог";
-                document.getElementById('dup-modal-orig-size').innerText = formatSize(orig.size_bytes);
-                document.getElementById('dup-modal-orig-duration').innerText = formatDuration(orig.duration_sec);
-                
-                const origStatusEl = document.getElementById('dup-modal-orig-status');
-                origStatusEl.innerText = translateStatus(orig.processing_status);
-                origStatusEl.className = `px-1.5 py-0.5 rounded text-[9px] font-bold ${getStatusClass(orig.processing_status)}`;
-                
-                document.getElementById('dup-modal-orig-created').innerText = formatDate(orig.created_at);
-                document.getElementById('dup-modal-orig-id').innerText = orig.file_id || "неизвестно";
-                
-                const origLink = document.getElementById('dup-modal-orig-link');
-                if (orig.source_url) {
-                    origLink.href = orig.source_url;
-                    origLink.classList.remove('hidden');
-                } else {
-                    origLink.classList.add('hidden');
-                }
-            } else {
-                currentOriginalId = null;
-                swapBtn.classList.add('hidden');
-                
-                document.getElementById('dup-modal-orig-title').innerText = item.original_title || "Неизвестный оригинал";
-                document.getElementById('dup-modal-orig-path').innerText = "неизвестно";
-                document.getElementById('dup-modal-orig-size').innerText = "неизвестно";
-                document.getElementById('dup-modal-orig-duration').innerText = "неизвестно";
-                
-                const origStatusEl = document.getElementById('dup-modal-orig-status');
-                origStatusEl.innerText = "неизвестно";
-                origStatusEl.className = "px-1.5 py-0.5 rounded text-[9px] font-bold bg-warm-100 text-warm-800";
-                
-                document.getElementById('dup-modal-orig-created').innerText = "неизвестно";
-                document.getElementById('dup-modal-orig-id').innerText = "неизвестно";
-                document.getElementById('dup-modal-orig-link').classList.add('hidden');
-            }
-
-            document.getElementById('duplicate-info-modal').classList.remove('hidden');
-        } catch(e) {
-            console.error("Failed to show duplicate modal:", e);
-        }
-    }
-
-    function closeDuplicateModal() {
-        document.getElementById('duplicate-info-modal').classList.add('hidden');
-        currentOriginalId = null;
-        currentDuplicateId = null;
-    }
-
-    async function executeSwapRoles() {
-        if (!currentOriginalId || !currentDuplicateId) return;
-
-        if (!confirm("Вы уверены, что хотите сделать этот дубликат основным? Все тексты и разметка будут перенесены на него, а старый оригинал станет пропущенным дубликатом.")) {
-            return;
-        }
-
-        const swapBtn = document.getElementById('dup-modal-swap-btn');
-        swapBtn.disabled = true;
-        const originalText = swapBtn.innerText;
-        swapBtn.innerText = "Выполняется...";
-
-        try {
-            const formData = new FormData();
-            formData.append('original_id', currentOriginalId);
-            formData.append('duplicate_id', currentDuplicateId);
-
-            const res = await fetch('/api/v1/worker/duplicates/swap', {
-                method: 'POST',
-                body: formData
-            });
-
-            if (res.ok) {
-                const data = await res.json();
-                closeDuplicateModal();
-                
-                // Show success toast
-                const toast = document.createElement('div');
-                toast.className = "fixed bottom-8 left-8 z-[200] px-5 py-2.5 bg-[#3A3630] text-[#FAF9F6] rounded-xl text-[9px] font-black uppercase tracking-widest shadow-2xl animate-in slide-in-from-bottom-4 duration-200";
-                toast.textContent = data.message || "Роли успешно изменены";
-                document.body.appendChild(toast);
-                setTimeout(() => {
-                    toast.classList.add('animate-out', 'fade-out', 'slide-out-to-bottom-4');
-                    setTimeout(() => toast.remove(), 200);
-                }, 3000);
-
-                updateProgressUI();
-            } else {
-                const errData = await res.json();
-                alert(`Ошибка изменения ролей: ${errData.detail || res.statusText}`);
-            }
-        } catch (e) {
-            console.error(e);
-            alert(`Ошибка при смене ролей дубликатов: ${e.message}`);
-        } finally {
-            swapBtn.disabled = false;
-            swapBtn.innerText = originalText;
-        }
-    }
-
-    async function executeSaveDuplicate() {
-        if (!currentDuplicateId) return;
-
-        if (!confirm("Вы уверены, что хотите сохранить эту копию как дубликат и скрыть из мониторинга? Она больше не будет показываться как требующая внимания.")) {
-            return;
-        }
-
-        const saveBtn = document.getElementById('dup-modal-save-btn');
-        saveBtn.disabled = true;
-        const originalText = saveBtn.innerText;
-        saveBtn.innerText = "Выполняется...";
-
-        try {
-            const formData = new FormData();
-            formData.append('duplicate_id', currentDuplicateId);
-
-            const res = await fetch('/api/v1/worker/duplicates/save', {
-                method: 'POST',
-                body: formData
-            });
-
-            if (res.ok) {
-                const data = await res.json();
-                closeDuplicateModal();
-
-                // Show success toast
-                const toast = document.createElement('div');
-                toast.className = "fixed bottom-8 left-8 z-[200] px-5 py-2.5 bg-[#3A3630] text-[#FAF9F6] rounded-xl text-[9px] font-black uppercase tracking-widest shadow-2xl animate-in slide-in-from-bottom-4 duration-200";
-                toast.textContent = data.message || "Дубликат успешно сохранен";
-                document.body.appendChild(toast);
-                setTimeout(() => {
-                    toast.classList.add('animate-out', 'fade-out', 'slide-out-to-bottom-4');
-                    setTimeout(() => toast.remove(), 200);
-                }, 3000);
-
-                updateProgressUI();
-            } else {
-                const errData = await res.json();
-                alert(`Ошибка сохранения дубликата: ${errData.detail || res.statusText}`);
-            }
-        } catch (e) {
-            console.error(e);
-            alert(`Ошибка при сохранении дубликата: ${e.message}`);
-        } finally {
-            saveBtn.disabled = false;
-            saveBtn.innerText = originalText;
-        }
-    }
-
-    async function executeDeleteVideo() {
-        if (!videoIdToDelete) return;
-
-        try {
-            const res = await fetch(`/api/v1/indexed/videos/${videoIdToDelete}`, { method: 'DELETE' });
-            if (res.ok) {
-                const toast = document.createElement('div');
-                toast.className = "fixed bottom-8 left-8 z-[200] px-5 py-2.5 bg-[#3A3630] text-[#FAF9F6] rounded-xl text-[9px] font-black uppercase tracking-widest shadow-2xl animate-in slide-in-from-bottom-4 duration-200";
-                toast.textContent = `Файл #${videoIdToDelete} полностью удален из индекса`;
-                document.body.appendChild(toast);
-                setTimeout(() => {
-                    toast.classList.add('animate-out', 'fade-out', 'slide-out-to-bottom-4');
-                    setTimeout(() => toast.remove(), 200);
-                }, 2000);
-                updateProgressUI();
-            } else {
-                const errData = await res.json();
-                alert(`Ошибка удаления: ${errData.detail || res.statusText}`);
-            }
-        } catch (e) {
-            console.error(e);
-            alert(`Ошибка при удалении видео: ${e.message}`);
-        }
-
-        closeDeleteModal();
-    }
-
-    connectLogs();
-    updateWorkerStatus();
-    updateProgressUI();
-    setInterval(updateProgressUI, 2000);
-    setInterval(updateWorkerStatus, 3000);
+  connectLogs();
+  updateWorkerStatus();
+  updateProgressUI();
+  setInterval(updateProgressUI, 2000);
+  setInterval(updateWorkerStatus, 3000);
 </script>
 {% endblock %}
