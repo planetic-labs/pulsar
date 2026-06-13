@@ -399,6 +399,90 @@ def verify_integrity() -> dict[str, Any]:
     else:
         print(f"❌ Полная проверка метаданных выявила {metadata_errors} ошибок!")
 
+    # === [2.5] ПРОВЕРКА ВЕКТОРНЫХ ДАННЫХ ===
+    print("\n=== [2.5] ПРОВЕРКА ВЕКТОРНЫХ ДАННЫХ ===")
+    import random
+
+    from app.config import get_embedding_settings
+
+    emb_settings = get_embedding_settings()
+    expected_dim = emb_settings.dimension or 1024
+    print(f"Ожидаемая размерность векторов: {expected_dim}")
+
+    if q_point_ids:
+        # Берем случайную выборку из 100 ID (или все, если их меньше 100)
+        sample_ids = random.sample(list(q_point_ids), min(100, len(q_point_ids)))
+        ids_str = ",".join(str(x) for x in sample_ids)
+        sql_vecs = f"SELECT id, vec FROM {q_settings.table_name} WHERE id IN ({ids_str})"
+
+        try:
+            res_vecs = manticore._execute_sql(sql_vecs)
+            vec_errors = 0
+            checked_vecs = 0
+
+            if res_vecs and len(res_vecs) > 0:
+                cols_meta = res_vecs[0].get("columns")
+                if isinstance(cols_meta, list):
+                    columns = [list(c.keys())[0] for c in cols_meta]
+                else:
+                    columns = list(cols_meta.keys()) if cols_meta else []
+                data = res_vecs[0].get("data", [])
+
+                for row in data:
+                    if isinstance(row, dict):
+                        row_dict = row
+                    else:
+                        row_dict = dict(zip(columns, row, strict=False))
+
+                    doc_id = row_dict["id"]
+                    vec_val = row_dict.get("vec")
+
+                    if not vec_val:
+                        msg = f"Vector check: Chunk ID {doc_id} has empty or missing vector!"
+                        print(f"❌ {msg}")
+                        issues.append(msg)
+                        vec_errors += 1
+                        continue
+
+                    # Парсим вектор (он может прийти строкой "x,y,z..." или списком)
+                    if isinstance(vec_val, str):
+                        parts = vec_val.split(",")
+                        try:
+                            vec_floats = [float(x) for x in parts if x.strip()]
+                        except ValueError:
+                            vec_floats = []
+                    elif isinstance(vec_val, list):
+                        vec_floats = vec_val
+                    else:
+                        vec_floats = []
+
+                    checked_vecs += 1
+                    actual_dim = len(vec_floats)
+
+                    if actual_dim != expected_dim:
+                        msg = f"Vector check: Chunk ID {doc_id} dim mismatch: expected {expected_dim}, got {actual_dim}"
+                        print(f"❌ {msg}")
+                        issues.append(msg)
+                        vec_errors += 1
+                        continue
+
+                    # Проверяем, что вектор не полностью нулевой
+                    sq_sum = sum(x * x for x in vec_floats)
+                    if sq_sum < 1e-6:
+                        msg = f"Vector check: Chunk ID {doc_id} zero vector (norm < 1e-6)"
+                        print(f"❌ {msg}")
+                        issues.append(msg)
+                        vec_errors += 1
+
+            if vec_errors == 0:
+                print(f"✅ Векторная проверка пройдена ({checked_vecs} случайных векторов проверено).")
+            else:
+                print(f"❌ Векторная проверка выявила {vec_errors} ошибок!")
+        except Exception as e:
+            msg = f"Failed to execute vector validation query: {e}"
+            print(f"❌ {msg}")
+            issues.append(msg)
+
     print("\n=== [3] ЛОГИЧЕСКИЕ ОШИБКИ И ЭВРИСТИКА ===")
 
     with db_connection(sqlite_settings) as conn:
