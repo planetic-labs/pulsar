@@ -210,21 +210,8 @@ async def api_register_speaker(
 
 @router.delete("/api/speakers/{speaker_id}")
 async def api_delete_speaker(speaker_id: str, _: str = Depends(require_admin)) -> dict[str, str]:
-    """Deletes registered speaker sample files and database references."""
+    """Deletes registered speaker database references."""
     m_client = get_manticore_client()
-    settings = get_app_settings()
-
-    try:
-        points = m_client.retrieve(collection_name="speaker_registry", ids=[speaker_id])
-        if points and points[0].payload:
-            filename = points[0].payload.get("sample_file")
-            if filename:
-                file_path = settings.voice_samples_dir / filename
-                if file_path.exists():
-                    file_path.unlink()
-    except Exception:
-        pass
-
     m_client.delete(collection_name="speaker_registry", ids=[speaker_id])
     return {"status": "deleted"}
 

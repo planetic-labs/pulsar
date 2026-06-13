@@ -194,7 +194,7 @@ async def speakers_page(request: Request) -> Response:
                     {
                         "id": p.id,
                         "name": p.payload.get("name", "Unknown"),
-                        "audio_url": f"/audio/{p.payload.get('sample_file')}" if p.payload.get("sample_file") else None,
+                        "audio_url": None,
                     }
                 )
         return templates.TemplateResponse(request, "speakers.html", {"speakers": speakers})

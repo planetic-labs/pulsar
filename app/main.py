@@ -67,14 +67,12 @@ for d in [
     settings.storage_dir,
     settings.downloads_dir,
     settings.audio_dir,
-    settings.voice_samples_dir,
     settings.raw_transcripts_dir,
     settings.normalized_transcripts_dir,
 ]:
     d.mkdir(parents=True, exist_ok=True)
 
 # Static files mapping
-app.mount("/audio", StaticFiles(directory=str(settings.voice_samples_dir)), name="voice_audio")
 app.mount("/static", StaticFiles(directory=str(ROOT_DIR / "static")), name="static")
 
 # Register APIRouters
