@@ -46,58 +46,65 @@ echo "Select snapshot to restore (default: latest):"
 read -p "Snapshot ID: " SNAPSHOT_ID
 SNAPSHOT_ID=${SNAPSHOT_ID:-latest}
 
-RESTORE_DIR="/tmp/pulsar_restore_$SNAPSHOT_ID"
+RESTORE_DIR="$PROJECT_ROOT/backups/tmp/restore_$SNAPSHOT_ID"
 mkdir -p "$RESTORE_DIR"
 
 echo "🔄 Restoring snapshot '$SNAPSHOT_ID' to temporary directory '$RESTORE_DIR'..."
 restic restore "$SNAPSHOT_ID" --target "$RESTORE_DIR"
 
-echo "========================================="
-echo "✅ Restore completed to $RESTORE_DIR"
-echo "========================================="
-echo ""
+    echo "========================================="
+    echo "✅ Restore completed to $RESTORE_DIR"
+    echo "========================================="
+    echo ""
 
-read -p "⚠️  Do you want to apply these restored files to your active Pulsar system now? (y/N): " CONFIRM
-if [[ "$CONFIRM" =~ ^[Yy]$ ]]; then
-    # Detect docker compose version / command
-    COMPOSE_CMD="docker compose"
-    if ! command -v docker-compose &> /dev/null && command -v docker &> /dev/null; then
-        if ! docker compose version &> /dev/null; then
-            COMPOSE_CMD="docker-compose"
+    read -p "⚠️  Do you want to apply these restored files to your active Pulsar system now? (y/N): " CONFIRM
+    if [[ "$CONFIRM" =~ ^[Yy]$ ]]; then
+        # Detect docker compose version / command
+        COMPOSE_CMD="docker compose"
+        if ! command -v docker-compose &> /dev/null && command -v docker &> /dev/null; then
+            if ! docker compose version &> /dev/null; then
+                COMPOSE_CMD="docker-compose"
+            fi
         fi
-    fi
 
-    echo "🛑 Stopping pulsar containers..."
-    if $COMPOSE_CMD down &> /dev/null; then
-        echo "✅ Containers stopped."
-    else
-        echo "⚠️  Could not stop containers via docker compose, proceeding with file copy..."
-    fi
+        echo "🛑 Stopping pulsar containers..."
+        if $COMPOSE_CMD down &> /dev/null; then
+            echo "✅ Containers stopped."
+        else
+            echo "⚠️  Could not stop containers via docker compose, proceeding with file copy..."
+        fi
 
-    echo "🔄 Copying storage files..."
-    if [ -d "$RESTORE_DIR$PROJECT_ROOT/storage" ]; then
-        cp -r "$RESTORE_DIR$PROJECT_ROOT/storage/"* "$PROJECT_ROOT/storage/"
-    fi
+        echo "🔄 Copying storage files..."
+        if [ -d "$RESTORE_DIR$PROJECT_ROOT/storage" ]; then
+            cp -r "$RESTORE_DIR$PROJECT_ROOT/storage/"* "$PROJECT_ROOT/storage/"
+        fi
 
-    echo "🔄 Copying configuration files..."
-    if [ -d "$RESTORE_DIR$PROJECT_ROOT/config" ]; then
-        cp -r "$RESTORE_DIR$PROJECT_ROOT/config/"* "$PROJECT_ROOT/config/"
-    fi
-    if [ -f "$RESTORE_DIR$PROJECT_ROOT/.env" ]; then
-        cp "$RESTORE_DIR$PROJECT_ROOT/.env" "$PROJECT_ROOT/.env"
-    fi
+        echo "🔄 Copying configuration files..."
+        if [ -d "$RESTORE_DIR$PROJECT_ROOT/config" ]; then
+            cp -r "$RESTORE_DIR$PROJECT_ROOT/config/"* "$PROJECT_ROOT/config/"
+        fi
+        if [ -f "$RESTORE_DIR$PROJECT_ROOT/.env" ]; then
+            cp "$RESTORE_DIR$PROJECT_ROOT/.env" "$PROJECT_ROOT/.env"
+        fi
 
-    echo "🔄 Restoring SQLite database..."
-    if [ -f "$RESTORE_DIR/tmp/pulsar_backup_db/pulsar.db" ]; then
-        mkdir -p "$PROJECT_ROOT/data"
-        cp "$RESTORE_DIR/tmp/pulsar_backup_db/pulsar.db" "$PROJECT_ROOT/data/pulsar.db"
-        echo "✅ Database restored."
-    else
-        echo "❌ Error: SQLite backup file not found in snapshot at /tmp/pulsar_backup_db/pulsar.db"
-    fi
+        echo "🔄 Restoring SQLite database..."
+        DB_RESTORED_PATH=""
+        if [ -f "$RESTORE_DIR$PROJECT_ROOT/backups/tmp/backup_db/pulsar.db" ]; then
+            DB_RESTORED_PATH="$RESTORE_DIR$PROJECT_ROOT/backups/tmp/backup_db/pulsar.db"
+        elif [ -f "$RESTORE_DIR/tmp/pulsar_backup_db/pulsar.db" ]; then
+            DB_RESTORED_PATH="$RESTORE_DIR/tmp/pulsar_backup_db/pulsar.db"
+        fi
 
-    echo "🧹 Cleaning up temporary restore directory..."
-    rm -rf "$RESTORE_DIR"
+        if [ -n "$DB_RESTORED_PATH" ]; then
+            mkdir -p "$PROJECT_ROOT/data"
+            cp "$DB_RESTORED_PATH" "$PROJECT_ROOT/data/pulsar.db"
+            echo "✅ Database restored."
+        else
+            echo "❌ Error: SQLite backup file not found in snapshot."
+        fi
+
+        echo "🧹 Cleaning up temporary restore directory..."
+        rm -rf "$RESTORE_DIR"
 
     echo "⚡ Starting pulsar containers..."
     if $COMPOSE_CMD up -d; then
