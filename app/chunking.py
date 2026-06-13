@@ -117,39 +117,7 @@ def chunk_from_utterances(
         sentences = re.split(r"(?<=[.?!])\s+", t)
         return [s.strip() for s in sentences if s.strip()]
 
-    num_chunks = len(chunks_meta)
-
-    # Кэшируем оригинальные тексты базовых чанков во избежание сайд-эффектов мутации словарей
-    base_texts = [str(meta[0]["text"]) for meta in chunks_meta]
-
-    final_chunks = []
-
-    for idx in range(num_chunks):
-        chunk, closed_by_pause = chunks_meta[idx]
-
-        if num_chunks <= 1 or overlap_sentences <= 0:
-            final_chunks.append(chunk)
-            continue
-
-        prefix_parts = []
-        suffix_parts = []
-
-        # 2. Добавляем суффикс из следующего чанка, если текущий чанк закрылся не по паузе
-        if idx < num_chunks - 1:
-            if not closed_by_pause:
-                suffix_parts = split_into_sentences(base_texts[idx + 1])[:overlap_sentences]
-
-        # Собираем финальный текст
-        text_components = []
-        if prefix_parts:
-            text_components.append(" ".join(prefix_parts))
-        text_components.append(str(chunk["text"]))
-        if suffix_parts:
-            text_components.append(" ".join(suffix_parts))
-
-        chunk["text"] = " ".join(text_components)
-        final_chunks.append(chunk)
-
+    final_chunks = [meta[0] for meta in chunks_meta]
     return final_chunks
 
 
