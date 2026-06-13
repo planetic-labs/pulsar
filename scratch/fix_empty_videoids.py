@@ -8,6 +8,7 @@ from app.manticore import date_to_int, get_manticore_client
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+
 async def main():
     m = get_manticore_client()
     m_settings = get_manticore_settings()
@@ -32,9 +33,7 @@ async def main():
 
     # Fetch vectors from Manticore
     logger.info("Reading vectors from Manticore...")
-    res = m._execute_sql(
-        "SELECT id, vec FROM chunks WHERE id >= 167930 AND id <= 168000 LIMIT 100"
-    )
+    res = m._execute_sql("SELECT id, vec FROM chunks WHERE id >= 167930 AND id <= 168000 LIMIT 100")
 
     if not res or not res[0].get("data"):
         logger.warning("No documents found in specified range in Manticore.")
@@ -68,25 +67,27 @@ async def main():
 
         logger.info(f"Preparing update for chunk {doc_id}: video_id={meta['video_id']}, title={meta['title']!r}")
 
-        points_to_update.append({
-            "id": doc_id,
-            "vector": vec_list,
-            "payload": {
-                "chunk_id": doc_id,
-                "video_id": str(meta["video_id"]),
-                "chunk_index": int(meta["chunk_index"]),
-                "start_sec": float(meta["start_sec"] or 0.0),
-                "end_sec": float(meta["end_sec"] or 0.0),
-                "text": meta["text"] or "",
-                "title": meta["title"] or "",
-                "source_file_id": meta["source_file_id"] or "",
-                "source_url": meta["source_url"] or "",
-                "recorded_date": date_to_int(meta["recorded_date"]),
-                "is_short": int(meta["is_short"] or 0),
-                "is_4k": int(meta["is_4k"] or 0),
-                "is_primary": 1,
+        points_to_update.append(
+            {
+                "id": doc_id,
+                "vector": vec_list,
+                "payload": {
+                    "chunk_id": doc_id,
+                    "video_id": str(meta["video_id"]),
+                    "chunk_index": int(meta["chunk_index"]),
+                    "start_sec": float(meta["start_sec"] or 0.0),
+                    "end_sec": float(meta["end_sec"] or 0.0),
+                    "text": meta["text"] or "",
+                    "title": meta["title"] or "",
+                    "source_file_id": meta["source_file_id"] or "",
+                    "source_url": meta["source_url"] or "",
+                    "recorded_date": date_to_int(meta["recorded_date"]),
+                    "is_short": int(meta["is_short"] or 0),
+                    "is_4k": int(meta["is_4k"] or 0),
+                    "is_primary": 1,
+                },
             }
-        })
+        )
 
     if points_to_update:
         logger.info(f"Upserting {len(points_to_update)} updated documents to Manticore...")
@@ -94,6 +95,7 @@ async def main():
         logger.info("Successfully fixed empty video_ids in Manticore!")
     else:
         logger.info("No documents needed updates.")
+
 
 if __name__ == "__main__":
     asyncio.run(main())
