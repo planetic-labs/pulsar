@@ -4,6 +4,16 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+IS_CONTAINER = Path("/.dockerenv").exists() or str(PROJECT_ROOT) == "/app"
+
+
+def resolve_host_path(path: Path | str) -> Path:
+    p = Path(path)
+    if not IS_CONTAINER and len(p.parts) > 1 and p.parts[0] == "/" and p.parts[1] == "app":
+        return PROJECT_ROOT / Path(*p.parts[2:])
+    return p
+
 
 def _load_dotenv_file(dotenv_path: Path) -> None:
     if not dotenv_path.exists():
@@ -141,7 +151,8 @@ def _env_bool(name: str, default: bool) -> bool:
 def get_sqlite_settings() -> SQLiteSettings:
     app_settings = get_app_settings()
     default_db = app_settings.data_dir / "pulsar.db"
-    return SQLiteSettings(db_path=Path(os.getenv("SQLITE_DB_PATH", str(default_db))))
+    db_path = Path(os.getenv("SQLITE_DB_PATH", str(default_db)))
+    return SQLiteSettings(db_path=resolve_host_path(db_path))
 
 
 def get_embedding_settings() -> EmbeddingSettings:
@@ -173,9 +184,11 @@ def get_local_ai_settings() -> LocalAISettings:
 
 def get_google_drive_settings() -> GoogleDriveSettings:
     scopes_raw = os.getenv("GOOGLE_DRIVE_SCOPES", "https://www.googleapis.com/auth/drive.readonly")
+    credentials_path = Path(os.getenv("GOOGLE_DRIVE_CREDENTIALS_PATH", "/app/config/service-key.json"))
+    download_dir = Path(os.getenv("GOOGLE_DRIVE_DOWNLOAD_DIR", "/app/downloads"))
     return GoogleDriveSettings(
-        credentials_path=Path(os.getenv("GOOGLE_DRIVE_CREDENTIALS_PATH", "/app/config/service-key.json")),
-        download_dir=Path(os.getenv("GOOGLE_DRIVE_DOWNLOAD_DIR", "/app/downloads")),
+        credentials_path=resolve_host_path(credentials_path),
+        download_dir=resolve_host_path(download_dir),
         scopes=tuple(s.strip() for s in scopes_raw.split(",") if s.strip()),
     )
 
@@ -197,6 +210,8 @@ def get_deepgram_settings() -> DeepgramSettings:
 
 
 def get_app_settings() -> AppSettings:
+    storage_dir = Path(os.getenv("APP_STORAGE_DIR", "/app/storage"))
+    data_dir = Path(os.getenv("APP_DATA_DIR", "/app/data"))
     return AppSettings(
         access_token=os.getenv("APP_ACCESS_TOKEN", "change-me"),
         session_secret_key=os.getenv("SESSION_SECRET_KEY", "change-me-to-something-very-secret"),
@@ -205,8 +220,8 @@ def get_app_settings() -> AppSettings:
         results_limit=int(os.getenv("APP_RESULTS_LIMIT", "20")),
         download_concurrency=int(os.getenv("INGEST_DOWNLOAD_CONCURRENCY", "1")),
         process_concurrency=int(os.getenv("INGEST_PROCESS_CONCURRENCY", "1")),
-        storage_dir=Path(os.getenv("APP_STORAGE_DIR", "/app/storage")),
-        data_dir=Path(os.getenv("APP_DATA_DIR", "/app/data")),
+        storage_dir=resolve_host_path(storage_dir),
+        data_dir=resolve_host_path(data_dir),
         disk_space_buffer_gb=int(os.getenv("DISK_SPACE_BUFFER_GB", "3")),
         max_audio_size_mb=int(os.getenv("MAX_AUDIO_SIZE_MB", "20")),
         ark_jwks_url=os.getenv("ARK_JWKS_URL"),
