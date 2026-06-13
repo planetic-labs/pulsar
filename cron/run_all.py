@@ -121,10 +121,40 @@ def clean_manticore_json():
         logger.error(f"Failed to check/clean manticore.json: {e}")
 
 
+def is_worker_active() -> tuple[bool, int]:
+    """Проверяет, есть ли активные или ожидающие задачи в очереди воркера."""
+    try:
+        from app.config import get_sqlite_settings
+        from app.db import db_connection
+
+        sqlite_settings = get_sqlite_settings()
+        with db_connection(sqlite_settings) as conn:
+            active_tasks = conn.execute(
+                "SELECT COUNT(*) as cnt FROM tasks WHERE status IN ('pending', 'running')"
+            ).fetchone()
+            count = active_tasks["cnt"] if active_tasks else 0
+            return count > 0, count
+    except Exception as e:
+        logger.error(f"Failed to check worker status: {e}")
+        # Из соображений безопасности считаем, что воркер активен, если проверка упала
+        return True, 0
+
+
 def main():
     logger.info("=========================================")
     logger.info("🚀 STARTING UNIFIED CRON WORKFLOW")
     logger.info("=========================================")
+
+    # Проверяем активность воркера перед выполнением любых операций (включая чистку Manticore)
+    active, tasks_count = is_worker_active()
+    if active:
+        msg = (
+            "<b>ℹ️ Выполнение регламентных задач Pulsar отложено:</b> "
+            f"воркер сейчас занят обработкой задач (в очереди: {tasks_count})."
+        )
+        logger.info(f"Worker is active ({tasks_count} tasks in queue). Postponing all cron steps.")
+        send_telegram_notification(msg)
+        return
 
     # 0. Clean Manticore config metadata
     clean_manticore_json()
