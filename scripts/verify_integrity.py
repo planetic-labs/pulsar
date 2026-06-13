@@ -60,7 +60,11 @@ def verify_integrity() -> dict[str, Any]:
 
     with db_connection(sqlite_settings) as conn:
         # Список транскрибированных видео — это видео-оригиналы (где original_id IS NULL)
-        sql = "SELECT id as video_id, source_file_id, title, is_short FROM videos WHERE original_id IS NULL"
+        sql = """
+            SELECT id as video_id, source_file_id, title, is_short
+            FROM videos
+            WHERE original_id IS NULL AND is_silent = 0
+        """
         videos = conn.execute(sql).fetchall()
 
         for v in videos:
@@ -240,7 +244,11 @@ def verify_integrity() -> dict[str, Any]:
         db_chunk_map = {r["id"]: r["text"] for r in sql_chunks}
         db_chunk_ids = set(db_chunk_map.keys())
 
-        sql_v = "SELECT id, title FROM videos WHERE status IN ('completed', 'indexed_chunks_ready')"
+        sql_v = """
+            SELECT id, title
+            FROM videos
+            WHERE status IN ('completed', 'indexed_chunks_ready') AND is_silent = 0
+        """
         completed_videos = conn.execute(sql_v).fetchall()
 
     print(f"Чанков в SQLite: {len(db_chunk_ids)}")
@@ -710,10 +718,15 @@ def verify_integrity() -> dict[str, Any]:
     except Exception as db_err:
         print(f"❌ Failed to save integrity issues to database: {db_err}")
 
+    from app.integrity_reporter import format_integrity_issues_for_telegram
+
+    summary_text = format_integrity_issues_for_telegram(issues)
+
     print("\n=== ПРОВЕРКА ЗАВЕРШЕНА ===")
     return {
         "status": "completed",
         "issues": issues,
+        "summary": summary_text,
         "deleted_raw_count": deleted_raw_count,
         "deleted_norm_count": deleted_norm_count,
         "reindexed_videos_count": reindexed_videos_count,

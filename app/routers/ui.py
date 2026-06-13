@@ -118,8 +118,6 @@ def import_page(request: Request) -> Response:
 @router.get("/status", response_class=HTMLResponse)
 def status_page(request: Request) -> Response:
     """Renders the queue monitor and task logs dashboard view."""
-    pg_settings = get_sqlite_settings()
-
     try:
         current_token = require_access_token(request)
     except HTTPException:
@@ -129,47 +127,7 @@ def status_page(request: Request) -> Response:
     if current_token != settings.access_token:
         return RedirectResponse(url="/")
 
-    import json
-
-    with db_connection(pg_settings) as connection:
-        statuses = _status_rows(connection)
-
-        # Helper to process task rows
-        def process_tasks(rows: list[Any]) -> list[dict[str, Any]]:
-            processed = []
-            for row in rows:
-                t = dict(row)
-                try:
-                    payload = json.loads(t["payload"])
-                    t["file_id"] = payload.get("file_id")
-                    if t["file_id"]:
-                        sql_v = "SELECT title FROM videos WHERE source_file_id = ?"
-                        v = connection.execute(sql_v, (t["file_id"],)).fetchone()
-                        t["title"] = v["title"] if v else f"Файл {t['file_id'][:8]}..."
-                    else:
-                        t["title"] = payload.get("title", "AI Indexing")
-                except Exception:
-                    t["title"] = "Task"
-                processed.append(t)
-            return processed
-
-        # 1. Fetch ALL running tasks
-        sql_running = "SELECT * FROM tasks WHERE status = 'running' ORDER BY created_at ASC"
-        running_rows = connection.execute(sql_running).fetchall()
-        active_tasks = process_tasks(running_rows)
-
-        # 2. Fetch recent queue (limit 50)
-        sql_recent = """
-            SELECT * FROM tasks
-            WHERE status IN ('pending', 'running', 'failed')
-            ORDER BY created_at DESC LIMIT 50
-        """
-        recent_rows = connection.execute(sql_recent).fetchall()
-        tasks = process_tasks(recent_rows)
-
-    return templates.TemplateResponse(
-        request, "status.html", {"statuses": statuses, "tasks": tasks, "active_tasks": active_tasks}
-    )
+    return templates.TemplateResponse(request, "status.html", {})
 
 
 @router.get("/speakers", response_class=HTMLResponse)

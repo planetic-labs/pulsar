@@ -162,6 +162,45 @@
                 }
             });
         }
+
+        function copyToClipboard(text, btnElement) {
+            navigator.clipboard.writeText(text).then(() => {
+                if (btnElement) {
+                    const originalHTML = btnElement.innerHTML;
+                    btnElement.innerHTML = `
+                        <svg class="w-3.5 h-3.5 text-emerald-500 scale-110 transition-transform" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
+                            <polyline points="20 6 9 17 4 12"></polyline>
+                        </svg>
+                    `;
+                    btnElement.classList.remove('bg-warm-50', 'border-warm-200', 'text-warm-500');
+                    btnElement.classList.add('bg-emerald-50', 'border-emerald-200');
+                    
+                    setTimeout(() => {
+                        btnElement.innerHTML = originalHTML;
+                        btnElement.classList.remove('bg-emerald-50', 'border-emerald-200');
+                        btnElement.classList.add('bg-warm-50', 'border-warm-200', 'text-warm-500');
+                    }, 2000);
+                }
+            }).catch(err => {
+                console.error('Failed to copy text: ', err);
+            });
+        }
+        window.copyToClipboard = copyToClipboard;
+
+        function escapeHTML(str) {
+            if (!str) return '';
+            return str.replace(/[&<>'\"\\]/g, 
+                tag => ({
+                    '&': '&amp;',
+                    '<': '&lt;',
+                    '>': '&gt;',
+                    "'": '&#39;',
+                    '"': '&quot;',
+                    '\\': '&#92;'
+                }[tag] || tag)
+            );
+        }
+        window.escapeHTML = escapeHTML;
     </script>
 </body>
 </html>

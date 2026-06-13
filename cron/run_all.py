@@ -218,9 +218,7 @@ def main():
 
         if issues:
             logger.warning(f"❌ Integrity check completed with {len(issues)} issues found!")
-            notification_lines.append("<b>⚠️ Обнаружены отклонения при проверке целостности Pulsar!</b>\n")
-            for idx, err in enumerate(issues, 1):
-                notification_lines.append(f"{idx}. {err}")
+            notification_lines.append(result.get("summary") or "")
             notification_lines.append("")
         else:
             logger.info("✅ Integrity check completed. No critical issues found.")
