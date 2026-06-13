@@ -8,7 +8,8 @@ logger = logging.getLogger(__name__)
 # Дефолтные настройки для экспериментов из переменных окружения
 DEFAULT_PAUSE_THRESHOLD = float(os.getenv("CHUNKING_PAUSE_THRESHOLD", "3.0"))
 DEFAULT_MIN_CHARS = int(os.getenv("CHUNKING_MIN_CHARS", "400"))
-DEFAULT_MAX_CHARS = int(os.getenv("CHUNKING_MAX_CHARS", "800"))
+DEFAULT_MAX_CHARS = int(os.getenv("CHUNKING_MAX_CHARS", "2000"))
+DEFAULT_ABSOLUTE_MAX_CHARS = int(os.getenv("CHUNKING_ABSOLUTE_MAX_CHARS", "3000"))
 DEFAULT_OVERLAP_SENTENCES = int(os.getenv("CHUNKING_OVERLAP_SENTENCES", "1"))
 
 
@@ -16,7 +17,7 @@ def chunk_from_utterances(
     utterances: list[dict[str, Any]],
     min_chars: int = DEFAULT_MIN_CHARS,
     max_chars: int = DEFAULT_MAX_CHARS,
-    absolute_max_chars: int = 2000,
+    absolute_max_chars: int = DEFAULT_ABSOLUTE_MAX_CHARS,
     pause_threshold: float = DEFAULT_PAUSE_THRESHOLD,
     overlap_sentences: int = DEFAULT_OVERLAP_SENTENCES,
     single_chunk: bool = False,
@@ -24,11 +25,10 @@ def chunk_from_utterances(
     """
     Группирует мелкие реплики (utterances) в семантические чанки на основе:
     1. Накопленного размера текста (не менее min_chars).
-    2. Границ предложений (знаки препинания ., ?, !).
-    3. Пауз между репликами (пауза >= pause_threshold секунд).
+    2. Пауз между репликами (пауза >= pause_threshold секунд) — приоритетный разделитель.
+    3. Границ предложений (знаки препинания ., ?, !), если накоплено не менее max_chars.
+    4. Абсолютного лимита размера (absolute_max_chars).
 
-    Если чанк закрывается не по паузе, делает перекрытие на указанное число предложений
-    из соседних чанков для сохранения контекста.
     Если single_chunk=True, объединяет все реплики в один единственный чанк.
     """
     if not utterances:
@@ -76,15 +76,15 @@ def chunk_from_utterances(
 
             is_long_pause = pause >= pause_threshold
 
-            # Закрываем, если закончили предложение или встретили длинную паузу
+            # Закрываем, если встретили длинную паузу
             if is_long_pause:
                 should_close = True
                 closed_by_pause = True
-            elif ends_sentence:
+            # Или если накопили max_chars и закончили предложение
+            elif current_length >= max_chars and ends_sentence:
                 should_close = True
-
             # Принудительное закрытие при достижении абсолютного лимита
-            if current_length >= absolute_max_chars:
+            elif current_length >= absolute_max_chars:
                 should_close = True
 
         if should_close:
