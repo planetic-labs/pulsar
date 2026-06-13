@@ -120,6 +120,13 @@ class ManticoreClient:
                 else:
                     doc[k] = v
 
+            # Добавляем вектор в документ для Manticore KNN
+            if "vector" in point:
+                if isinstance(point["vector"], dict) and "default" in point["vector"]:
+                    doc["vec"] = point["vector"]["default"]
+                elif isinstance(point["vector"], list):
+                    doc["vec"] = point["vector"]
+
             line = {"replace": {"table": collection_name, "id": m_id, "doc": doc}}
             lines.append(json.dumps(line, ensure_ascii=False))
 
@@ -295,6 +302,11 @@ def init_manticore():
     settings = get_manticore_settings()
     table_name = settings.table_name
 
+    from app.config import get_embedding_settings
+
+    emb_settings = get_embedding_settings()
+    vector_size = emb_settings.dimension or 1024
+
     sql_chunks = f"""
     CREATE TABLE IF NOT EXISTS `{table_name}` (
         `text` text,
@@ -309,7 +321,8 @@ def init_manticore():
         `end_sec` float,
         `is_short` int,
         `is_4k` int,
-        `is_primary` int
+        `is_primary` int,
+        `vec` float_vector knn_type='hnsw' knn_dims='{vector_size}' hnsw_similarity='cosine' quantization='1bit'
     ) type='rt' rt_mem_limit='512M' morphology='stem_ru'
     """
 

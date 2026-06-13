@@ -509,10 +509,17 @@ class Worker:
 
                 texts = [c["text"] for c in chunks]
 
-                # ВРЕМЕННАЯ ЗАГЛУШКА: не запускаем реальный эмбеддинг
-                logger.info(f"[MOCK] Пропуск реального эмбеддинга для {title}")
-                dim = embed_client.settings.dimension or 1024
-                embeddings_data = [([0.0] * dim, None) for _ in texts]
+                def progress_cb(current: int, total: int):
+                    if total > 0:
+                        pct = 10 + int((current / total) * 65)
+                    else:
+                        pct = 10
+                    self._state["stage_3_index"].update(
+                        {"progress": pct, "status_text": f"Эмбеддинги: {current}/{total}"}
+                    )
+
+                # Получаем реальные эмбеддинги от провайдера с прогресс-коллбеком
+                embeddings_data = await embed_client.embed_batch_async(texts, progress_callback=progress_cb)
 
                 self._state["stage_3_index"].update({"progress": 75, "status_text": "Загрузка в Manticore"})
                 points = []
