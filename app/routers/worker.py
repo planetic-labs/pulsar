@@ -59,7 +59,9 @@ async def api_worker_status(_: str = Depends(require_access_token)) -> dict[str,
 
 
 @router.get("/api/v1/worker/progress")
-async def api_worker_progress(_: str = Depends(require_access_token)) -> dict[str, Any]:
+async def api_worker_progress(
+    _: str = Depends(require_access_token),
+) -> dict[str, Any]:
     """Returns real-time progress for all stages, queue counts, and processing stats."""
     worker = get_worker()
     state = worker.get_progress_state()
@@ -107,91 +109,39 @@ async def api_worker_progress(_: str = Depends(require_access_token)) -> dict[st
                 except Exception:
                     pass
 
-        # Detail missing on Google Drive
+        # Empty structures kept for backward compatibility
         stats["missing_on_drive_list"] = []
         stats["missing_on_drive_count"] = 0
-        sql_mc = "SELECT COUNT(*) as c FROM videos WHERE is_missing = 1"
-        stats["missing_on_drive_count"] = conn.execute(sql_mc).fetchone()["c"]
-        if stats["missing_on_drive_count"] > 0:
-            sql_m = (
-                "SELECT id, title, source_file_id, source_url "
-                "FROM videos WHERE is_missing = 1 "
-                "ORDER BY updated_at DESC LIMIT 20"
-            )
-            m_rows = conn.execute(sql_m).fetchall()
-            for mr in m_rows:
-                stats["missing_on_drive_list"].append(
-                    {
-                        "id": mr["id"],
-                        "title": mr["title"],
-                        "file_id": mr["source_file_id"],
-                        "source_url": mr["source_url"],
-                    }
-                )
-
-        # Detail excluded by keyword
         stats["excluded_by_keyword_list"] = []
         stats["excluded_by_keyword_count"] = 0
-        sql_ec = "SELECT COUNT(*) as c FROM videos WHERE is_excluded = 1"
-        stats["excluded_by_keyword_count"] = conn.execute(sql_ec).fetchone()["c"]
-        if stats["excluded_by_keyword_count"] > 0:
-            sql_ex = (
-                "SELECT id, title, source_file_id, source_url "
-                "FROM videos WHERE is_excluded = 1 "
-                "ORDER BY updated_at DESC LIMIT 20"
-            )
-            ex_rows = conn.execute(sql_ex).fetchall()
-            for exr in ex_rows:
-                stats["excluded_by_keyword_list"].append(
-                    {
-                        "id": exr["id"],
-                        "title": exr["title"],
-                        "file_id": exr["source_file_id"],
-                        "source_url": exr["source_url"],
-                    }
-                )
-
-        # Detail missing transcripts
         stats["missing_transcripts_list"] = []
         stats["missing_transcripts_count"] = 0
+        stats["integrity_issues"] = []
 
-        sql_orig_videos = (
-            "SELECT id, title, source_file_id, source_url, status "
-            "FROM videos WHERE original_id IS NULL AND is_silent = 0 AND "
-            "status NOT IN ('pending', 'failed', 'skipped_silent', 'skipped_no_space')"
-        )
-        orig_videos = conn.execute(sql_orig_videos).fetchall()
+        try:
+            sql_ii = "SELECT id, message FROM integrity_issues ORDER BY id DESC LIMIT 100"
+            ii_rows = conn.execute(sql_ii).fetchall()
 
-        app_settings = get_app_settings()
-        for v in orig_videos:
-            file_id = v["source_file_id"]
-            if not file_id:
-                continue
-            raw_path = app_settings.get_raw_transcript_path(file_id)
-            norm_path = app_settings.get_normalized_transcript_path(file_id)
+            import re
 
-            raw_missing: bool = not raw_path.exists()
-            norm_missing: bool = not norm_path.exists()
-
-            if raw_missing or norm_missing:
-                reasons: list[str] = []
-                if raw_missing:
-                    reasons.append("нет RAW")
-                if norm_missing:
-                    reasons.append("нет NORMALIZED")
-                reason_str: str = ", ".join(reasons)
-
-                stats["missing_transcripts_list"].append(
-                    {
-                        "id": v["id"],
-                        "title": v["title"],
-                        "file_id": file_id,
-                        "source_url": v["source_url"] or f"https://drive.google.com/file/d/{file_id}/view",
-                        "reason": reason_str,
-                    }
+            for row in ii_rows:
+                msg: str = row["message"]
+                id_match = (
+                    re.search(r"\(ID:(\d+)\)", msg)
+                    or re.search(r"Video (\d+):", msg)
+                    or re.search(r"video ID (\d+):", msg, re.IGNORECASE)
                 )
+                video_id: int | None = int(id_match.group(1)) if id_match else None
 
-        stats["missing_transcripts_count"] = len(stats["missing_transcripts_list"])
+                source_url: str | None = None
+                if video_id:
+                    v_row = conn.execute("SELECT source_url FROM videos WHERE id = ?", (video_id,)).fetchone()
+                    if v_row:
+                        source_url = v_row["source_url"]
+
+                stats["integrity_issues"].append({"message": msg, "video_id": video_id, "source_url": source_url})
+        except Exception as e:
+            logger.error(f"Failed to fetch integrity issues: {e}")
 
         # Detail duplicate MD5 files (removed from UI, kept empty lists for API compatibility)
         stats["duplicate_md5_list"] = []
@@ -224,32 +174,19 @@ async def api_worker_progress(_: str = Depends(require_access_token)) -> dict[st
                     }
                 )
 
-        # Fetch integrity check issues
-        stats["integrity_issues"] = []
-        try:
-            sql_ii = "SELECT message FROM integrity_issues ORDER BY id ASC"
-            ii_rows = conn.execute(sql_ii).fetchall()
+    # Get balance from cache
+    from app.transcription.deepgram import DeepgramEngine
 
-            import re
+    dg_engine = DeepgramEngine(get_deepgram_settings())
+    balance_data = dg_engine.get_balance()
 
-            for row in ii_rows:
-                msg: str = row["message"]
-                id_match = (
-                    re.search(r"\(ID:(\d+)\)", msg)
-                    or re.search(r"Video (\d+):", msg)
-                    or re.search(r"video ID (\d+):", msg, re.IGNORECASE)
-                )
-                video_id: int | None = int(id_match.group(1)) if id_match else None
-
-                source_url: str | None = None
-                if video_id:
-                    v_row = conn.execute("SELECT source_url FROM videos WHERE id = ?", (video_id,)).fetchone()
-                    if v_row:
-                        source_url = v_row["source_url"]
-
-                stats["integrity_issues"].append({"message": msg, "video_id": video_id, "source_url": source_url})
-        except Exception as e:
-            logger.error(f"Failed to fetch integrity issues: {e}")
+    return {
+        "stages": state,
+        "queue_counts": counts,
+        "stats": stats,
+        "is_running": worker.is_running,
+        "dg_balance": balance_data,
+    }
 
     # Get balance from cache
     from app.transcription.deepgram import DeepgramEngine

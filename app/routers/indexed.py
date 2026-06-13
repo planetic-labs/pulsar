@@ -293,6 +293,79 @@ async def api_reindex_video(video_id: int, _: str = Depends(require_admin)) -> d
     return {"status": "reindexed"}
 
 
+@router.post("/api/v1/indexed/videos/{video_id}/mark_silent")
+async def api_mark_video_silent(video_id: int, _: str = Depends(require_admin)) -> dict[str, str]:
+    """Marks a video as silent, deletes its chunks from SQLite and Manticore, and cancels active tasks."""
+    pg_settings = get_sqlite_settings()
+    q_settings = get_manticore_settings()
+
+    from app.manticore import get_manticore_client
+
+    with db_connection(pg_settings) as conn:
+        video_row = conn.execute("SELECT source_file_id FROM videos WHERE id = ?", (video_id,)).fetchone()
+        if not video_row:
+            raise HTTPException(status_code=404, detail="Video not found")
+
+        source_file_id = video_row["source_file_id"]
+
+        # 1. Get chunk IDs from SQLite
+        chunk_rows = conn.execute("SELECT id FROM chunks WHERE video_id = ?", (video_id,)).fetchall()
+        chunk_ids = [c["id"] for c in chunk_rows]
+
+        # 2. Delete points from Manticore if they exist
+        if chunk_ids:
+            try:
+                manticore = get_manticore_client()
+                manticore.delete(
+                    collection_name=q_settings.table_name,
+                    ids=chunk_ids,
+                )
+            except Exception as e:
+                logger.error(f"Failed to delete Manticore points for video {video_id}: {e}")
+
+        # 3. Delete chunks from SQLite
+        conn.execute("DELETE FROM chunks WHERE video_id = ?", (video_id,))
+
+        # 4. Delete tasks for this video
+        conn.execute(
+            """
+            DELETE FROM tasks
+            WHERE video_id = ?
+               OR json_extract(payload, '$.file_id') = ?
+               OR json_extract(payload, '$.video_id') = ?
+            """,
+            (video_id, source_file_id, video_id),
+        )
+
+        # 5. Update SQLite: set is_silent = 1, status = 'indexed_chunks_ready'
+        conn.execute(
+            """
+            UPDATE videos
+            SET is_silent = 1, status = 'indexed_chunks_ready', updated_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+            """,
+            (video_id,),
+        )
+
+        # 6. Remove matching integrity issues
+        import re
+
+        ii_rows = conn.execute("SELECT id, message FROM integrity_issues").fetchall()
+        for row in ii_rows:
+            msg = row["message"]
+            id_match = (
+                re.search(r"\(ID:(\d+)\)", msg)
+                or re.search(r"Video (\d+):", msg)
+                or re.search(r"video ID (\d+):", msg, re.IGNORECASE)
+            )
+            if id_match and int(id_match.group(1)) == video_id:
+                conn.execute("DELETE FROM integrity_issues WHERE id = ?", (row["id"],))
+
+        conn.commit()
+
+    return {"status": "success"}
+
+
 @router.get("/api/v1/indexed/ls")
 async def api_indexed_ls(folder_id: str | None = None, _: str = Depends(require_admin)) -> dict[str, Any]:
     """Lists indexed folders and videos from local DB with metadata."""
