@@ -25,7 +25,7 @@ def db_connection(settings: SQLiteSettings) -> Generator[sqlite3.Connection, Non
     """Provide a transactional scope around a series of operations."""
     Path(settings.db_path).parent.mkdir(parents=True, exist_ok=True)
 
-    conn = sqlite3.connect(settings.db_path)
+    conn = sqlite3.connect(settings.db_path, timeout=30.0)
     conn.row_factory = sqlite3.Row
 
     # Register custom functions
