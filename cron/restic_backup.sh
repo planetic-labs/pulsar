@@ -66,7 +66,7 @@ if ! restic snapshots &> /dev/null; then
 fi
 
 # Setup paths
-TEMP_DB_DIR="$PROJECT_ROOT/backups/tmp/backup_db"
+TEMP_DB_DIR="$PROJECT_ROOT/tmp/backup_db"
 TEMP_DB_PATH="$TEMP_DB_DIR/pulsar.db"
 DB_SOURCE_PATH="$PROJECT_ROOT/data/pulsar.db"
 

@@ -17,6 +17,7 @@ storage/
 .xxxx/
 backups/tmp/
 backups/local/
+tmp/
 *.log
 .antigravitycli/
 .antigravityignore
