@@ -53,7 +53,7 @@ Administrative utilities accessible via Docker:
 - **Clean Queue**: `docker compose exec app uv run python scripts/clear_queue.py`
 - **Integrity Check**: `docker compose exec app uv run scripts/verify_integrity.py`
 - **Full Reindex**: `docker compose exec app uv run scripts/reindex_search.py`
-- **Backup**: `cd backups && uv run backup.py`
+- **Backup**: `./cron/restic_backup.sh`
 
 ## 🛡 Security
 

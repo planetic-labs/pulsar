@@ -122,10 +122,6 @@ class AppSettings:
     def audio_dir(self) -> Path:
         return self.storage_dir / "audio"
 
-    @property
-    def voice_samples_dir(self) -> Path:
-        return self.storage_dir / "voice_samples"
-
     def resolve_path(self, path: str | Path | None) -> Path | None:
         if not path:
             return None

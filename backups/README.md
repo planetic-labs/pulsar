@@ -1,31 +1,18 @@
-# Pulsar Backup Tool (Standalone)
+# Резервное копирование Pulsar через Restic
 
-This directory contains standalone scripts for backing up and restoring the Pulsar system.
-It can be used independently of the main repository.
+Данная директория содержит инструменты для резервного копирования и восстановления данных системы Pulsar с использованием Restic.
 
-## Installation
+## Требования
 
-Ensure you have `uv` installed. To install dependencies:
-```bash
-uv sync
-```
+Убедитесь, что в вашей системе установлены `restic` и CLI-утилита `sqlite3`.
 
-## Configuration
+## Конфигурация
 
-1. Copy `.env.example` to `.env`.
-2. Fill in your S3 credentials and Manticore URL.
-3. If this folder is NOT inside the Pulsar project root, specify absolute paths to `DATA_DIR` and `STORAGE_DIR` in the `.env` file.
+Все параметры конфигурации считываются из общего файла [.env](file:///home/devman/workspace/pulsar-qwin-embeding/.env) в корне проекта (секция **Restic Backup Settings**).
 
-## Usage
+## Использование
 
-### Backup
-```bash
-uv run backup.py
-```
-This will create a local archive in the `backups/` folder and upload it to S3.
+Основные исполняемые скрипты расположены в директории `cron/`:
 
-### Restore
-```bash
-uv run restore.py
-```
-This is an interactive script that lets you choose from local or S3 backups.
+* **Резервное копирование**: [cron/restic_backup.sh](file:///home/devman/workspace/pulsar-qwin-embeding/cron/restic_backup.sh)
+* **Восстановление из бэкапа**: [cron/restic_restore.sh](file:///home/devman/workspace/pulsar-qwin-embeding/cron/restic_restore.sh)
