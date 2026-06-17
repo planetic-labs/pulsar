@@ -38,7 +38,8 @@ class OpenAIEmbeddingProvider(BaseEmbeddingProvider):
         logger.info(f"OpenAI: Embedding query from remote ({text[:20]}...)")
         url = self._get_url()
         headers = {"Authorization": f"Bearer {self.settings.api_token}"} if self.settings.api_token else {}
-        payload = self._build_payload([text])
+        formatted_text = self._format_text(text, task_type)
+        payload = self._build_payload([formatted_text])
 
         async with httpx.AsyncClient(timeout=60.0) as client:
             response = await client.post(url, json=payload, headers=headers)
@@ -54,7 +55,8 @@ class OpenAIEmbeddingProvider(BaseEmbeddingProvider):
         logger.info(f"OpenAI: Embedding query from remote (sync) ({text[:20]}...)")
         url = self._get_url()
         headers = {"Authorization": f"Bearer {self.settings.api_token}"} if self.settings.api_token else {}
-        payload = self._build_payload([text])
+        formatted_text = self._format_text(text, task_type)
+        payload = self._build_payload([formatted_text])
 
         with httpx.Client(timeout=60.0) as client:
             response = client.post(url, json=payload, headers=headers)
@@ -86,7 +88,8 @@ class OpenAIEmbeddingProvider(BaseEmbeddingProvider):
             current_end = min(start_idx + len(batch_texts), total)
             logger.info(f"OpenAI: Параллельный запрос батча (фрагменты {start_idx} - {current_end} из {total})....")
 
-            payload = self._build_payload(batch_texts)
+            formatted_batch = self._format_texts(batch_texts, task_type)
+            payload = self._build_payload(formatted_batch)
             response = await client.post(url, json=payload, headers=headers)
             response.raise_for_status()
             res = response.json()

@@ -42,7 +42,7 @@ async def main():
         sql = f"""
             SELECT
                 c.id as chunk_id, c.video_id, c.chunk_index,
-                c.start_sec, c.end_sec, c.text, c.speaker_tags,
+                c.start_sec, c.end_sec, c.text,
                 v.title, v.source_file_id, v.source_url, v.is_short, v.is_4k, v.recorded_date
             FROM chunks c
             JOIN videos v ON v.id = c.video_id
@@ -97,7 +97,6 @@ async def main():
                             "start_sec": row["start_sec"],
                             "end_sec": row["end_sec"],
                             "text": row["text"],
-                            "speaker": row["speaker_tags"],
                             "title": row["title"],
                             "source_file_id": row["source_file_id"],
                             "source_url": row["source_url"],
