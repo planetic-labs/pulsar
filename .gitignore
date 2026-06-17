@@ -23,5 +23,5 @@ tmp/
 .antigravityignore
 GEMINI.md
 config/
-ARCHITECTURE_PROPOSAL.md
 AUDIT.md
+docs/CRON_AUDIT.md
