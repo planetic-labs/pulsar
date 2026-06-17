@@ -30,7 +30,8 @@ class CustomEmbeddingProvider(BaseEmbeddingProvider):
         logger.info(f"Custom AI: Embedding query from remote ({text[:20]}...)")
         url = self._get_url()
         headers = {"Authorization": f"Bearer {self.settings.api_token}"} if self.settings.api_token else {}
-        payload = {"model": self.settings.model_id, "input": [text]}
+        formatted_text = self._format_text(text, task_type)
+        payload = {"model": self.settings.model_id, "input": [formatted_text]}
 
         async with httpx.AsyncClient(timeout=60.0) as client:
             response = await client.post(url, json=payload, headers=headers)
@@ -51,7 +52,8 @@ class CustomEmbeddingProvider(BaseEmbeddingProvider):
         logger.info(f"Custom AI: Embedding query from remote (sync) ({text[:20]}...)")
         url = self._get_url()
         headers = {"Authorization": f"Bearer {self.settings.api_token}"} if self.settings.api_token else {}
-        payload = {"model": self.settings.model_id, "input": [text]}
+        formatted_text = self._format_text(text, task_type)
+        payload = {"model": self.settings.model_id, "input": [formatted_text]}
 
         with httpx.Client(timeout=60.0) as client:
             response = client.post(url, json=payload, headers=headers)
@@ -92,7 +94,8 @@ class CustomEmbeddingProvider(BaseEmbeddingProvider):
                 if progress_callback:
                     progress_callback(i, total)
 
-                payload = {"model": self.settings.model_id, "input": batch}
+                formatted_batch = self._format_texts(batch, task_type)
+                payload = {"model": self.settings.model_id, "input": formatted_batch}
                 response = await client.post(url, json=payload, headers=headers)
                 response.raise_for_status()
                 res = response.json()
