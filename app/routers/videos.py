@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import logging
 from typing import Any
 
@@ -8,19 +7,18 @@ from fastapi import APIRouter, Depends, Form, HTTPException, Request, Response
 from fastapi.responses import StreamingResponse
 
 from app.auth import require_access_token, require_admin
-from app.config import (
-    get_app_settings,
-    get_embedding_settings,
-    get_google_drive_settings,
-    get_manticore_settings,
-    get_sqlite_settings,
+from app.dependencies import (
+    get_chunk_repo,
+    get_google_drive,
+    get_video_repo,
+    get_video_service,
 )
-from app.db import db_connection
-from app.embeddings import UnifiedEmbeddingClient
-from app.google_drive import GoogleDriveClient
-from app.manticore import get_manticore_client
+from app.ports import FileStoragePort
+from app.repos.chunk_repo import ChunkRepository
+from app.repos.video_repo import VideoRepository
+from app.services.video import VideoNotFoundError, VideoService
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("app.routers.videos")
 
 router = APIRouter(tags=["Videos, Chunks & Speakers"])
 
@@ -40,159 +38,66 @@ async def api_save_speaker(
 
 
 @router.get("/api/videos/{video_id}/export")
-def api_video_export(video_id: int, _: str = Depends(require_access_token)) -> Response:
+async def api_video_export(
+    video_id: int,
+    video_repo: VideoRepository = Depends(get_video_repo),
+    chunk_repo: ChunkRepository = Depends(get_chunk_repo),
+    _: str = Depends(require_access_token),
+) -> Response:
     """Exports full transcript text of a video as a .txt attachment file."""
-    settings = get_sqlite_settings()
-    with db_connection(settings) as connection:
-        rows = connection.execute(
-            """
-            SELECT c.text
-            FROM chunks c
-            WHERE c.video_id = ?
-            ORDER BY c.chunk_index ASC
-            """,
-            (video_id,),
-        ).fetchall()
+    chunks = await chunk_repo.get_by_video_id(video_id)
+    if not chunks:
+        raise HTTPException(status_code=404, detail="Transcript not found")
 
-        if not rows:
-            raise HTTPException(status_code=404, detail="Transcript not found")
+    full_text = "\n\n".join(c["text"] for c in chunks)
+    v_row = await video_repo.get_by_id(video_id)
+    filename: str = f"{v_row['title']}.txt" if v_row else f"transcript_{video_id}.txt"
 
-        full_text_lines = []
-        for r in rows:
-            full_text_lines.append(r["text"])
-
-        full_text = "\n\n".join(full_text_lines)
-        v_row = connection.execute("SELECT title FROM videos WHERE id = ?", (video_id,)).fetchone()
-        filename: str = f"{v_row['title']}.txt" if v_row else f"transcript_{video_id}.txt"
-
-        return Response(
-            content=full_text,
-            media_type="text/plain",
-            headers={"Content-Disposition": f"attachment; filename={filename}"},
-        )
+    return Response(
+        content=full_text,
+        media_type="text/plain",
+        headers={"Content-Disposition": f"attachment; filename={filename}"},
+    )
 
 
 @router.get("/api/videos/{video_id}/chunks")
-def api_video_chunks(video_id: int, _: str = Depends(require_access_token)) -> list[dict[str, Any]]:
+async def api_video_chunks(
+    video_id: int,
+    chunk_repo: ChunkRepository = Depends(get_chunk_repo),
+    _: str = Depends(require_access_token),
+) -> list[dict[str, Any]]:
     """Returns raw time-stamped transcript chunks for a video."""
-    settings = get_sqlite_settings()
-    with db_connection(settings) as connection:
-        rows = connection.execute(
-            """
-            SELECT c.id, c.start_sec, c.end_sec, c.text
-            FROM chunks c
-            WHERE c.video_id = ?
-            ORDER BY c.chunk_index ASC
-            """,
-            (video_id,),
-        ).fetchall()
-        return [dict(row) for row in rows]
+    rows = await chunk_repo.get_by_video_id(video_id)
+    return [dict(row) for row in rows]
 
 
 @router.get("/api/videos")
-def api_list_videos(_: str = Depends(require_access_token)) -> list[dict[str, Any]]:
+async def api_list_videos(
+    video_repo: VideoRepository = Depends(get_video_repo),
+    _: str = Depends(require_access_token),
+) -> list[dict[str, Any]]:
     """Returns list of all indexed video IDs and titles."""
-    settings = get_sqlite_settings()
-    with db_connection(settings) as connection:
-        rows = connection.execute("SELECT id, title FROM videos ORDER BY title ASC").fetchall()
-        return [dict(row) for row in rows]
+    rows = await video_repo.get_all()
+    return [dict(row) for row in rows]
 
 
 @router.post("/api/chunks/{chunk_id}")
-async def api_update_chunk(chunk_id: int, request: Request, _: str = Depends(require_access_token)) -> dict[str, Any]:
+async def api_update_chunk(
+    chunk_id: int,
+    request: Request,
+    video_service: VideoService = Depends(get_video_service),
+    _: str = Depends(require_access_token),
+) -> dict[str, Any]:
     """Updates a single chunk text in SQLite database, JSON transcript, and Manticore search index."""
     data = await request.json()
     new_text: str | None = data.get("text")
     if new_text is None:
         raise HTTPException(status_code=400, detail="Missing text")
 
-    settings = get_sqlite_settings()
-    embed_client = UnifiedEmbeddingClient(get_embedding_settings())
-    manticore = get_manticore_client()
-    q_settings = get_manticore_settings()
-
-    with db_connection(settings) as connection:
-        # 1. Fetch chunk info for payload
-        row = connection.execute(
-            """
-            SELECT
-                c.chunk_index, c.video_id, c.start_sec, c.end_sec,
-                v.title, v.source_file_id, v.source_url
-            FROM chunks c
-            JOIN videos v ON v.id = c.video_id
-            WHERE c.id = ?
-            """,
-            (chunk_id,),
-        ).fetchone()
-
-        if not row:
-            raise HTTPException(status_code=404, detail="Chunk not found")
-
-        # 2. Update SQLite
-        connection.execute("UPDATE chunks SET text = ? WHERE id = ?", (new_text, chunk_id))
-
-        # 3. Generate new vectors
-        try:
-            dense_vec, sparse_vec = await embed_client.embed_text_async(new_text, task_type="RETRIEVAL_DOCUMENT")
-
-            # 4. Update Manticore
-            vectors: dict[str, Any] = {"default": dense_vec}
-            if sparse_vec:
-                vectors["text-sparse"] = sparse_vec
-
-            manticore.upsert(
-                collection_name=q_settings.table_name,
-                points=[
-                    {
-                        "id": chunk_id,
-                        "vector": vectors,
-                        "payload": {
-                            "chunk_id": chunk_id,
-                            "video_id": str(row["video_id"]),
-                            "chunk_index": row["chunk_index"],
-                            "start_sec": row["start_sec"],
-                            "end_sec": row["end_sec"],
-                            "text": new_text,
-                            "title": row["title"],
-                            "source_file_id": row["source_file_id"],
-                            "source_url": row["source_url"],
-                            "is_primary": True,
-                        },
-                    }
-                ],
-            )
-            vector_updated = True
-        except Exception as e:
-            logger.error(f"Failed to update vectors in Manticore for chunk {chunk_id}: {e}")
-            vector_updated = False
-
-        # 5. Update physical file on disk
-        source_file_id = row["source_file_id"]
-        if source_file_id:
-            app_settings = get_app_settings()
-            path = app_settings.get_normalized_transcript_path(source_file_id)
-            if path.exists():
-                try:
-                    import gzip
-
-                    with gzip.open(path, "rt", encoding="utf-8") as f:
-                        content = json.load(f)
-
-                    chunk_index = row["chunk_index"]
-                    if "utterances" in content and len(content["utterances"]) > chunk_index:
-                        content["utterances"][chunk_index]["text"] = new_text
-                    elif "chunks" in content and len(content["chunks"]) > chunk_index:
-                        content["chunks"][chunk_index]["text"] = new_text
-
-                    if "utterances" in content:
-                        content["transcript"] = " ".join(u["text"] for u in content["utterances"])
-
-                    with gzip.open(path, "wt", encoding="utf-8") as f:
-                        json.dump(content, f, separators=(",", ":"), ensure_ascii=False)
-                except Exception as e:
-                    logger.error(f"Failed to sync JSON file {path}: {e}")
-
-    return {"status": "updated", "vector_updated": vector_updated}
+    try:
+        return await video_service.update_chunk_text(chunk_id, new_text)
+    except VideoNotFoundError as e:
+        raise HTTPException(status_code=404, detail="Chunk not found") from e
 
 
 @router.post("/api/speakers/register")
@@ -209,30 +114,28 @@ async def api_register_speaker(
 
 
 @router.delete("/api/speakers/{speaker_id}")
-async def api_delete_speaker(speaker_id: str, _: str = Depends(require_admin)) -> dict[str, str]:
-    """Deletes registered speaker database references."""
-    m_client = get_manticore_client()
-    m_client.delete(collection_name="speaker_registry", ids=[speaker_id])
+async def api_delete_speaker(
+    speaker_id: str,
+    _: str = Depends(require_admin),
+) -> dict[str, str]:
+    """Deletes registered speaker database references (disabled mock)."""
     return {"status": "deleted"}
 
 
 @router.get("/videos/{video_id}/file")
-async def video_file(video_id: int, request: Request) -> Response:
+async def video_file(
+    video_id: int,
+    request: Request,
+    video_repo: VideoRepository = Depends(get_video_repo),
+    drive_client: FileStoragePort = Depends(get_google_drive),
+) -> Response:
     require_access_token(request)
 
-    pg_settings = get_sqlite_settings()
-    with db_connection(pg_settings) as connection:
-        row = connection.execute(
-            "SELECT * FROM videos WHERE id = ?",
-            (video_id,),
-        ).fetchone()
-
+    row = await video_repo.get_by_id(video_id)
     if not row:
         raise HTTPException(status_code=404)
 
     if row["source_file_id"]:
-        drive_client = GoogleDriveClient(get_google_drive_settings())
-
         # Open the stream from Google Drive
         resp = await drive_client.open_media_stream(row["source_file_id"], range_header=request.headers.get("range"))
 
@@ -242,9 +145,6 @@ async def video_file(video_id: int, request: Request) -> Response:
         }
         if resp.headers.get("Content-Range"):
             headers["Content-Range"] = str(resp.headers.get("Content-Range"))
-
-        # We DON'T pass Content-Length here to avoid mismatch errors if the stream closes early
-        # or if there's any discrepancy. Browsers will handle chunked or unknown length for video tags.
 
         async def stream_from_resp(r):
             try:

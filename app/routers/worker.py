@@ -3,24 +3,25 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
 from typing import Any
 
 from fastapi import APIRouter, Depends, Form, HTTPException
 
 from app.auth import require_access_token, require_admin
-from app.config import (
-    get_app_settings,
-    get_deepgram_settings,
-    get_google_drive_settings,
-    get_manticore_settings,
-    get_sqlite_settings,
+from app.database import Database
+from app.dependencies import (
+    get_database,
+    get_deepgram,
+    get_google_drive,
+    get_manticore,
+    get_settings,
 )
-from app.db import db_connection
-from app.google_drive import GoogleDriveClient
-from app.manticore import get_manticore_client
+from app.ports import FileStoragePort, TranscriptionPort, VectorStorePort
+from app.settings import Settings
 from app.worker import get_worker
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("app.routers.worker")
 
 router = APIRouter(tags=["Worker & Tasks"])
 
@@ -60,20 +61,22 @@ async def api_worker_status(_: str = Depends(require_access_token)) -> dict[str,
 
 @router.get("/api/v1/worker/progress")
 async def api_worker_progress(
+    db: Database = Depends(get_database),
+    dg_adapter: TranscriptionPort = Depends(get_deepgram),
     _: str = Depends(require_access_token),
 ) -> dict[str, Any]:
     """Returns real-time progress for all stages, queue counts, and processing stats."""
     worker = get_worker()
     state = worker.get_progress_state()
 
-    settings = get_sqlite_settings()
     counts: dict[str, int] = {"stage_1_download": 0, "stage_2_transcribe": 0, "stage_3_index": 0}
     stats: dict[str, Any] = {"pending": 0, "failed": 0, "recent_errors": []}
 
-    with db_connection(settings) as conn:
+    async with db.transaction() as conn:
         # Get pending tasks per stage
         sql_q = "SELECT task_type, COUNT(*) as c FROM tasks WHERE status = 'pending' GROUP BY task_type"
-        rows = conn.execute(sql_q).fetchall()
+        async with conn.execute(sql_q) as cursor:
+            rows = await cursor.fetchall()
         for r in rows:
             ttype: str = r["task_type"]
             if ttype == "ingest_video":
@@ -83,7 +86,8 @@ async def api_worker_progress(
 
         # Get aggregate stats
         sql_s = "SELECT status, COUNT(*) as c FROM tasks GROUP BY status"
-        s_rows = conn.execute(sql_s).fetchall()
+        async with conn.execute(sql_s) as cursor:
+            s_rows = await cursor.fetchall()
         stats["skipped_silent_list"] = []
         stats["skipped_no_space_list"] = []
         for r in s_rows:
@@ -98,7 +102,8 @@ async def api_worker_progress(
         skipped_no_space_count = stats.get("skipped_no_space", 0)
         if isinstance(skipped_no_space_count, int) and skipped_no_space_count > 0:
             sql_ns = "SELECT id, payload FROM tasks WHERE status = 'skipped_no_space' ORDER BY updated_at DESC LIMIT 20"
-            ns_rows = conn.execute(sql_ns).fetchall()
+            async with conn.execute(sql_ns) as cursor:
+                ns_rows = await cursor.fetchall()
             for nsr in ns_rows:
                 try:
                     p = json.loads(nsr["payload"])
@@ -120,9 +125,8 @@ async def api_worker_progress(
 
         try:
             sql_ii = "SELECT id, message FROM integrity_issues ORDER BY id DESC LIMIT 100"
-            ii_rows = conn.execute(sql_ii).fetchall()
-
-            import re
+            async with conn.execute(sql_ii) as cursor:
+                ii_rows = await cursor.fetchall()
 
             for row in ii_rows:
                 msg: str = row["message"]
@@ -135,7 +139,8 @@ async def api_worker_progress(
 
                 source_url: str | None = None
                 if video_id:
-                    v_row = conn.execute("SELECT source_url FROM videos WHERE id = ?", (video_id,)).fetchone()
+                    async with conn.execute("SELECT source_url FROM videos WHERE id = ?", (video_id,)) as cursor:
+                        v_row = await cursor.fetchone()
                     if v_row:
                         source_url = v_row["source_url"]
 
@@ -154,7 +159,8 @@ async def api_worker_progress(
                 FROM tasks WHERE status = 'failed'
                 ORDER BY updated_at DESC LIMIT 5
             """
-            e_rows = conn.execute(sql_e).fetchall()
+            async with conn.execute(sql_e) as cursor:
+                e_rows = await cursor.fetchall()
             for er in e_rows:
                 title = "Unknown Task"
                 try:
@@ -174,25 +180,10 @@ async def api_worker_progress(
                     }
                 )
 
-    # Get balance from cache
-    from app.transcription.deepgram import DeepgramEngine
-
-    dg_engine = DeepgramEngine(get_deepgram_settings())
-    balance_data = dg_engine.get_balance()
-
-    return {
-        "stages": state,
-        "queue_counts": counts,
-        "stats": stats,
-        "is_running": worker.is_running,
-        "dg_balance": balance_data,
-    }
-
-    # Get balance from cache
-    from app.transcription.deepgram import DeepgramEngine
-
-    dg_engine = DeepgramEngine(get_deepgram_settings())
-    balance_data = dg_engine.get_balance()
+    # Get balance from cache / provider
+    balance_data = {}
+    if hasattr(dg_adapter, "get_balance_async"):
+        balance_data = await dg_adapter.get_balance_async(force_refresh=False)
 
     return {
         "stages": state,
@@ -204,11 +195,14 @@ async def api_worker_progress(
 
 
 @router.post("/api/v1/tasks/{task_id}/restart")
-async def api_restart_task(task_id: int, _: str = Depends(require_admin)) -> dict[str, str]:
+async def api_restart_task(
+    task_id: int,
+    db: Database = Depends(get_database),
+    _: str = Depends(require_admin),
+) -> dict[str, str]:
     """Restarts a failed or skipped background job/task."""
-    settings = get_sqlite_settings()
-    with db_connection(settings) as conn:
-        conn.execute("UPDATE tasks SET status = 'pending', error_message = NULL WHERE id = ?", (task_id,))
+    async with db.transaction() as conn:
+        await conn.execute("UPDATE tasks SET status = 'pending', error_message = NULL WHERE id = ?", (task_id,))
 
     # Auto-start worker
     worker = get_worker()
@@ -219,13 +213,14 @@ async def api_restart_task(task_id: int, _: str = Depends(require_admin)) -> dic
 
 
 @router.get("/api/v1/deepgram/balance")
-async def api_deepgram_balance(_: str = Depends(require_admin)) -> dict[str, Any]:
+async def api_deepgram_balance(
+    dg_adapter: TranscriptionPort = Depends(get_deepgram),
+    _: str = Depends(require_admin),
+) -> dict[str, Any]:
     """Returns Deepgram subscription balance and project limits."""
-    from app.transcription.deepgram import DeepgramEngine
-
-    settings = get_deepgram_settings()
-    engine = DeepgramEngine(settings)
-    return engine.get_balance()
+    if hasattr(dg_adapter, "get_balance_async"):
+        return await dg_adapter.get_balance_async(force_refresh=True)
+    return {"balances": []}
 
 
 @router.post("/api/tasks/ingest")
@@ -233,34 +228,39 @@ async def api_add_ingest_task(
     file_id: str = Form(...),
     title: str | None = Form(None),
     diarize: bool = Form(True),
+    db: Database = Depends(get_database),
+    drive_client: FileStoragePort = Depends(get_google_drive),
     _: str = Depends(require_admin),
 ) -> dict[str, Any]:
     """Creates a new download-transcribe-index sequence task from a Google Drive file."""
-    drive_client = GoogleDriveClient(get_google_drive_settings())
     parent_folder_id: str | None = None
     try:
-        file_meta = await drive_client.get_file(file_id)
-        md5: str | None = file_meta.md5_checksum
-        parent_folder_id = file_meta.parents[0] if file_meta.parents else None
+        file_meta = await drive_client.get_file_metadata(file_id)
+        md5: str | None = file_meta.get("md5_checksum")
+        parents = file_meta.get("parents")
+        parent_folder_id = parents[0] if parents else None
+        file_name = file_meta.get("name")
     except Exception as e:
         logger.error(f"Failed to get file metadata for {file_id}: {e}")
         md5 = None
+        file_name = f"File {file_id}"
 
-    settings = get_sqlite_settings()
-    with db_connection(settings) as conn:
+    async with db.transaction() as conn:
         # Check if this file_id is already registered
-        existing_by_id = conn.execute("SELECT id FROM videos WHERE source_file_id = ?", (file_id,)).fetchone()
+        async with conn.execute("SELECT id FROM videos WHERE source_file_id = ?", (file_id,)) as cursor:
+            existing_by_id = await cursor.fetchone()
         if existing_by_id:
             return {"status": "already_indexed", "video_id": existing_by_id["id"]}
 
         if md5:
             # Check for content duplicates (original video with this MD5)
-            existing_orig = conn.execute(
+            async with conn.execute(
                 "SELECT id FROM videos WHERE md5_checksum = ? AND original_id IS NULL", (md5,)
-            ).fetchone()
+            ) as cursor:
+                existing_orig = await cursor.fetchone()
             if existing_orig:
                 # Automate: insert as duplicate directly
-                conn.execute(
+                await conn.execute(
                     """
                     INSERT INTO videos (
                         source_file_id, parent_folder_id, md5_checksum, title,
@@ -279,7 +279,7 @@ async def api_add_ingest_task(
                         file_id,
                         parent_folder_id,
                         md5,
-                        title or (file_meta.name if "file_meta" in locals() else f"File {file_id}"),
+                        title or file_name,
                         "skipped_duplicate_md5",
                         existing_orig["id"],
                         f"https://drive.google.com/file/d/{file_id}/view",
@@ -287,14 +287,14 @@ async def api_add_ingest_task(
                 )
                 return {"status": "skipped_duplicate_md5", "video_id": existing_orig["id"]}
 
-        conn.execute(
+        await conn.execute(
             "INSERT INTO tasks (task_type, payload) VALUES (?, ?)",
             (
                 "stage_1_download",
                 json.dumps(
                     {
                         "file_id": file_id,
-                        "title": title or (file_meta.name if "file_meta" in locals() else f"File {file_id}"),
+                        "title": title or file_name,
                         "diarize": diarize,
                         "md5": md5,
                         "parent_folder_id": parent_folder_id,
@@ -316,23 +316,25 @@ async def api_add_ingest_task(
 async def api_worker_duplicates_swap(
     original_id: int = Form(...),
     duplicate_id: int = Form(...),
+    db: Database = Depends(get_database),
+    manticore: VectorStorePort = Depends(get_manticore),
+    settings: Settings = Depends(get_settings),
     _: str = Depends(require_admin),
 ) -> dict[str, Any]:
     """Swaps the roles of an original video and a duplicate video."""
-    pg_settings = get_sqlite_settings()
-    q_settings = get_manticore_settings()
-
-    with db_connection(pg_settings) as conn:
-        orig_row = conn.execute(
+    async with db.transaction() as conn:
+        async with conn.execute(
             "SELECT id, md5_checksum, size_bytes, duration_sec, status AS processing_status, "
             "       source_file_id, title FROM videos WHERE id = ?",
             (original_id,),
-        ).fetchone()
+        ) as cursor:
+            orig_row = await cursor.fetchone()
 
-        dup_row = conn.execute(
+        async with conn.execute(
             "SELECT id, md5_checksum, source_file_id, title FROM videos WHERE id = ?",
             (duplicate_id,),
-        ).fetchone()
+        ) as cursor:
+            dup_row = await cursor.fetchone()
 
         if not orig_row or not dup_row:
             raise HTTPException(status_code=404, detail="Файлы не найдены")
@@ -345,42 +347,38 @@ async def api_worker_duplicates_swap(
         orig_source = orig_row["source_file_id"]
         dup_source = dup_row["source_file_id"]
         if orig_source and dup_source:
-            app_settings = get_app_settings()
+            old_raw = settings.get_raw_transcript_path(orig_source)
+            new_raw = settings.get_raw_transcript_path(dup_source)
+            old_norm = settings.get_normalized_transcript_path(orig_source)
+            new_norm = settings.get_normalized_transcript_path(dup_source)
 
-            # For raw:
-            old_raw = app_settings.get_raw_transcript_path(orig_source)
-            new_raw = app_settings.get_raw_transcript_path(dup_source)
-            if old_raw.exists():
-                try:
+            def rename_files():
+                if old_raw.exists():
                     new_raw.parent.mkdir(parents=True, exist_ok=True)
                     old_raw.rename(new_raw)
                     if old_raw.parent.exists() and not any(old_raw.parent.iterdir()):
                         old_raw.parent.rmdir()
-                except Exception as e:
-                    logger.error(f"Failed to rename raw transcript {old_raw} to {new_raw}: {e}")
-
-            # For normalized:
-            old_norm = app_settings.get_normalized_transcript_path(orig_source)
-            new_norm = app_settings.get_normalized_transcript_path(dup_source)
-            if old_norm.exists():
-                try:
+                if old_norm.exists():
                     new_norm.parent.mkdir(parents=True, exist_ok=True)
                     old_norm.rename(new_norm)
                     if old_norm.parent.exists() and not any(old_norm.parent.iterdir()):
                         old_norm.parent.rmdir()
-                except Exception as e:
-                    logger.error(f"Failed to rename normalized transcript {old_norm} to {new_norm}: {e}")
+
+            try:
+                await asyncio.to_thread(rename_files)
+            except Exception as e:
+                logger.error(f"Failed to rename transcript files during swap: {e}")
 
         # Swap roles in SQLite
         # 1. Move chunks from original_id to duplicate_id
-        conn.execute("UPDATE chunks SET video_id = ? WHERE video_id = ?", (duplicate_id, original_id))
+        await conn.execute("UPDATE chunks SET video_id = ? WHERE video_id = ?", (duplicate_id, original_id))
 
         # 2. Temporarily set md5_checksum of original_id to NULL
         # to avoid UNIQUE constraint violation on original_id IS NULL
-        conn.execute("UPDATE videos SET md5_checksum = NULL WHERE id = ?", (original_id,))
+        await conn.execute("UPDATE videos SET md5_checksum = NULL WHERE id = ?", (original_id,))
 
         # 3. Make duplicate_id the new original
-        conn.execute(
+        await conn.execute(
             "UPDATE videos "
             "SET original_id = NULL, status = 'transcribed', "
             "    size_bytes = ?, duration_sec = ? "
@@ -393,7 +391,7 @@ async def api_worker_duplicates_swap(
         )
 
         # 4. Make original_id the new duplicate and restore its md5_checksum
-        conn.execute(
+        await conn.execute(
             "UPDATE videos "
             "SET original_id = ?, status = 'skipped_duplicate_md5', "
             "    size_bytes = NULL, duration_sec = NULL, "
@@ -403,14 +401,14 @@ async def api_worker_duplicates_swap(
         )
 
         # Update other duplicates that pointed to original_id to now point to duplicate_id
-        conn.execute(
+        await conn.execute(
             "UPDATE videos SET original_id = ? WHERE original_id = ?",
             (duplicate_id, original_id),
         )
 
         # 4. Queue a re-indexing task for the new original to rebuild vectors in Manticore with new metadata
         new_payload = {"video_id": duplicate_id, "title": dup_row["title"]}
-        conn.execute(
+        await conn.execute(
             "INSERT INTO tasks (video_id, task_type, payload, status, priority) "
             "VALUES (?, 'stage_3_index', ?, 'pending', 5)",
             (duplicate_id, json.dumps(new_payload, ensure_ascii=False)),
@@ -418,11 +416,7 @@ async def api_worker_duplicates_swap(
 
     # 5. Delete old points of original_id from Manticore
     try:
-        manticore = get_manticore_client()
-        manticore.delete(
-            collection_name=q_settings.table_name,
-            where_clause=f"video_id = {original_id}",
-        )
+        await manticore.delete_points_by_where(settings.manticore_table, f"video_id = {original_id}")
     except Exception as e:
         logger.error(f"Failed to delete old points from Manticore during swap: {e}")
 
@@ -440,24 +434,28 @@ async def api_worker_duplicates_swap(
 @router.post("/api/v1/worker/duplicates/save")
 async def api_worker_duplicates_save(
     duplicate_id: int = Form(...),
+    db: Database = Depends(get_database),
     _: str = Depends(require_admin),
 ) -> dict[str, Any]:
     """Marks a duplicate video as saved/acknowledged."""
-    pg_settings = get_sqlite_settings()
-    with db_connection(pg_settings) as conn:
-        row = conn.execute("SELECT id FROM videos WHERE id = ?", (duplicate_id,)).fetchone()
+    async with db.transaction() as conn:
+        async with conn.execute("SELECT id FROM videos WHERE id = ?", (duplicate_id,)) as cursor:
+            row = await cursor.fetchone()
         if not row:
             raise HTTPException(status_code=404, detail="Файл не найден")
     return {"status": "success", "message": "Роль дубликата сохранена"}
 
 
 @router.get("/api/v1/tasks/active")
-async def api_get_active_tasks(_: str = Depends(require_access_token)) -> list[dict[str, Any]]:
+async def api_get_active_tasks(
+    db: Database = Depends(get_database),
+    _: str = Depends(require_access_token),
+) -> list[dict[str, Any]]:
     """Returns currently running tasks for UI progress updates."""
-    pg_settings = get_sqlite_settings()
-    with db_connection(pg_settings) as connection:
+    async with db.transaction() as conn:
         sql_running = "SELECT * FROM tasks WHERE status = 'running' ORDER BY created_at ASC"
-        rows = connection.execute(sql_running).fetchall()
+        async with conn.execute(sql_running) as cursor:
+            rows = await cursor.fetchall()
 
         processed: list[dict[str, Any]] = []
         for row in rows:
@@ -467,7 +465,8 @@ async def api_get_active_tasks(_: str = Depends(require_access_token)) -> list[d
                 t["file_id"] = payload.get("file_id")
                 if t["file_id"]:
                     sql_v = "SELECT title FROM videos WHERE source_file_id = ?"
-                    v = connection.execute(sql_v, (t["file_id"],)).fetchone()
+                    async with conn.execute(sql_v, (t["file_id"],)) as v_cursor:
+                        v = await v_cursor.fetchone()
                     t["title"] = v["title"] if v else f"Файл {t['file_id'][:8]}..."
                 else:
                     t["title"] = payload.get("title", "AI Indexing")
@@ -478,20 +477,25 @@ async def api_get_active_tasks(_: str = Depends(require_access_token)) -> list[d
 
 
 @router.delete("/api/v1/tasks/{task_id}")
-async def api_delete_task(task_id: int, _: str = Depends(require_access_token)) -> dict[str, str]:
+async def api_delete_task(
+    task_id: int,
+    db: Database = Depends(get_database),
+    _: str = Depends(require_access_token),
+) -> dict[str, str]:
     """Removes a task from the processing queue."""
-    settings = get_sqlite_settings()
-    with db_connection(settings) as conn:
-        conn.execute("DELETE FROM tasks WHERE id = ?", (task_id,))
+    async with db.transaction() as conn:
+        await conn.execute("DELETE FROM tasks WHERE id = ?", (task_id,))
     return {"status": "deleted"}
 
 
 @router.post("/api/v1/tasks/restart_failed")
-async def api_restart_failed_tasks(_: str = Depends(require_access_token)) -> dict[str, Any]:
+async def api_restart_failed_tasks(
+    db: Database = Depends(get_database),
+    _: str = Depends(require_access_token),
+) -> dict[str, Any]:
     """Requeues all tasks that have failed with errors."""
-    settings = get_sqlite_settings()
-    with db_connection(settings) as conn:
-        res = conn.execute("UPDATE tasks SET status = 'pending', error_message = NULL WHERE status = 'failed'")
+    async with db.transaction() as conn:
+        res = await conn.execute("UPDATE tasks SET status = 'pending', error_message = NULL WHERE status = 'failed'")
         count: int = res.rowcount
 
     # Auto-start worker
@@ -503,11 +507,13 @@ async def api_restart_failed_tasks(_: str = Depends(require_access_token)) -> di
 
 
 @router.post("/api/v1/tasks/restart_no_space")
-async def api_restart_no_space_tasks(_: str = Depends(require_access_token)) -> dict[str, Any]:
+async def api_restart_no_space_tasks(
+    db: Database = Depends(get_database),
+    _: str = Depends(require_access_token),
+) -> dict[str, Any]:
     """Requeues tasks that failed due to temporary storage space constraints."""
-    settings = get_sqlite_settings()
-    with db_connection(settings) as conn:
-        res = conn.execute(
+    async with db.transaction() as conn:
+        res = await conn.execute(
             "UPDATE tasks SET status = 'pending', error_message = NULL WHERE status = 'skipped_no_space'"
         )
         count: int = res.rowcount
@@ -521,29 +527,32 @@ async def api_restart_no_space_tasks(_: str = Depends(require_access_token)) -> 
 
 
 @router.post("/api/v1/reindex/all")
-async def api_reindex_all(clear_manticore: bool = False, _: str = Depends(require_access_token)) -> dict[str, Any]:
+async def api_reindex_all(
+    clear_manticore: bool = False,
+    db: Database = Depends(get_database),
+    settings: Settings = Depends(get_settings),
+    _: str = Depends(require_access_token),
+) -> dict[str, Any]:
     """Requeues all fully processed videos to rebuild vector index search points in Manticore."""
-    settings = get_sqlite_settings()
-    q_settings = get_manticore_settings()
-
     if clear_manticore:
-        from app.manticore import init_manticore
+        from app.manticore import get_manticore_client, init_manticore
 
-        manticore = get_manticore_client()
-        logger.info(f"Clearing Manticore table {q_settings.table_name} for full reindex")
+        manticore_client = get_manticore_client()
+        logger.info(f"Clearing Manticore table {settings.manticore_table} for full reindex")
         try:
-            manticore.delete_collection(q_settings.table_name)
-            init_manticore()
+            await asyncio.to_thread(manticore_client.delete_collection, settings.manticore_table)
+            await asyncio.to_thread(init_manticore)
         except Exception as e:
             logger.error(f"Failed to clear Manticore: {e}")
 
-    with db_connection(settings) as conn:
+    async with db.transaction() as conn:
         # Find all videos that have at least one chunk
-        rows = conn.execute("""
+        async with conn.execute("""
             SELECT DISTINCT video_id, title
             FROM chunks c
             JOIN videos v ON v.id = c.video_id
-        """).fetchall()
+        """) as cursor:
+            rows = await cursor.fetchall()
 
         count: int = 0
         for r in rows:
@@ -557,10 +566,11 @@ async def api_reindex_all(clear_manticore: bool = False, _: str = Depends(requir
                 WHERE task_type = 'stage_3_index' AND status IN ('pending', 'running')
                 AND video_id = ?
             """
-            exists = conn.execute(sql_check, (vid,)).fetchone()
+            async with conn.execute(sql_check, (vid,)) as cursor:
+                exists = await cursor.fetchone()
 
             if not exists:
-                conn.execute(
+                await conn.execute(
                     "INSERT INTO tasks (video_id, task_type, payload, status, priority) VALUES (?, ?, ?, ?, ?)",
                     (vid, "stage_3_index", payload, "pending", 10),
                 )
@@ -575,13 +585,14 @@ async def api_reindex_all(clear_manticore: bool = False, _: str = Depends(requir
 
 
 @router.post("/api/v1/reindex/integrity")
-async def api_reindex_integrity(_: str = Depends(require_access_token)) -> dict[str, Any]:
+async def api_reindex_integrity(
+    db: Database = Depends(get_database),
+    _: str = Depends(require_access_token),
+) -> dict[str, Any]:
     """Queues all videos with detected integrity issues for reindexing."""
-    settings = get_sqlite_settings()
-    import re
-
-    with db_connection(settings) as conn:
-        ii_rows = conn.execute("SELECT id, message FROM integrity_issues").fetchall()
+    async with db.transaction() as conn:
+        async with conn.execute("SELECT id, message FROM integrity_issues") as cursor:
+            ii_rows = await cursor.fetchall()
 
         video_ids = set()
         for row in ii_rows:
@@ -599,7 +610,8 @@ async def api_reindex_integrity(_: str = Depends(require_access_token)) -> dict[
 
         count = 0
         for vid in video_ids:
-            v_row = conn.execute("SELECT source_file_id, title FROM videos WHERE id = ?", (vid,)).fetchone()
+            async with conn.execute("SELECT source_file_id, title FROM videos WHERE id = ?", (vid,)) as cursor:
+                v_row = await cursor.fetchone()
             if not v_row:
                 continue
 
@@ -616,19 +628,20 @@ async def api_reindex_integrity(_: str = Depends(require_access_token)) -> dict[
                     OR json_extract(payload, '$.video_id') = ?
                   )
             """
-            exists = conn.execute(sql_check, (vid, source_file_id, vid)).fetchone()
+            async with conn.execute(sql_check, (vid, source_file_id, vid)) as cursor:
+                exists = await cursor.fetchone()
             if exists:
                 continue
 
             # Queue stage_1_download with reindex flag
             payload = {"file_id": source_file_id, "title": title, "diarize": True, "reindex": True, "video_id": vid}
-            conn.execute(
+            await conn.execute(
                 "INSERT INTO tasks (task_type, payload, status, priority, video_id) VALUES (?, ?, ?, ?, ?)",
                 ("stage_1_download", json.dumps(payload, ensure_ascii=False), "pending", 8, vid),
             )
 
             # Reset video status to pending
-            conn.execute(
+            await conn.execute(
                 """
                 UPDATE videos
                 SET status = 'pending', duration_sec = NULL, size_bytes = NULL,
@@ -647,7 +660,7 @@ async def api_reindex_integrity(_: str = Depends(require_access_token)) -> dict[
                     or re.search(r"video ID (\d+):", msg, re.IGNORECASE)
                 )
                 if id_match and int(id_match.group(1)) == vid:
-                    conn.execute("DELETE FROM integrity_issues WHERE id = ?", (row["id"],))
+                    await conn.execute("DELETE FROM integrity_issues WHERE id = ?", (row["id"],))
 
             count += 1
 

@@ -9,11 +9,12 @@ from fastapi import FastAPI, Request
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.sessions import SessionMiddleware
 
-from app.config import get_app_settings, get_sqlite_settings
+from app.config import get_app_settings
 from app.core import ROOT_DIR, get_global_stats, templates
-from app.db import db_connection, init_db
+from app.database import Database
 from app.manticore import init_manticore
 from app.routers import auth, indexed, system, ui, videos, worker
+from app.settings import get_settings
 from app.worker import get_worker, set_main_loop
 
 # Configure logging
@@ -24,9 +25,11 @@ logger = logging.getLogger(__name__)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup logic
-    settings = get_sqlite_settings()
-    with db_connection(settings) as connection:
-        init_db(connection)
+    settings = get_settings()
+    db = Database(settings.resolved_db_path)
+    await db.connect()
+    await db.init_schema()
+    await db.close()
 
     init_manticore()
 
