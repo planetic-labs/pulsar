@@ -1,34 +1,9 @@
 from __future__ import annotations
 
-import os
 from dataclasses import dataclass
 from pathlib import Path
 
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
-IS_CONTAINER = Path("/.dockerenv").exists() or str(PROJECT_ROOT) == "/app"
-
-
-def resolve_host_path(path: Path | str) -> Path:
-    p = Path(path)
-    if not IS_CONTAINER and len(p.parts) > 1 and p.parts[0] == "/" and p.parts[1] == "app":
-        return PROJECT_ROOT / Path(*p.parts[2:])
-    return p
-
-
-def _load_dotenv_file(dotenv_path: Path) -> None:
-    if not dotenv_path.exists():
-        return
-    for raw_line in dotenv_path.read_text(encoding="utf-8").splitlines():
-        line = raw_line.strip()
-        if not line or line.startswith("#"):
-            continue
-        if "=" in line:
-            key, val = line.split("=", 1)
-            os.environ.setdefault(key.strip(), val.strip())
-
-
-# Initialize environment
-_load_dotenv_file(Path(__file__).resolve().parents[1] / ".env")
+from app.settings import get_settings
 
 
 @dataclass(frozen=True)
@@ -141,94 +116,89 @@ class AppSettings:
         return self.storage_dir / p
 
 
-def _env_bool(name: str, default: bool) -> bool:
-    raw = os.getenv(name)
-    if raw is None:
-        return default
-    return raw.strip().lower() in {"1", "true", "yes", "on"}
-
-
 def get_sqlite_settings() -> SQLiteSettings:
-    app_settings = get_app_settings()
-    default_db = app_settings.data_dir / "pulsar.db"
-    db_path = Path(os.getenv("SQLITE_DB_PATH", str(default_db)))
-    return SQLiteSettings(db_path=resolve_host_path(db_path))
+    s = get_settings()
+    return SQLiteSettings(db_path=s.resolved_db_path)
 
 
 def get_embedding_settings() -> EmbeddingSettings:
-    providers_raw = os.getenv("EMBEDDING_OPENROUTER_PROVIDERS")
-    openrouter_providers = [p.strip() for p in providers_raw.split(",")] if providers_raw else None
+    s = get_settings()
     return EmbeddingSettings(
-        api_url=os.getenv("EMBEDDING_API_URL", ""),
-        api_token=os.getenv("EMBEDDING_API_TOKEN", ""),
-        model_id=os.getenv("EMBEDDING_MODEL_ID", "BAAI/bge-m3"),
-        dimension=int(os.getenv("EMBEDDING_DIMENSION", "1024")),
-        cache_lru_size=int(os.getenv("EMBEDDING_CACHE_LRU_SIZE", "20")),
-        provider=os.getenv("EMBEDDING_PROVIDER", "custom"),
-        openrouter_providers=openrouter_providers,
+        api_url=s.embedding_api_url,
+        api_token=s.embedding_api_token,
+        model_id=s.embedding_model_id,
+        dimension=s.embedding_dimension,
+        cache_lru_size=s.embedding_cache_lru_size,
+        provider=s.embedding_provider,
+        openrouter_providers=s.embedding_openrouter_providers,
     )
 
 
 def get_manticore_settings() -> ManticoreSettings:
+    s = get_settings()
     return ManticoreSettings(
-        url=os.getenv("MANTICORE_URL", "http://manticore:9308"), table_name=os.getenv("MANTICORE_TABLE", "chunks")
+        url=s.manticore_url,
+        table_name=s.manticore_table,
     )
 
 
 def get_local_ai_settings() -> LocalAISettings:
+    s = get_settings()
     return LocalAISettings(
-        embedding_model=os.getenv("LOCAL_EMBEDDING_MODEL", "intfloat/multilingual-e5-small"),
-        embedding_dimension=int(os.getenv("LOCAL_EMBEDDING_DIMENSION", "384")),
+        embedding_model=s.local_embedding_model,
+        embedding_dimension=s.local_embedding_dimension,
     )
 
 
 def get_google_drive_settings() -> GoogleDriveSettings:
-    scopes_raw = os.getenv("GOOGLE_DRIVE_SCOPES", "https://www.googleapis.com/auth/drive.readonly")
-    credentials_path = Path(os.getenv("GOOGLE_DRIVE_CREDENTIALS_PATH", "/app/config/service-key.json"))
-    download_dir = Path(os.getenv("GOOGLE_DRIVE_DOWNLOAD_DIR", "/app/downloads"))
+    s = get_settings()
     return GoogleDriveSettings(
-        credentials_path=resolve_host_path(credentials_path),
-        download_dir=resolve_host_path(download_dir),
-        scopes=tuple(s.strip() for s in scopes_raw.split(",") if s.strip()),
+        credentials_path=s.google_drive_credentials_path,
+        download_dir=s.google_drive_download_dir,
+        scopes=s.google_drive_scopes,
     )
 
 
 def get_deepgram_settings() -> DeepgramSettings:
+    s = get_settings()
     return DeepgramSettings(
-        api_key=os.getenv("DEEPGRAM_API_KEY", ""),
-        project_id=os.getenv("DEEPGRAM_PROJECT_ID", ""),
-        model=os.getenv("DEEPGRAM_MODEL", "nova-3"),
-        language=os.getenv("DEEPGRAM_LANGUAGE", "ru"),
-        smart_format=_env_bool("DEEPGRAM_SMART_FORMAT", True),
-        punctuate=_env_bool("DEEPGRAM_PUNCTUATE", True),
-        utterances=_env_bool("DEEPGRAM_UTTERANCES", True),
-        paragraphs=_env_bool("DEEPGRAM_PARAGRAPHS", True),
-        diarize=_env_bool("DEEPGRAM_DIARIZE", True),
-        filler_words=_env_bool("DEEPGRAM_FILLER_WORDS", False),
-        base_url=os.getenv("DEEPGRAM_BASE_URL", "https://api.deepgram.com/v1/listen"),
+        api_key=s.deepgram_api_key,
+        project_id=s.deepgram_project_id,
+        model=s.deepgram_model,
+        language=s.deepgram_language,
+        smart_format=s.deepgram_smart_format,
+        punctuate=s.deepgram_punctuate,
+        utterances=s.deepgram_utterances,
+        paragraphs=s.deepgram_paragraphs,
+        diarize=s.deepgram_diarize,
+        filler_words=s.deepgram_filler_words,
+        base_url=s.deepgram_base_url,
     )
 
 
 def get_app_settings() -> AppSettings:
-    storage_dir = Path(os.getenv("APP_STORAGE_DIR", "/app/storage"))
-    data_dir = Path(os.getenv("APP_DATA_DIR", "/app/data"))
+    s = get_settings()
     return AppSettings(
-        access_token=os.getenv("APP_ACCESS_TOKEN", "change-me"),
-        session_secret_key=os.getenv("SESSION_SECRET_KEY", "change-me-to-something-very-secret"),
-        host=os.getenv("APP_HOST", "0.0.0.0"),
-        port=int(os.getenv("APP_PORT", "8000")),
-        results_limit=int(os.getenv("APP_RESULTS_LIMIT", "20")),
-        download_concurrency=int(os.getenv("INGEST_DOWNLOAD_CONCURRENCY", "1")),
-        process_concurrency=int(os.getenv("INGEST_PROCESS_CONCURRENCY", "1")),
-        storage_dir=resolve_host_path(storage_dir),
-        data_dir=resolve_host_path(data_dir),
-        disk_space_buffer_gb=int(os.getenv("DISK_SPACE_BUFFER_GB", "3")),
-        max_audio_size_mb=int(os.getenv("MAX_AUDIO_SIZE_MB", "20")),
-        ark_jwks_url=os.getenv("ARK_JWKS_URL"),
-        ark_webhook_secret=os.getenv("ARK_WEBHOOK_SECRET"),
-        exclude_keywords=tuple(k.strip() for k in os.getenv("EXCLUDE_KEYWORDS", "").split(",") if k.strip()),
+        access_token=s.app_access_token,
+        session_secret_key=s.session_secret_key,
+        host=s.app_host,
+        port=s.app_port,
+        results_limit=s.app_results_limit,
+        download_concurrency=s.ingest_download_concurrency,
+        process_concurrency=s.ingest_process_concurrency,
+        storage_dir=s.app_storage_dir,
+        data_dir=s.app_data_dir,
+        disk_space_buffer_gb=s.disk_space_buffer_gb,
+        max_audio_size_mb=s.max_audio_size_mb,
+        ark_jwks_url=s.ark_jwks_url,
+        ark_webhook_secret=s.ark_webhook_secret,
+        exclude_keywords=s.exclude_keywords,
     )
 
 
 def get_voice_settings() -> VoiceSettings:
-    return VoiceSettings(voice_api_token=os.getenv("VOICE_API_TOKEN", ""), voice_api_url=os.getenv("VOICE_API_URL", ""))
+    s = get_settings()
+    return VoiceSettings(
+        voice_api_token=s.voice_api_token,
+        voice_api_url=s.voice_api_url,
+    )
