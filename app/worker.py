@@ -1,51 +1,39 @@
+from __future__ import annotations
+
 import asyncio
 import json
 import logging
 import traceback
-from pathlib import Path
+from collections.abc import Callable
 from typing import Any
 
-from app.audio import SilentVideoError
-from app.config import (
-    get_deepgram_settings,
-    get_embedding_settings,
-    get_google_drive_settings,
-    get_manticore_settings,
-    get_sqlite_settings,
-)
+from app.config import get_sqlite_settings
 from app.db import db_connection
-from app.embeddings import UnifiedEmbeddingClient
-from app.google_drive import GoogleDriveClient
-from app.manticore import date_to_int, get_manticore_client
-from app.repository import update_video_status
-from app.transcription.deepgram import DeepgramEngine
-from scripts.ingest_drive_file import (
-    InsufficientSpaceError,
-    download_and_extract_stage,
-    transcribe_stage,
-)
+from app.pipeline.download import InsufficientSpaceError
+from app.services.ingest import IngestService
+from app.services.task_queue import TaskQueueService
 
 
 # --- LOG BROADCASTING SYSTEM ---
 class LogBroadcaster:
-    def __init__(self):
+    def __init__(self) -> None:
         self.queues: list[asyncio.Queue[str]] = []
 
     def register(self) -> asyncio.Queue[str]:
-        q = asyncio.Queue()
+        q: asyncio.Queue[str] = asyncio.Queue()
         self.queues.append(q)
         return q
 
-    def unregister(self, q: asyncio.Queue[str]):
+    def unregister(self, q: asyncio.Queue[str]) -> None:
         if q in self.queues:
             self.queues.remove(q)
 
-    def broadcast(self, message: str):
+    def broadcast(self, message: str) -> None:
         global _main_loop
         if _main_loop and _main_loop.is_running():
             _main_loop.call_soon_threadsafe(self._do_broadcast, message)
 
-    def _do_broadcast(self, message: str):
+    def _do_broadcast(self, message: str) -> None:
         for q in self.queues:
             try:
                 q.put_nowait(message)
@@ -54,16 +42,16 @@ class LogBroadcaster:
 
 
 broadcaster = LogBroadcaster()
-_main_loop = None
+_main_loop: asyncio.AbstractEventLoop | None = None
 
 
-def set_main_loop(loop):
+def set_main_loop(loop: asyncio.AbstractEventLoop) -> None:
     global _main_loop
     _main_loop = loop
 
 
 class WebSocketHandler(logging.Handler):
-    def emit(self, record):
+    def emit(self, record: logging.LogRecord) -> None:
         log_entry = self.format(record)
         broadcaster.broadcast(log_entry)
 
@@ -81,596 +69,173 @@ log_names = [
     "app.embeddings",
     "app.transcription.deepgram",
     "app.audio",
+    "app.pipeline.download",
+    "app.pipeline.transcribe",
+    "app.pipeline.index",
+    "app.services.ingest",
+    "app.services.task_queue",
 ]
 for name in log_names:
     l_obj = logging.getLogger(name)
     l_obj.addHandler(ws_handler)
     l_obj.setLevel(logging.INFO)
 
-# --- WORKER LOGIC ---
-
 
 class Worker:
-    def __init__(self):
-        self.download_sem = asyncio.Semaphore(1)
-        self.transcribe_sem = asyncio.Semaphore(1)
-        self.embed_sem = asyncio.Semaphore(1)
+    """Параллельный воркер обработки видео на основе стадий конвейера (Pipeline)."""
+
+    def __init__(self) -> None:
+        self.queue = TaskQueueService()
+        self.ingest = IngestService()
         self.is_running = False
         self.is_stopping = False
-        self._run_task: asyncio.Task | None = None
+
+        # Ограничения конкурентности для каждой стадии
+        self.semaphores = {
+            "stage_1_download": asyncio.Semaphore(1),
+            "ingest_video": asyncio.Semaphore(1),
+            "stage_2_transcribe": asyncio.Semaphore(1),
+            "stage_3_index": asyncio.Semaphore(1),
+        }
+
         self._state = {
             "stage_1_download": {"active": False, "title": "", "progress": 0, "speed": "", "status_text": "Ожидание"},
             "stage_2_transcribe": {"active": False, "title": "", "progress": 0, "speed": "", "status_text": "Ожидание"},
             "stage_3_index": {"active": False, "title": "", "progress": 0, "status_text": "Ожидание"},
         }
 
-    def get_progress_state(self) -> dict:
-        """Возвращает текущее состояние прогресса всех стадий."""
+    def get_progress_state(self) -> dict[str, dict[str, Any]]:
+        """Возвращает текущее состояние прогресса всех стадий (для UI/API)."""
         return self._state
 
-    def stop(self):
-        """Остановка воркера."""
+    def stop(self) -> None:
+        """Мягкая остановка воркера."""
         if self.is_running and not self.is_stopping:
             logger.info("Запрос на остановку воркера. Завершение текущих задач...")
             self.is_running = False
             self.is_stopping = True
 
-    async def _has_pending_tasks(self) -> bool:
-        """Проверка наличия задач в очереди или в работе."""
-        sql = "SELECT COUNT(*) as c FROM tasks WHERE status IN ('pending', 'running')"
-        try:
-            with db_connection(get_sqlite_settings()) as conn:
-                row = conn.execute(sql).fetchone()
-                return row["c"] > 0
-        except Exception as e:
-            logger.error(f"Ошибка при проверке очереди: {e}")
-            return True  # В случае ошибки лучше считать, что задачи есть
+    def _get_stage_key(self, stage_type: str) -> str:
+        if stage_type == "ingest_video":
+            return "stage_1_download"
+        return stage_type
 
-    def _handle_task_failure(self, conn: Any, task_id: int, error_trace: str):
-        """Обработка сбоя выполнения задачи с поддержкой повторных попыток (retries)."""
-        row = conn.execute("SELECT retries, max_retries, task_type FROM tasks WHERE id = ?", (task_id,)).fetchone()
-        if not row:
-            return
+    def _make_progress_callback(self, stage_key: str) -> Callable[[dict[str, Any]], None]:
+        def cb(data: dict[str, Any]) -> None:
+            self._state[stage_key].update(data)
 
-        retries = row["retries"] or 0
-        max_retries = row["max_retries"] or 3
-        task_type = row["task_type"]
+        return cb
 
-        new_retries = retries + 1
-        if new_retries < max_retries:
-            logger.warning(
-                f"Задача {task_id} ({task_type}) завершилась с ошибкой. Попытка {new_retries}/{max_retries}. "
-                f"Запланирован повторный запуск."
-            )
-            conn.execute(
-                """
-                UPDATE tasks
-                SET status = 'pending', retries = ?, error_message = ?,
-                    created_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
-                WHERE id = ?
-                """,
-                (new_retries, f"Попытка {new_retries} не удалась:\n{error_trace}", task_id),
-            )
-        else:
-            logger.error(
-                f"Задача {task_id} ({task_type}) превысила лимит попыток ({max_retries}). Переведена в статус failed."
-            )
-            conn.execute(
-                """
-                UPDATE tasks
-                SET status = 'failed', retries = ?, error_message = ?, updated_at = CURRENT_TIMESTAMP
-                WHERE id = ?
-                """,
-                (new_retries, error_trace, task_id),
-            )
+    async def _run_task(self, task_id: int, task_type: str, payload: dict[str, Any]) -> None:
+        stage_key = self._get_stage_key(task_type)
+        progress_cb = self._make_progress_callback(stage_key)
+        sem = self.semaphores.get(task_type)
 
-    async def _run_stage_1_download(self, task_id: int, payload: dict):
-        async with self.download_sem:
-            file_id = payload["file_id"]
-            title = payload.get("title", f"File {file_id}")
+        if not sem:
+            sem = asyncio.Semaphore(1)
 
-            self._state["stage_1_download"].update(
-                {"active": True, "title": title, "progress": 0, "speed": "", "status_text": "Инициализация"}
-            )
-
-            # Perform clean-up if this is a reindexing task
-            if payload.get("reindex") and payload.get("video_id"):
-                video_id = payload["video_id"]
-                logger.info(f"Очистка данных перед переиндексацией для видео ID {video_id} ({title})")
-
-                # 1. Delete vector points from Manticore
-                q_settings = get_manticore_settings()
-                try:
-                    manticore = get_manticore_client()
-                    with db_connection(get_sqlite_settings()) as conn:
-                        chunk_rows = conn.execute("SELECT id FROM chunks WHERE video_id = ?", (video_id,)).fetchall()
-                    chunk_ids = [c["id"] for c in chunk_rows]
-                    if chunk_ids:
-                        manticore.delete(collection_name=q_settings.table_name, ids=chunk_ids)
-                        logger.info(f"Удалено {len(chunk_ids)} векторов из Manticore для видео {video_id}")
-                except Exception as e:
-                    logger.error(f"Ошибка при очистке векторов в Manticore для видео {video_id}: {e}")
-
-                # 2. Delete local files from storage
-                from app.config import get_app_settings
-
-                app_settings = get_app_settings()
-                wav_p = app_settings.audio_dir / f"{file_id}.wav"
-                ogg_p = app_settings.audio_dir / f"{file_id}.ogg"
-                for p in [wav_p, ogg_p]:
-                    try:
-                        if p.exists():
-                            p.unlink()
-                    except Exception as e:
-                        logger.error(f"Не удалось удалить файл {p}: {e}")
-
-                downloads_dir = app_settings.downloads_dir
-                if downloads_dir.exists():
-                    for p in downloads_dir.glob(f"{file_id}*"):
-                        try:
-                            if p.exists():
-                                p.unlink()
-                        except Exception as e:
-                            logger.error(f"Не удалось удалить временный файл {p}: {e}")
-
-                raw_path = app_settings.get_raw_transcript_path(file_id)
-                try:
-                    if raw_path.exists():
-                        raw_path.unlink()
-                        if raw_path.parent.exists() and raw_path.parent not in (
-                            app_settings.raw_transcripts_dir,
-                            app_settings.normalized_transcripts_dir,
-                        ):
-                            if not any(raw_path.parent.iterdir()):
-                                raw_path.parent.rmdir()
-                except Exception as e:
-                    logger.error(f"Не удалось удалить сырой транскрипт {raw_path}: {e}")
-
-                norm_path = app_settings.get_normalized_transcript_path(file_id)
-                try:
-                    if norm_path.exists():
-                        norm_path.unlink()
-                        if norm_path.parent.exists() and norm_path.parent not in (
-                            app_settings.raw_transcripts_dir,
-                            app_settings.normalized_transcripts_dir,
-                        ):
-                            if not any(norm_path.parent.iterdir()):
-                                norm_path.parent.rmdir()
-                except Exception as e:
-                    logger.error(f"Не удалось удалить нормализованный транскрипт {norm_path}: {e}")
-
-                # 3. Delete chunks in SQLite
-                with db_connection(get_sqlite_settings()) as conn:
-                    conn.execute("DELETE FROM chunks WHERE video_id = ?", (video_id,))
-
-            sql_q = "SELECT COUNT(*) as c FROM tasks WHERE status IN ('pending', 'running')"
-            with db_connection(get_sqlite_settings()) as conn:
-                c_row = conn.execute(sql_q).fetchone()
-                in_queue = c_row["c"]
-
-            def update_state(data: dict):
-                self._state["stage_1_download"].update(data)
-
-            # 1. Fetch file metadata to get MD5 checksum before download
-            drive_settings = get_google_drive_settings()
-            drive_client = GoogleDriveClient(drive_settings)
-
+        async with sem:
             try:
-                self._state["stage_1_download"].update({"status_text": "Проверка MD5"})
-                drive_file = await drive_client.get_file(file_id)
-                md5 = drive_file.md5_checksum
-            except Exception as e:
-                logger.error(f"Не удалось получить метаданные Google Drive для файла {file_id}: {e}")
-                md5 = None
+                result = await self.ingest.execute_stage(task_type, task_id, payload, progress_cb)
 
-            if md5:
-                # Check if there is an existing video in DB with the same MD5 checksum
-                with db_connection(get_sqlite_settings()) as conn:
-                    existing = conn.execute(
-                        "SELECT id, title, source_file_id FROM videos "
-                        "WHERE md5_checksum = ? AND original_id IS NULL AND source_file_id != ?",
-                        (md5, file_id),
-                    ).fetchone()
-
-                if existing:
-                    logger.warning(
-                        f"Файл {title} ({file_id}) является дубликатом по MD5 файла "
-                        f"{existing['title']} ({existing['source_file_id']})! Скачивание пропущено."
-                    )
-
-                    parent_folder_id = None
-                    if (
-                        hasattr(drive_file, "parents")
-                        and isinstance(drive_file.parents, (list, tuple))
-                        and drive_file.parents
-                    ):
-                        parent_folder_id = drive_file.parents[0]
+                if result.success:
+                    if result.status == "skipped_duplicate_md5":
+                        video_id = result.next_payload.get("video_id") if result.next_payload else None
+                        await self.queue.complete_task(task_id, video_id=video_id, status="skipped_duplicate_md5")
+                    elif result.status == "completed_silent":
+                        video_id = result.next_payload.get("video_id") if result.next_payload else None
+                        await self.queue.complete_task(task_id, video_id=video_id, status="completed")
                     else:
-                        parent_folder_id = payload.get("parent_folder_id")
+                        next_payload = result.next_payload or {}
+                        # Определяем следующую стадию
+                        if task_type in ("stage_1_download", "ingest_video"):
+                            await self.queue.advance_task(task_id, "stage_2_transcribe", next_payload)
+                        elif task_type == "stage_2_transcribe":
+                            video_id = next_payload.get("video_id")
+                            index_payload = {"video_id": video_id, "title": next_payload.get("title")}
+                            await self.queue.advance_task(task_id, "stage_3_index", index_payload, video_id=video_id)
+                        elif task_type == "stage_3_index":
+                            await self.queue.complete_task(task_id, video_id=payload.get("video_id"))
+                else:
+                    await self.queue.fail_task(task_id, result.error or "Unknown error")
 
-                    with db_connection(get_sqlite_settings()) as conn:
-                        cursor = conn.execute(
-                            """
-                            INSERT INTO videos (
-                                source_file_id, parent_folder_id, md5_checksum, title,
-                                status, original_id, source_url
-                            ) VALUES (?, ?, ?, ?, ?, ?, ?)
-                            ON CONFLICT (source_file_id) DO UPDATE SET
-                                parent_folder_id = EXCLUDED.parent_folder_id,
-                                md5_checksum = EXCLUDED.md5_checksum,
-                                title = EXCLUDED.title,
-                                status = EXCLUDED.status,
-                                original_id = EXCLUDED.original_id,
-                                source_url = EXCLUDED.source_url,
-                                updated_at = CURRENT_TIMESTAMP
-                            RETURNING id
-                            """,
-                            (
-                                file_id,
-                                parent_folder_id,
-                                md5,
-                                title,
-                                "skipped_duplicate_md5",
-                                existing["id"],
-                                f"https://drive.google.com/file/d/{file_id}/view",
-                            ),
-                        )
-                        inserted_vid = cursor.fetchone()["id"]
-                        conn.execute(
-                            "UPDATE tasks SET video_id = ?, status = 'skipped_duplicate_md5', "
-                            "updated_at = CURRENT_TIMESTAMP WHERE id = ?",
-                            (inserted_vid, task_id),
-                        )
-                    return
-
-            try:
-                result = await download_and_extract_stage(
-                    file_id, status_callback=logger.info, in_queue=in_queue, state_callback=update_state
-                )
-
-                # Use the MD5 from the initial ingest request if available,
-                # otherwise use what was fetched during download
-                md5 = payload.get("md5") or result.get("md5_checksum")
-                new_payload = {**payload, **result, "md5_checksum": md5}
-                sql = """
-                    UPDATE tasks
-                    SET task_type = 'stage_2_transcribe', payload = ?, status = 'pending',
-                        updated_at = CURRENT_TIMESTAMP
-                    WHERE id = ?
-                """
-                with db_connection(get_sqlite_settings()) as conn:
-                    conn.execute(sql, (json.dumps(new_payload), task_id))
-                logger.info(f"{result.get('title')} подготовлен.")
             except InsufficientSpaceError as e:
+                title = payload.get("title", f"File {payload.get('file_id')}")
                 logger.warning(f"Недостаточно места для {title}: {e}")
 
-                # Check if there are tasks in transcription queue
-                sql_check = (
-                    "SELECT COUNT(*) as c FROM tasks "
-                    "WHERE task_type = 'stage_2_transcribe' AND status IN ('pending', 'running')"
-                )
+                # Проверяем, есть ли другие задачи в транскрибации
+                sql_check = """
+                    SELECT COUNT(*) as c FROM tasks
+                    WHERE task_type = 'stage_2_transcribe' AND status IN ('pending', 'running')
+                """
                 with db_connection(get_sqlite_settings()) as conn:
                     t_count = conn.execute(sql_check).fetchone()["c"]
 
                 if t_count > 0:
-                    # Re-queue and wait
-                    sql_requeue = "UPDATE tasks SET status = 'pending', updated_at = CURRENT_TIMESTAMP WHERE id = ?"
-                    with db_connection(get_sqlite_settings()) as conn:
-                        conn.execute(sql_requeue, (task_id,))
+                    # Возвращаем задачу в очередь и ждем
+                    await self.queue.complete_task(task_id, status="pending")
                     logger.info("Есть задачи на транскрибацию. Ждем 60 секунд...")
                     await asyncio.sleep(60)
                 else:
-                    # Skip the file
+                    # Пропускаем задачу из-за нехватки места
                     new_payload = {**payload, "file_size": e.file_size}
-                    sql_skip = (
-                        "UPDATE tasks SET status = 'skipped_no_space', payload = ?, "
-                        "updated_at = CURRENT_TIMESTAMP WHERE id = ?"
-                    )
-                    with db_connection(get_sqlite_settings()) as conn:
-                        conn.execute(sql_skip, (json.dumps(new_payload), task_id))
+                    await self.queue.complete_task(task_id, status="skipped_no_space", payload=new_payload)
                     logger.error(f"Недостаточно места. Файл {title} пропущен.")
-            except SilentVideoError:
-                logger.warning(f"Видео без звука: {title}. Добавляем в индекс с пометкой (без звука).")
-                parent_folder_id = payload.get("parent_folder_id")
-                md5 = payload.get("md5") or payload.get("md5_checksum")
 
-                if not parent_folder_id or not md5:
-                    try:
-                        drive_settings = get_google_drive_settings()
-                        drive_client = GoogleDriveClient(drive_settings)
-                        drive_file = await drive_client.get_file(file_id)
-                        if not parent_folder_id and drive_file.parents:
-                            parent_folder_id = drive_file.parents[0]
-                        if not md5:
-                            md5 = drive_file.md5_checksum
-                    except Exception as e:
-                        logger.error(f"Не удалось получить метаданные для видео без звука {file_id}: {e}")
-
+            except FileNotFoundError as e:
+                # Если во время транскрибации пропал аудиофайл
+                title = payload.get("title", "Unknown")
+                file_id = payload.get("file_id")
+                logger.warning(
+                    f"Аудиофайл для {title} не найден на диске. "
+                    f"Создаем новую задачу на скачивание и удаляем текущую задачу транскрибации. Ошибка: {e}"
+                )
                 with db_connection(get_sqlite_settings()) as conn:
-                    from app.repository import upsert_video
-
-                    video_id = upsert_video(
-                        conn,
-                        source_file_id=file_id,
-                        parent_folder_id=parent_folder_id,
-                        md5_checksum=md5,
-                        title=title,
-                        source_url=f"https://drive.google.com/file/d/{file_id}/view",
-                        mime_type=payload.get("mime_type") or "video/mp4",
-                        size_bytes=None,
-                        duration_sec=None,
-                        is_short=False,
-                        status="indexed_chunks_ready",
-                    )
-                    conn.execute("UPDATE videos SET is_silent = 1 WHERE id = ?", (video_id,))
                     conn.execute(
-                        "UPDATE tasks SET status = 'completed', video_id = ?, "
-                        "updated_at = CURRENT_TIMESTAMP WHERE id = ?",
-                        (video_id, task_id),
+                        "INSERT INTO tasks (task_type, payload, status) VALUES ('stage_1_download', ?, 'pending')",
+                        (json.dumps({"file_id": file_id, "title": title}),),
                     )
+                    conn.execute("DELETE FROM tasks WHERE id = ?", (task_id,))
+
             except Exception:
-                # Ошибка пробрасывается выше в _consume_stage для обработки в _handle_task_failure
-                raise
+                error_trace = traceback.format_exc()
+                logger.error(f"Ошибка в задаче {task_id} ({task_type}): {error_trace}")
+                await self.queue.fail_task(task_id, error_trace)
+
             finally:
-                self._state["stage_1_download"].update(
+                self._state[stage_key].update(
                     {"active": False, "title": "", "progress": 0, "speed": "", "status_text": "Ожидание"}
                 )
 
-    async def _run_stage_2_transcribe(self, task_id: int, payload: dict):
-        async with self.transcribe_sem:
-            # Check Deepgram Balance before starting
-            dg_settings = get_deepgram_settings()
-            engine = DeepgramEngine(dg_settings)
-            is_ok, amount = await engine.check_balance_threshold_async(1.0)
-
-            if not is_ok:
-                err_msg = f"Отказ в транскрибации: баланс Deepgram (${amount:.2f}) ниже порога $1.00"
-                logger.error(err_msg)
-                raise RuntimeError(err_msg)
-
-            file_id = payload["file_id"]
-            audio_path = payload["audio_path"]
-            title = payload.get("title", file_id)
-
-            self._state["stage_2_transcribe"].update(
-                {"active": True, "title": title, "progress": 0, "speed": "", "status_text": "Инициализация"}
-            )
-
-            def update_state(data: dict):
-                self._state["stage_2_transcribe"].update(data)
-
-            try:
-                try:
-                    result = await transcribe_stage(
-                        file_id, audio_path, payload, status_callback=logger.info, state_callback=update_state
-                    )
-                except FileNotFoundError as e:
-                    # If audio file is missing, re-queue download and delete current task
-                    logger.warning(
-                        f"Аудиофайл для {title} не найден на диске. "
-                        f"Создаем новую задачу на скачивание и удаляем текущую задачу транскрибации. Ошибка: {e}"
-                    )
-                    with db_connection(get_sqlite_settings()) as conn:
-                        conn.execute(
-                            "INSERT INTO tasks (task_type, payload, status) VALUES ('stage_1_download', ?, 'pending')",
-                            (json.dumps({"file_id": file_id, "title": title}),),
-                        )
-                        conn.execute("DELETE FROM tasks WHERE id = ?", (task_id,))
-                    return
-
-                new_payload = {"video_id": result["video_id"], "title": title}
-                sql = """
-                    UPDATE tasks
-                    SET video_id = ?, task_type = 'stage_3_index', payload = ?, status = 'pending',
-                        updated_at = CURRENT_TIMESTAMP
-                    WHERE id = ?
-                """
-                with db_connection(get_sqlite_settings()) as conn:
-                    conn.execute(sql, (result["video_id"], json.dumps(new_payload), task_id))
-                logger.info(f"Текст для {title} сохранен.")
-            finally:
-                self._state["stage_2_transcribe"].update(
-                    {"active": False, "title": "", "progress": 0, "speed": "", "status_text": "Ожидание"}
-                )
-
-    async def _run_stage_3_index(self, task_id: int, payload: dict):
-        async with self.embed_sem:
-            video_id = payload["video_id"]
-            title = payload.get("title", f"Video {video_id}")
-            logger.info(f"Индексация: {title}")
-
-            self._state["stage_3_index"].update(
-                {"active": True, "title": title, "progress": 10, "status_text": "Эмбеддинги"}
-            )
-
-            try:
-                settings, q_settings = get_sqlite_settings(), get_manticore_settings()
-                embed_client = UnifiedEmbeddingClient(get_embedding_settings())
-                manticore = get_manticore_client()
-
-                with db_connection(settings) as conn:
-                    update_video_status(conn, video_id=video_id, status="indexing")
-                    sql_v = (
-                        "SELECT title, source_file_id, source_url, recorded_date, is_short, is_4k "
-                        "FROM videos WHERE id = ?"
-                    )
-                    v_row = conn.execute(sql_v, (video_id,)).fetchone()
-                    sql_c = """
-                        SELECT id, chunk_index, text, start_sec, end_sec FROM chunks
-                        WHERE video_id = ? ORDER BY chunk_index ASC
-                    """
-                    chunks = conn.execute(sql_c, (video_id,)).fetchall()
-
-                if not chunks:
-                    with db_connection(settings) as conn:
-                        update_video_status(conn, video_id=video_id, status="indexed_chunks_ready")
-                        conn.execute("UPDATE tasks SET status = 'completed' WHERE id = ?", (task_id,))
-                    return
-
-                texts = [c["text"] for c in chunks]
-
-                def progress_cb(current: int, total: int):
-                    if total > 0:
-                        pct = 10 + int((current / total) * 65)
-                    else:
-                        pct = 10
-                    self._state["stage_3_index"].update(
-                        {"progress": pct, "status_text": f"Эмбеддинги: {current}/{total}"}
-                    )
-
-                # Получаем реальные эмбеддинги от провайдера с прогресс-коллбеком
-                embeddings_data = await embed_client.embed_batch_async(texts, progress_callback=progress_cb)
-
-                self._state["stage_3_index"].update({"progress": 75, "status_text": "Загрузка в Manticore"})
-                points = []
-                for idx, row in enumerate(chunks):
-                    dense_vec, sparse_vec = embeddings_data[idx]
-                    vd: dict[str, Any] = {"default": dense_vec}
-                    if sparse_vec:
-                        vd["text-sparse"] = sparse_vec
-                    points.append(
-                        {
-                            "id": row["id"],
-                            "vector": vd,
-                            "payload": {
-                                "chunk_id": row["id"],
-                                "chunk_index": row["chunk_index"],
-                                "text": row["text"],
-                                "start_sec": row["start_sec"],
-                                "end_sec": row["end_sec"],
-                                "video_id": str(video_id),
-                                "title": v_row["title"],
-                                "recorded_date": date_to_int(v_row["recorded_date"]),
-                                "is_short": bool(v_row["is_short"]),
-                                "is_4k": bool(v_row["is_4k"]),
-                                "source_file_id": v_row["source_file_id"],
-                                "source_url": v_row["source_url"],
-                                "is_primary": True,
-                            },
-                        }
-                    )
-
-                loop = asyncio.get_running_loop()
-                if points:
-                    await loop.run_in_executor(
-                        None, lambda p=points: manticore.upsert(collection_name=q_settings.table_name, points=p)
-                    )
-
-                with db_connection(settings) as conn:
-                    update_video_status(conn, video_id=video_id, status="indexed_chunks_ready")
-                    sql_f = "UPDATE tasks SET status = 'completed', updated_at = CURRENT_TIMESTAMP WHERE id = ?"
-                    conn.execute(sql_f, (task_id,))
-                logger.info(f"{v_row['title']} доступен для поиска.")
-            finally:
-                self._state["stage_3_index"].update(
-                    {"active": False, "title": "", "progress": 0, "status_text": "Ожидание"}
-                )
-
-    async def _consume_stage(self, stage_types: list[str]):
+    async def _consume_stage(self, stage_types: list[str]) -> None:
         """Бесконечный цикл обработки задач определенного типа."""
         while self.is_running:
             try:
-                # Атомарно помечаем задачу как запущенную и получаем её данные
-                placeholders = ",".join(["?"] * len(stage_types))
-                sql = f"""
-                    UPDATE tasks
-                    SET status = 'running', updated_at = CURRENT_TIMESTAMP
-                    WHERE id = (
-                        SELECT id FROM tasks
-                        WHERE status = 'pending' AND task_type IN ({placeholders})
-                        ORDER BY priority DESC, created_at ASC
-                        LIMIT 1
-                    )
-                    RETURNING id, task_type, payload;
-                """
-                with db_connection(get_sqlite_settings()) as conn:
-                    row = conn.execute(sql, stage_types).fetchone()
-
-                if row:
-                    tid, ttype, tpayload_json = row["id"], row["task_type"], row["payload"]
-                    tpayload = json.loads(tpayload_json)
-
-                    # Выполняем задачу
-                    try:
-                        if ttype in ("stage_1_download", "ingest_video"):
-                            await self._run_stage_1_download(tid, tpayload)
-                        elif ttype == "stage_2_transcribe":
-                            await self._run_stage_2_transcribe(tid, tpayload)
-                        elif ttype == "stage_3_index":
-                            await self._run_stage_3_index(tid, tpayload)
-                    except Exception:
-                        error_trace = traceback.format_exc()
-                        logger.error(f"Ошибка в задаче {tid} ({ttype}): {error_trace}")
-                        with db_connection(get_sqlite_settings()) as conn:
-                            self._handle_task_failure(conn, tid, error_trace)
+                task = await self.queue.claim_next(stage_types)
+                if task:
+                    await self._run_task(task.id, task.task_type, task.payload)
                 else:
-                    # Если в этой очереди задач нет, проверяем, есть ли они ВООБЩЕ в системе
-                    if not await self._has_pending_tasks():
+                    # Если задач нет в этой группе очередей, проверяем, есть ли они вообще в системе
+                    if not await self.queue.has_pending():
                         logger.info("Очередь пуста. Автоматическая остановка воркера для экономии ресурсов.")
                         self.is_running = False
                         break
-                    # Если задачи есть в других стадиях, просто ждем
                     await asyncio.sleep(2)
             except Exception as e:
                 logger.error(f"Ошибка в консьюмере {stage_types}: {e}")
                 await asyncio.sleep(5)
 
-    def cleanup(self):
-        """Сброс зависших задач и очистка осиротевших временных файлов."""
-        settings = get_sqlite_settings()
-        from app.config import get_app_settings
-
-        app_settings = get_app_settings()
-
-        active_audio_paths = set()
-        with db_connection(settings) as conn:
-            # 1. Сброс задач, которые зависли в состоянии 'running'
-            conn.execute("UPDATE tasks SET status = 'pending' WHERE status = 'running'")
-
-            # 2. Сбор путей аудиофайлов, которые все еще нужны для активных задач
-            sql = "SELECT payload FROM tasks WHERE task_type = 'stage_2_transcribe' AND status IN ('pending', 'failed')"
-            rows = conn.execute(sql).fetchall()
-            for r in rows:
-                try:
-                    p = json.loads(r["payload"]).get("audio_path")
-                    if p:
-                        active_audio_paths.add(Path(p).resolve())
-                except Exception:
-                    continue
-
-        # 3. Физическая очистка папки downloads (видео не должны там лежать вне работы воркера)
-        if app_settings.downloads_dir.exists():
-            for p in app_settings.downloads_dir.glob("*"):
-                if p.is_file():
-                    try:
-                        p.unlink()
-                    except Exception:
-                        pass
-
-        # 4. Физическая очистка папки audio (только те, что не нужны для текущих задач)
-        if app_settings.audio_dir.exists():
-            for ext in ("*.wav", "*.ogg"):
-                for p in app_settings.audio_dir.glob(ext):
-                    if p.resolve() not in active_audio_paths:
-                        try:
-                            p.unlink()
-                        except Exception:
-                            pass
-
-        logger.info("Очистка временных файлов и базы данных завершена.")
-
-    async def run(self):
+    async def run(self) -> None:
         if self.is_running:
             logger.warning("Воркер уже запущен.")
             return
 
-        self.cleanup()
+        self.queue.cleanup()
         self.is_running = True
         self.is_stopping = False
-        logger.info("Воркер активен: ТРЕХСТАДИЙНЫЙ ПАРАЛЛЕЛЬНЫЙ КОНВЕЙЕР")
+        logger.info("Воркер активен: ТРЕХСТАДИЙНЫЙ ПАРАЛЛЕЛЬНЫЙ КОНВЕЙЕР (PIPELINE)")
 
         try:
-            # Запускаем три независимых консьюмера
             await asyncio.gather(
                 self._consume_stage(["stage_1_download", "ingest_video"]),
                 self._consume_stage(["stage_2_transcribe"]),
@@ -685,5 +250,5 @@ class Worker:
 _worker_instance = Worker()
 
 
-def get_worker():
+def get_worker() -> Worker:
     return _worker_instance
