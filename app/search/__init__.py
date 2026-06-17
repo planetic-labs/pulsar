@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import logging
 import re
 import sqlite3
@@ -109,20 +111,15 @@ def _build_quote_regex(phrase: str) -> str:
     regex_parts = []
     for w in words:
         if len(w) <= 3:
-            # For short words, be very strict
             root = w
             regex_parts.append(rf"\b{re.escape(root)}[ёе]*\b")
         elif len(w) <= 5:
-            # Drop 1 char for medium
             root = w[:-1]
             regex_parts.append(rf"\b{re.escape(root)}[а-яА-ЯёЁa-zA-Z0-9]*\b")
         else:
-            # Drop 2-3 for long
             drop_len = 2 if len(w) < 7 else 3
             root = w[:-drop_len]
             regex_parts.append(rf"\b{re.escape(root)}[а-яА-ЯёЁa-zA-Z0-9]*\b")
-    # Limit gap to exactly 10 words (any sequence of alphanumeric characters) between the anchors.
-    # [^а-яА-ЯёЁa-zA-Z0-9]+ matches punctuation and whitespace.
     separator = r"(?:[^а-яА-ЯёЁa-zA-Z0-9]+[а-яА-ЯёЁa-zA-Z0-9]+){0,10}?[^а-яА-ЯёЁa-zA-Z0-9]+"
     return separator.join(regex_parts)
 
@@ -144,20 +141,17 @@ def _quote_highlight(text: str, exact_phrases: list[str]) -> str:
     for phrase in exact_phrases:
         pattern = _build_quote_regex(phrase)
         if pattern:
-            # Add (?i) for case-insensitivity within sub.
             patterns.append(f"(?i)({pattern})")
     if not patterns:
         return text
     combined_pattern = "|".join(patterns)
     try:
-        # Use flags for unicode support
         return re.sub(combined_pattern, lambda m: f"<mark>{m.group(0)}</mark>", text, flags=re.UNICODE)
     except Exception:
         return text
 
 
 def _find_best_match(text: str, pattern: str, query_words_count: int) -> tuple[int, int, float]:
-    """Find the best match and return its span and a high-precision score."""
     try:
         matches = list(re.finditer(pattern, text, flags=re.IGNORECASE | re.UNICODE | re.DOTALL))
         if not matches:
@@ -172,10 +166,6 @@ def _find_best_match(text: str, pattern: str, query_words_count: int) -> tuple[i
                 min_len = curr_len
                 best_m = m
 
-        # Precision score:
-        # If words are tight (length ~ words * 10), score is near 1.0.
-        # If words are spread out, score drops rapidly.
-        # We also consider how many words from query we are actually looking for.
         ideal_len = query_words_count * 8
         precision = (ideal_len / max(ideal_len, min_len)) ** 2
 
@@ -185,21 +175,16 @@ def _find_best_match(text: str, pattern: str, query_words_count: int) -> tuple[i
 
 
 def _crop_around_match(text: str, pattern: str, query_words_count: int, window: int = 250) -> str:
-    """Crop text around the best regex match."""
     start, end, precision = _find_best_match(text, pattern, query_words_count)
-
-    # If no match found by regex, just show start
     if precision == 0:
         return text[: window * 2] + "..."
 
-    # Find a good start point (e.g. at a space)
     crop_start = max(0, start - window)
     if crop_start > 0:
         first_space = text.find(" ", crop_start, start)
         if first_space != -1:
             crop_start = first_space + 1
 
-    # Find a good end point
     crop_end = min(len(text), end + window)
     if crop_end < len(text):
         last_space = text.rfind(" ", end, crop_end)
@@ -227,7 +212,6 @@ async def hybrid_search(
     manticore = get_manticore_client()
     settings = get_manticore_settings()
 
-    # 1. Parse Filters
     where_clauses: list[str] = []
 
     if video_type == "short":
@@ -238,7 +222,6 @@ async def hybrid_search(
         where_clauses.append("is_4k = 1")
 
     if date_from or date_to:
-        # User requirement: ignore date filters for short videos
         if video_type != "short":
             if date_from:
                 where_clauses.append(f"recorded_date >= {date_to_int(date_from)}")
@@ -252,19 +235,16 @@ async def hybrid_search(
         where_clauses.append(f"video_id = {v_id}")
 
     clean_query = re.sub(r"(?:video_id|v):[^\s]+", "", query).strip()
-
     where_clause = " AND ".join(where_clauses) if where_clauses else None
 
     scores_map: dict[Any, dict[str, Any]] = {}
     points: list[models.ScoredPoint] | list[models.Record] = []
 
     if search_mode == "quote" and clean_query:
-        # --- FAST INDEXED PHRASE SEARCH (Manticore) ---
         phrase_query = _build_manticore_phrase_query(clean_query, slop=10)
         if not phrase_query:
             return []
 
-        # 1. Search in Manticore using Proximity Search
         points = manticore.query_points(
             collection_name=settings.table_name,
             query=phrase_query,
@@ -290,23 +270,19 @@ async def hybrid_search(
         points = res_scroll[0]
         scores_map = {p.id: {"combined": 1.0, "match_type": "filter"} for p in points}
     else:
-        # --- VECTOR SEARCH (SEMANTIC, LEXICAL, HYBRID) ---
         client = UnifiedEmbeddingClient(get_embedding_settings())
         try:
             query_dense, query_sparse = await client.embed_text_async(
                 clean_query or "video", task_type="RETRIEVAL_QUERY"
             )
         except Exception as e:
-            import logging
-
-            logging.error(f"Search failed because embedding service is unavailable: {e}")
+            logger.error(f"Search failed because embedding service is unavailable: {e}")
             return []
 
         prefetch_limit = 100
         dense_results: list[models.ScoredPoint] = []
         sparse_results: list[models.ScoredPoint] = []
 
-        # 1. Fetch results based on mode
         if search_mode in ["semantic", "hybrid"]:
             dense_results = manticore.query_points(
                 settings.table_name,
@@ -325,7 +301,6 @@ async def hybrid_search(
                 limit=prefetch_limit,
             )
 
-        # 2. Merge results using RRF
         k = 60
         combined_scores: dict[Any, float] = {}
         points_map = {}
@@ -342,11 +317,9 @@ async def hybrid_search(
             points_map[p.id] = p
             id_to_lexical_score[p.id] = p.score
 
-        # 3. Final sorting
         candidates_list: list[dict[str, Any]] = []
         for pid, score in combined_scores.items():
             if pid in points_map:
-                # Determine match type based on which results contained the point
                 m_type = "hybrid"
                 if search_mode == "semantic" or (pid in id_to_semantic_score and pid not in id_to_lexical_score):
                     m_type = "semantic"
@@ -368,14 +341,11 @@ async def hybrid_search(
         points = [x["point"] for x in candidates_list]
         scores_map = {x["point"].id: x for x in candidates_list}
 
-    # 1. Collect all video IDs to fetch missing metadata
     video_ids = list({p.payload.get("video_id") for p in points if p.payload})
     video_metadata = {}
 
     if video_ids:
         placeholders = ",".join(["?"] * len(video_ids))
-
-        # Fetch Video Metadata (source_file_id, title)
         rows_v = connection.execute(
             f"SELECT id, source_file_id, title FROM videos WHERE id IN ({placeholders})", video_ids
         ).fetchall()
@@ -389,7 +359,6 @@ async def hybrid_search(
         if not payload:
             continue
 
-        # Get scores and match metadata from our map
         point_data = scores_map.get(point.id) or {}
         combined_score = float(point_data.get("combined", 0.0))
         semantic_score = float(point_data.get("semantic", 0.0))
@@ -399,7 +368,6 @@ async def hybrid_search(
         full_text = str(payload.get("text") or "")
         highlighted_text = payload.get("highlighted_text")
         if not highlighted_text:
-            # Fallback to local python regex highlighter if Manticore highlight is not available
             if m_type == "quote":
                 highlighted_text = _quote_highlight(full_text, [clean_query])
             else:
@@ -454,30 +422,24 @@ async def hybrid_search(
             )
         )
 
-    # 2. Final pipeline: Deduplication -> Diversification -> Limit
-    # A. Deduplication by timing (critical for Quote Search sliding window)
     seen_timing = set()
     unique_results = []
     for res in results:
-        # Use 0.5s window to group very close matches (same phrase in different chunks)
         key = (res.video_id, round(res.start_sec * 2) / 2)
         if key not in seen_timing:
             seen_timing.add(key)
             unique_results.append(res)
     results = unique_results
 
-    # B. Diversification (Limit results per video)
-    # Default: max 3 results per video to keep variety
     video_counts = {}
     diversified = []
     for res in results:
         count = video_counts.get(res.video_id, 0)
-        if count < 3 or (v_id is not None):  # Don't limit if searching within specific video
+        if count < 3 or (v_id is not None):
             diversified.append(res)
             video_counts[res.video_id] = count + 1
     results = diversified
 
-    # C. Apply final limit
     results = results[:limit]
 
     if v_id and not clean_query:

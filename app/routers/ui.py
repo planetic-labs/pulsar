@@ -1,39 +1,23 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 from datetime import date
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, Request, Response
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from fastapi.responses import HTMLResponse, RedirectResponse
 
 from app.auth import require_access_token
-from app.config import get_app_settings, get_sqlite_settings
+from app.config import get_app_settings
 from app.core import templates
-from app.db import db_connection
-from app.manticore import get_manticore_client
-from app.schemas import VideoStatusItem
-from app.search import hybrid_search
+from app.dependencies import get_search_service, get_settings
+from app.services.search import SearchService
+from app.settings import Settings
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("app.routers.ui")
 
 router = APIRouter(tags=["UI Pages"])
-
-
-def _status_rows(connection: Any) -> list[VideoStatusItem]:
-    """Helper to retrieve list of videos and their processing metadata status."""
-    rows = connection.execute(
-        """
-        SELECT
-            v.id, v.title, v.source_file_id, v.status AS processing_status, v.updated_at, v.created_at,
-            CASE WHEN EXISTS(SELECT 1 FROM chunks c WHERE c.video_id = v.id) THEN 1 ELSE 0 END AS transcript_count,
-            (SELECT COUNT(*) FROM chunks c WHERE c.video_id = v.id) AS chunk_count,
-            'Deepgram' as primary_engine
-        FROM videos v
-        ORDER BY v.created_at DESC, v.id DESC
-        """
-    ).fetchall()
-    return [VideoStatusItem(**dict(row)) for row in rows]
 
 
 @router.get("/", response_class=HTMLResponse)
@@ -44,11 +28,10 @@ async def index_page(
     date_from: str | None = None,
     date_to: str | None = None,
     video_type: str = "all",
+    search_service: SearchService = Depends(get_search_service),
+    settings: Settings = Depends(get_settings),
 ) -> Response:
     """Renders the main video indexing search engine home page."""
-    app_settings = get_app_settings()
-    pg_settings = get_sqlite_settings()
-
     # Debug log for request loops
     logger.info(
         "INDEX_PAGE: Path=%s, Query=%s, UA=%s",
@@ -65,17 +48,18 @@ async def index_page(
     results: list[Any] = []
     # Fetch results if there is a query OR if filters are applied
     if q or date_from or date_to or video_type != "all":
-        with db_connection(pg_settings) as connection:
-            items = await hybrid_search(
-                connection,
-                q or "",  # Pass empty string if None
-                limit=app_settings.results_limit,
+        try:
+            results = await search_service.search(
+                query=q or "",
+                limit=settings.app_results_limit,
                 search_mode=mode,
                 date_from=date_from,
                 date_to=date_to,
                 video_type=video_type,
             )
-            results = items
+        except Exception as e:
+            logger.error(f"Search failed: {e}")
+            results = []
 
     ua = request.headers.get("user-agent", "").lower()
     is_mobile = any(m in ua for m in ["mobile", "android", "iphone", "ipad"])
@@ -142,19 +126,23 @@ async def speakers_page(request: Request) -> Response:
     if current_token != settings.access_token:
         return RedirectResponse(url="/")
 
+    from app.manticore import get_manticore_client
+
     m_client = get_manticore_client()
     try:
-        res = m_client.scroll(collection_name="speaker_registry", limit=100)[0]
+        # Run scroll synchronously in thread pool
+        res = await asyncio.to_thread(m_client.scroll, "speaker_registry", limit=100)
         speakers = []
-        for p in res:
-            if p.payload:
-                speakers.append(
-                    {
-                        "id": p.id,
-                        "name": p.payload.get("name", "Unknown"),
-                        "audio_url": None,
-                    }
-                )
+        if res and res[0]:
+            for p in res[0]:
+                if p.payload:
+                    speakers.append(
+                        {
+                            "id": p.id,
+                            "name": p.payload.get("name", "Unknown"),
+                            "audio_url": None,
+                        }
+                    )
         return templates.TemplateResponse(request, "speakers.html", {"speakers": speakers})
     except Exception as e:
         logger.error(f"Error fetching speakers: {e}")
