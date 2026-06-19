@@ -24,7 +24,7 @@ dependencies = [
     "pyjwt[crypto]>=2.8.0",
     "boto3>=1.43.23",
     "pydantic-settings>=2.14.1",
-    "aiosqlite>=0.20.0",
+    "aiosqlite>=0.22.1",
 ]
 
 [dependency-groups]
