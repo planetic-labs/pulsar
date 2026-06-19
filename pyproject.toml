@@ -32,7 +32,7 @@ dev = [
     "pre-commit>=4.6.0",
     "ruff>=0.15.16",
     "ty>=0.0.44",
-    "pytest>=8.0.0",
+    "pytest>=9.1.0",
     "pytest-asyncio>=1.4.0",
     "pytest-mock>=3.15.1",
 ]
