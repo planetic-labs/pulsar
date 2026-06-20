@@ -38,7 +38,7 @@ Enterprise-grade RAG (Retrieval-Augmented Generation) system for deep semantic s
     docker compose up -d --build
     ```
 
-The application will be available at `http://localhost:8000`.
+The application will be available at `http://localhost:8351`.
 
 ## 📂 Documentation
 

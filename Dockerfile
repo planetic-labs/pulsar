@@ -41,5 +41,5 @@ COPY templates ./templates
 COPY static ./static
 
 # FastAPI port
-EXPOSE 8000
+EXPOSE 8351
 
