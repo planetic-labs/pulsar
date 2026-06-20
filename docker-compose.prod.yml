@@ -8,6 +8,12 @@ services:
       - homelab-net
     volumes:
       - manticore_data:/var/lib/manticore
+    healthcheck:
+      test: ["CMD", "mysql", "-h", "127.0.0.1", "-P", "9306", "-e", "SELECT 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
 
   pulsar:
     image: ghcr.io/planetic-labs/pulsar:latest
@@ -22,7 +28,12 @@ services:
     env_file: .env
     depends_on:
       manticore:
-        condition: service_started
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
     volumes:
       # Только данные, код уже внутри контейнера
       - ./data:/app/data
