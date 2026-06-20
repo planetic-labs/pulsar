@@ -5,6 +5,8 @@
 
 # 1. Генерируем версию на основе даты
 DATE_TAG=$(date +'%Y.%m.%d')
+# Подтягиваем актуальные теги из удаленного репозитория
+git fetch --tags --force >/dev/null 2>&1
 # Проверяем, были ли уже теги сегодня
 LAST_TAG_TODAY=$(git tag -l "v${DATE_TAG}*" | sort -V | tail -n 1)
 
