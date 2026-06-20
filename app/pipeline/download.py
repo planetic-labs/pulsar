@@ -29,7 +29,7 @@ logger = logging.getLogger("app.pipeline.download")
 class InsufficientSpaceError(Exception):
     """Исключение, выбрасываемое при нехватке места на диске."""
 
-    def __init__(self, message: str, file_size: int = 0):
+    def __init__(self, message: str, file_size: int = 0) -> None:
         super().__init__(message)
         self.file_size = file_size
 
@@ -294,7 +294,7 @@ class DownloadStage(PipelineStage):
         try:
             manticore = get_manticore_client()
 
-            def get_chunks_and_delete():
+            def get_chunks_and_delete() -> list[int]:
                 with db_connection(get_sqlite_settings()) as conn:
                     chunk_rows = conn.execute("SELECT id FROM chunks WHERE video_id = ?", (video_id,)).fetchall()
                 chunk_ids = [c["id"] for c in chunk_rows]
@@ -313,7 +313,7 @@ class DownloadStage(PipelineStage):
         wav_p = app_settings.audio_dir / f"{file_id}.wav"
         ogg_p = app_settings.audio_dir / f"{file_id}.ogg"
 
-        def unlink_files():
+        def unlink_files() -> None:
             for p in [wav_p, ogg_p]:
                 try:
                     if p.exists():

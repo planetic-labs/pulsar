@@ -42,7 +42,7 @@ class TaskQueueService:
             RETURNING id, task_type, payload, video_id;
         """
 
-        def _sync_claim():
+        def _sync_claim() -> Any:
             with db_connection(self.db_settings) as conn:
                 return conn.execute(sql, stage_types).fetchone()
 
@@ -62,7 +62,7 @@ class TaskQueueService:
                 je_str = str(je)
                 logger.error(f"Битый payload в задаче {task_id}: {raw_payload!r}. Переводим в failed. Ошибка: {je_str}")
 
-                def _sync_fail():
+                def _sync_fail() -> None:
                     with db_connection(self.db_settings) as conn:
                         conn.execute(
                             "UPDATE tasks SET status = 'failed', error_message = ? WHERE id = ?",
@@ -93,7 +93,7 @@ class TaskQueueService:
             WHERE id = ?
         """
 
-        def _sync():
+        def _sync() -> None:
             with db_connection(self.db_settings) as conn:
                 conn.execute(sql, (next_stage, json.dumps(payload, ensure_ascii=False), video_id, task_id))
 
@@ -122,7 +122,7 @@ class TaskQueueService:
             """
             params = (status, video_id, task_id)
 
-        def _sync():
+        def _sync() -> None:
             with db_connection(self.db_settings) as conn:
                 conn.execute(sql, params)
 
@@ -131,7 +131,7 @@ class TaskQueueService:
     async def fail_task(self, task_id: int, error_trace: str) -> None:
         """Обрабатывает сбой задачи с учетом лимита повторных попыток."""
 
-        def _sync():
+        def _sync() -> None:
             with db_connection(self.db_settings) as conn:
                 row = conn.execute(
                     "SELECT retries, max_retries, task_type FROM tasks WHERE id = ?", (task_id,)
@@ -178,7 +178,7 @@ class TaskQueueService:
         """Проверяет наличие задач в состоянии ожидания или выполнения."""
         sql = "SELECT COUNT(*) as c FROM tasks WHERE status IN ('pending', 'running')"
 
-        def _sync():
+        def _sync() -> bool:
             with db_connection(self.db_settings) as conn:
                 row = conn.execute(sql).fetchone()
                 return row["c"] > 0

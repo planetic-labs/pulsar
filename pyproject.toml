@@ -40,15 +40,18 @@ line-length = 120
 target-version = "py312"
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "N", "W", "B", "C4", "UP"]
+select = ["E", "F", "I", "N", "W", "B", "C4", "UP", "ANN"]
 ignore = [
     "B008", # Allow function calls in argument defaults (FastAPI)
+    "ANN401", # Dynamically typed expressions (typing.Any) are allowed
+    "ANN002", # Missing type annotation for *args
+    "ANN003", # Missing type annotation for **kwargs
 ]
 
 [tool.ruff.lint.per-file-ignores]
 # These files MUST modify sys.path before imports to work correctly as standalone scripts
-"scripts/*" = ["E402"]
-"tests/*" = ["E402"]
+"scripts/*" = ["E402", "ANN"]
+"tests/*" = ["E402", "ANN"]
 
 [tool.ruff.format]
 quote-style = "double"
@@ -68,3 +71,9 @@ allowed-unresolved-imports = [
     "speechbrain.inference.speaker",
     "soundfile"
 ]
+
+[tool.ty.rules]
+unused-awaitable = "error"
+unused-ignore-comment = "error"
+unused-type-ignore-comment = "error"
+useless-overload-body = "error"

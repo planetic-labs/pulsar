@@ -170,7 +170,7 @@ class GoogleDriveClient:
         items: list[dict[str, Any]] = []
         seen_ids = set()
 
-        async def fetch_shared_drives():
+        async def fetch_shared_drives() -> list[dict[str, Any]]:
             res_items = []
             try:
                 page_token = None
@@ -196,7 +196,7 @@ class GoogleDriveClient:
                 logger.error(f"Error fetching shared drives: {e}")
             return res_items
 
-        async def fetch_files(query: str):
+        async def fetch_files(query: str) -> list[dict[str, Any]]:
             res_items = []
             page_token = None
             while True:
@@ -289,7 +289,7 @@ class GoogleDriveClient:
 
         return destination
 
-    async def open_media_stream(self, file_id: str, *, range_header: str | None = None):
+    async def open_media_stream(self, file_id: str, *, range_header: str | None = None) -> httpx.Response:
         """Returns an httpx.Response object for streaming."""
         query = urlencode({"supportsAllDrives": "true"})
         url = f"https://www.googleapis.com/drive/v3/files/{file_id}?alt=media&{query}"

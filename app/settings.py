@@ -190,7 +190,7 @@ class Settings(BaseSettings):
                     field_name: str,
                     field: FieldInfo,
                     value: Any,
-                    old_decode=old_decode,
+                    old_decode: Any = old_decode,
                 ) -> Any:
                     if field_name in (
                         "exclude_keywords",
