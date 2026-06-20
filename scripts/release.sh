@@ -21,6 +21,39 @@ else
     fi
 fi
 
+VERSION_NUM="${VERSION#v}"
+
+# 1.1. Обновляем версию в pyproject.toml
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
+PYPROJECT_PATH="$PROJECT_ROOT/pyproject.toml"
+
+if [ -f "$PYPROJECT_PATH" ]; then
+    sed -i 's/^version = "[^"]*"/version = "'"$VERSION_NUM"'"/' "$PYPROJECT_PATH"
+    echo "Updated version in pyproject.toml to $VERSION_NUM"
+else
+    echo "❌ pyproject.toml not found!"
+    exit 1
+fi
+
+# 1.2. Обновляем uv.lock и делаем коммит изменений версии
+if command -v uv &> /dev/null; then
+    (cd "$PROJECT_ROOT" && uv lock)
+fi
+
+git add "$PYPROJECT_PATH"
+if [ -f "$PROJECT_ROOT/uv.lock" ]; then
+    git add "$PROJECT_ROOT/uv.lock"
+fi
+
+if ! git diff --cached --quiet; then
+    git commit -m "chore: bump version to $VERSION_NUM"
+    echo "Pushed version bump to remote..."
+    git push
+else
+    echo "No version changes to commit."
+fi
+
 echo "🚀 Preparing release $VERSION..."
 
 # 2. Генерируем описание изменений (Changelog)
