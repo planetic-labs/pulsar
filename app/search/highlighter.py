@@ -79,5 +79,5 @@ def quote_highlight(text: str, exact_phrases: list[str]) -> str:
             text,
             flags=re.UNICODE,
         )
-    except Exception:
+    except re.error:
         return text

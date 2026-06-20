@@ -178,25 +178,22 @@ class DeepgramEngine(TranscriptionEngine):
                     yield chunk
 
         start_time = time.time()
-        try:
-            async with httpx.AsyncClient(timeout=httpx.Timeout(600.0, connect=60.0)) as client:
-                response = await client.post(
-                    self.settings.base_url,
-                    params=params,
-                    headers=headers,
-                    content=async_file_iterator(audio_path),
-                )
+        async with httpx.AsyncClient(timeout=httpx.Timeout(600.0, connect=60.0)) as client:
+            response = await client.post(
+                self.settings.base_url,
+                params=params,
+                headers=headers,
+                content=async_file_iterator(audio_path),
+            )
 
-            duration = time.time() - start_time
-            logger.info(f"Deepgram async request finished in {duration:.2f}s with status {response.status_code}")
+        duration = time.time() - start_time
+        logger.info(f"Deepgram async request finished in {duration:.2f}s with status {response.status_code}")
 
-            if response.status_code != 200:
-                logger.error(f"Deepgram Error ({response.status_code}): {response.text}")
-                response.raise_for_status()
+        if response.status_code != 200:
+            logger.error(f"Deepgram Error ({response.status_code}): {response.text}")
+            response.raise_for_status()
 
-            return response.json()
-        except Exception:
-            raise
+        return response.json()
 
     def normalize_response(self, raw_payload: dict[str, Any]) -> dict[str, Any]:
         results = raw_payload.get("results", {})

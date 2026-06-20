@@ -25,6 +25,7 @@ dependencies = [
     "boto3>=1.43.33",
     "pydantic-settings>=2.14.1",
     "aiosqlite>=0.22.1",
+    "slowapi>=0.1.10",
 ]
 
 [dependency-groups]

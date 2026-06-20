@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-from typing import Any
 
 from app.database import Database
 
@@ -15,7 +14,7 @@ class TaskRepository:
     async def create_task(
         self,
         task_type: str,
-        payload: dict[str, Any],
+        payload: dict[str, str | int | bool | None],
         priority: int = 0,
         video_id: int | None = None,
     ) -> int:
@@ -33,7 +32,7 @@ class TaskRepository:
                 assert row is not None
                 return int(row["id"])
 
-    async def get_by_id(self, task_id: int) -> dict[str, Any] | None:
+    async def get_by_id(self, task_id: int) -> dict[str, str | int | None] | None:
         """Возвращает задачу по идентификатору."""
         async with self.db.transaction() as conn:
             async with conn.execute("SELECT * FROM tasks WHERE id = ?", (task_id,)) as cursor:

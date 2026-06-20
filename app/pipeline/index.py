@@ -79,6 +79,9 @@ class IndexStage(PipelineStage):
         for idx, row in enumerate(chunks):
             dense_vec, sparse_vec = embeddings_data[idx]
             vd: dict[str, Any] = {"default": dense_vec}
+            # Sparse vectors are computed and cached in SQLite, but Manticore is structured
+            # to do hybrid search via dense KNN + full-text MATCH (BM25), so text-sparse is
+            # currently kept in payload/cache for potential future migration but not indexed in Manticore.
             if sparse_vec:
                 vd["text-sparse"] = sparse_vec
 

@@ -3,9 +3,12 @@ from __future__ import annotations
 import asyncio
 import logging
 import shutil
+import sqlite3
 import time
 from collections.abc import Callable
 from typing import Any
+
+import httpx
 
 from app.audio import SilentVideoError, convert_wav_to_ogg, extract_audio
 from app.config import (
@@ -73,7 +76,7 @@ class DownloadStage(PipelineStage):
                 progress_callback({"status_text": "Проверка MD5"})
             drive_file = await drive_client.get_file(file_id)
             md5 = drive_file.md5_checksum
-        except Exception as e:
+        except httpx.HTTPError as e:
             logger.error(f"Не удалось получить метаданные Google Drive для файла {file_id}: {e}")
             md5 = None
 
@@ -235,7 +238,7 @@ class DownloadStage(PipelineStage):
                         parent_folder_id = drive_file.parents[0]
                     if not md5:
                         md5 = drive_file.md5_checksum
-                except Exception as e:
+                except httpx.HTTPError as e:
                     logger.error(f"Не удалось получить метаданные для видео без звука {file_id}: {e}")
 
             with db_connection(get_sqlite_settings()) as conn:
@@ -259,7 +262,7 @@ class DownloadStage(PipelineStage):
                 status="completed_silent",
                 next_payload={"video_id": video_id},
             )
-        except Exception:
+        except BaseException:
             if video_path.exists():
                 video_path.unlink()
             if audio_path.exists():
@@ -290,25 +293,35 @@ class DownloadStage(PipelineStage):
         m_settings = get_manticore_settings()
         try:
             manticore = get_manticore_client()
-            with db_connection(get_sqlite_settings()) as conn:
-                chunk_rows = conn.execute("SELECT id FROM chunks WHERE video_id = ?", (video_id,)).fetchall()
-            chunk_ids = [c["id"] for c in chunk_rows]
+
+            def get_chunks_and_delete():
+                with db_connection(get_sqlite_settings()) as conn:
+                    chunk_rows = conn.execute("SELECT id FROM chunks WHERE video_id = ?", (video_id,)).fetchall()
+                chunk_ids = [c["id"] for c in chunk_rows]
+                if chunk_ids:
+                    manticore.delete(collection_name=m_settings.table_name, ids=chunk_ids)
+                return chunk_ids
+
+            chunk_ids = await asyncio.to_thread(get_chunks_and_delete)
             if chunk_ids:
-                manticore.delete(collection_name=m_settings.table_name, ids=chunk_ids)
                 logger.info(f"Удалено {len(chunk_ids)} векторов из Manticore для видео {video_id}")
-        except Exception as e:
+        except (httpx.HTTPError, sqlite3.Error) as e:
             logger.error(f"Ошибка при очистке векторов в Manticore для видео {video_id}: {e}")
 
         # 2. Удаление локальных файлов из хранилища
         app_settings = get_app_settings()
         wav_p = app_settings.audio_dir / f"{file_id}.wav"
         ogg_p = app_settings.audio_dir / f"{file_id}.ogg"
-        for p in [wav_p, ogg_p]:
-            try:
-                if p.exists():
-                    p.unlink()
-            except Exception as e:
-                logger.error(f"Не удалось удалить файл {p}: {e}")
+
+        def unlink_files():
+            for p in [wav_p, ogg_p]:
+                try:
+                    if p.exists():
+                        p.unlink()
+                except OSError as e:
+                    logger.error(f"Не удалось удалить файл {p}: {e}")
+
+        await asyncio.to_thread(unlink_files)
 
         downloads_dir = app_settings.downloads_dir
         if downloads_dir.exists():
@@ -316,7 +329,7 @@ class DownloadStage(PipelineStage):
                 try:
                     if p.exists():
                         p.unlink()
-                except Exception as e:
+                except OSError as e:
                     logger.error(f"Не удалось удалить временный файл {p}: {e}")
 
         raw_path = app_settings.get_raw_transcript_path(file_id)
@@ -329,7 +342,7 @@ class DownloadStage(PipelineStage):
                 ):
                     if not any(raw_path.parent.iterdir()):
                         raw_path.parent.rmdir()
-        except Exception as e:
+        except OSError as e:
             logger.error(f"Не удалось удалить сырой транскрипт {raw_path}: {e}")
 
         norm_path = app_settings.get_normalized_transcript_path(file_id)
@@ -342,7 +355,7 @@ class DownloadStage(PipelineStage):
                 ):
                     if not any(norm_path.parent.iterdir()):
                         norm_path.parent.rmdir()
-        except Exception as e:
+        except OSError as e:
             logger.error(f"Не удалось удалить нормализованный транскрипт {norm_path}: {e}")
 
         # 3. Удаление чанков из SQLite

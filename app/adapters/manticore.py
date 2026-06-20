@@ -1,24 +1,15 @@
 from __future__ import annotations
 
-import hashlib
 import json
 import logging
 from typing import Any
 
 import httpx
 
+from app.manticore import escape_string, str_to_manticore_id
 from app.ports import ScoredPoint, VectorStorePort
 
 logger = logging.getLogger("app.adapters.manticore")
-
-
-def str_to_manticore_id(val: str | int) -> int:
-    if isinstance(val, int):
-        return val
-    try:
-        return int(val)
-    except ValueError:
-        return int(hashlib.md5(val.encode("utf-8")).hexdigest()[:15], 16)
 
 
 class ManticoreAdapter(VectorStorePort):
@@ -32,7 +23,7 @@ class ManticoreAdapter(VectorStorePort):
     async def close(self) -> None:
         await self._client.aclose()
 
-    async def _execute_sql(self, sql: str) -> list[dict[str, Any]]:
+    async def _execute_sql(self, sql: str) -> list[Any]:
         response = await self._client.post(f"{self.url}/sql?mode=raw", content=sql)
         response.raise_for_status()
         return list(response.json())
@@ -121,13 +112,21 @@ class ManticoreAdapter(VectorStorePort):
         self, table: str, vector: list[float], limit: int, where: str | None = None
     ) -> list[ScoredPoint]:
         vec_str = ",".join(map(str, vector))
-        sql = f"SELECT *, knn_dist() as dist FROM {table} WHERE knn(vec, {limit}, ({vec_str}))"
+        knn_limit = limit * 10 if where else limit
+        sql = f"SELECT *, knn_dist() as dist FROM {table} WHERE knn(vec, {knn_limit}, ({vec_str}))"
         if where:
             sql += f" AND {where}"
+        sql += f" LIMIT {limit}"
+        return await self._execute_query(sql)
+
+    async def filter_only(self, table: str, where_clause: str, limit: int) -> list[ScoredPoint]:
+        sql = f"SELECT * FROM {table} WHERE {where_clause} LIMIT {limit}"
         return await self._execute_query(sql)
 
     async def search_fulltext(self, table: str, query: str, limit: int, where: str | None = None) -> list[ScoredPoint]:
-        escaped_query = query.replace("'", "''")
+        clean_query = query[:256]
+        clean_query = "".join(ch for ch in clean_query if ch.isprintable() or ch in ("\n", "\r"))
+        escaped_query = escape_string(clean_query)
         snippet_sql = (
             f", SNIPPET(text, '{escaped_query}', "
             f"'limit=10000', 'around=1000', "

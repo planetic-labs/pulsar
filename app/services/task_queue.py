@@ -1,5 +1,4 @@
-from __future__ import annotations
-
+import asyncio
 import json
 import logging
 from dataclasses import dataclass
@@ -42,20 +41,46 @@ class TaskQueueService:
             )
             RETURNING id, task_type, payload, video_id;
         """
-        try:
+
+        def _sync_claim():
             with db_connection(self.db_settings) as conn:
-                row = conn.execute(sql, stage_types).fetchone()
-                if row:
-                    payload = json.loads(row["payload"])
-                    return Task(
-                        id=row["id"],
-                        task_type=row["task_type"],
-                        payload=payload,
-                        video_id=row["video_id"],
-                    )
+                return conn.execute(sql, stage_types).fetchone()
+
+        try:
+            row = await asyncio.to_thread(_sync_claim)
+            if not row:
+                return None
+
+            task_id = row["id"]
+            task_type = row["task_type"]
+            raw_payload = row["payload"]
+            video_id = row["video_id"]
+
+            try:
+                payload = json.loads(raw_payload)
+            except json.JSONDecodeError as je:
+                je_str = str(je)
+                logger.error(f"Битый payload в задаче {task_id}: {raw_payload!r}. Переводим в failed. Ошибка: {je_str}")
+
+                def _sync_fail():
+                    with db_connection(self.db_settings) as conn:
+                        conn.execute(
+                            "UPDATE tasks SET status = 'failed', error_message = ? WHERE id = ?",
+                            (f"Битый JSON payload: {je_str}", task_id),
+                        )
+
+                await asyncio.to_thread(_sync_fail)
+                return None
+
+            return Task(
+                id=task_id,
+                task_type=task_type,
+                payload=payload,
+                video_id=video_id,
+            )
         except Exception as e:
             logger.error(f"Ошибка при выборе задачи из очереди ({stage_types}): {e}")
-        return None
+            raise
 
     async def advance_task(
         self, task_id: int, next_stage: str, payload: dict[str, Any], video_id: int | None = None
@@ -67,8 +92,12 @@ class TaskQueueService:
                 updated_at = CURRENT_TIMESTAMP
             WHERE id = ?
         """
-        with db_connection(self.db_settings) as conn:
-            conn.execute(sql, (next_stage, json.dumps(payload, ensure_ascii=False), video_id, task_id))
+
+        def _sync():
+            with db_connection(self.db_settings) as conn:
+                conn.execute(sql, (next_stage, json.dumps(payload, ensure_ascii=False), video_id, task_id))
+
+        await asyncio.to_thread(_sync)
 
     async def complete_task(
         self,
@@ -93,59 +122,72 @@ class TaskQueueService:
             """
             params = (status, video_id, task_id)
 
-        with db_connection(self.db_settings) as conn:
-            conn.execute(sql, params)
+        def _sync():
+            with db_connection(self.db_settings) as conn:
+                conn.execute(sql, params)
+
+        await asyncio.to_thread(_sync)
 
     async def fail_task(self, task_id: int, error_trace: str) -> None:
         """Обрабатывает сбой задачи с учетом лимита повторных попыток."""
-        with db_connection(self.db_settings) as conn:
-            row = conn.execute("SELECT retries, max_retries, task_type FROM tasks WHERE id = ?", (task_id,)).fetchone()
-            if not row:
-                return
 
-            retries = row["retries"] or 0
-            max_retries = row["max_retries"] or 3
-            task_type = row["task_type"]
+        def _sync():
+            with db_connection(self.db_settings) as conn:
+                row = conn.execute(
+                    "SELECT retries, max_retries, task_type FROM tasks WHERE id = ?", (task_id,)
+                ).fetchone()
+                if not row:
+                    return
 
-            new_retries = retries + 1
-            if new_retries < max_retries:
-                logger.warning(
-                    f"Задача {task_id} ({task_type}) завершилась с ошибкой. Попытка {new_retries}/{max_retries}. "
-                    f"Запланирован повторный запуск."
-                )
-                conn.execute(
-                    """
-                    UPDATE tasks
-                    SET status = 'pending', retries = ?, error_message = ?,
-                        created_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
-                    WHERE id = ?
-                    """,
-                    (new_retries, f"Попытка {new_retries} не удалась:\n{error_trace}", task_id),
-                )
-            else:
-                logger.error(
-                    f"Задача {task_id} ({task_type}) превысила лимит попыток ({max_retries}). "
-                    "Переведена в статус failed."
-                )
-                conn.execute(
-                    """
-                    UPDATE tasks
-                    SET status = 'failed', retries = ?, error_message = ?, updated_at = CURRENT_TIMESTAMP
-                    WHERE id = ?
-                    """,
-                    (new_retries, error_trace, task_id),
-                )
+                retries = row["retries"] or 0
+                max_retries = row["max_retries"] or 3
+                task_type = row["task_type"]
+
+                new_retries = retries + 1
+                if new_retries < max_retries:
+                    logger.warning(
+                        f"Задача {task_id} ({task_type}) завершилась с ошибкой. Попытка {new_retries}/{max_retries}. "
+                        f"Запланирован повторный запуск."
+                    )
+                    conn.execute(
+                        """
+                        UPDATE tasks
+                        SET status = 'pending', retries = ?, error_message = ?,
+                            created_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+                        WHERE id = ?
+                        """,
+                        (new_retries, f"Попытка {new_retries} не удалась:\n{error_trace}", task_id),
+                    )
+                else:
+                    logger.error(
+                        f"Задача {task_id} ({task_type}) превысила лимит попыток ({max_retries}). "
+                        "Переведена в статус failed."
+                    )
+                    conn.execute(
+                        """
+                        UPDATE tasks
+                        SET status = 'failed', retries = ?, error_message = ?, updated_at = CURRENT_TIMESTAMP
+                        WHERE id = ?
+                        """,
+                        (new_retries, error_trace, task_id),
+                    )
+
+        await asyncio.to_thread(_sync)
 
     async def has_pending(self) -> bool:
         """Проверяет наличие задач в состоянии ожидания или выполнения."""
         sql = "SELECT COUNT(*) as c FROM tasks WHERE status IN ('pending', 'running')"
-        try:
+
+        def _sync():
             with db_connection(self.db_settings) as conn:
                 row = conn.execute(sql).fetchone()
                 return row["c"] > 0
+
+        try:
+            return await asyncio.to_thread(_sync)
         except Exception as e:
             logger.error(f"Ошибка при проверке очереди задач: {e}")
-            return True
+            raise
 
     def cleanup(self) -> None:
         """Сбрасывает зависшие задачи в pending и удаляет устаревшие временные файлы."""
@@ -164,7 +206,7 @@ class TaskQueueService:
                     p = json.loads(r["payload"]).get("audio_path")
                     if p:
                         active_audio_paths.add(Path(p).resolve())
-                except Exception:
+                except (json.JSONDecodeError, TypeError, ValueError):
                     continue
 
         # 3. Очистка временных файлов видео в downloads
@@ -173,7 +215,7 @@ class TaskQueueService:
                 if p.is_file():
                     try:
                         p.unlink()
-                    except Exception:
+                    except OSError:
                         pass
 
         # 4. Очистка неиспользуемых аудиофайлов в audio
@@ -183,7 +225,7 @@ class TaskQueueService:
                     if p.resolve() not in active_audio_paths:
                         try:
                             p.unlink()
-                        except Exception:
+                        except OSError:
                             pass
 
         logger.info("Очистка временных файлов и базы данных завершена.")

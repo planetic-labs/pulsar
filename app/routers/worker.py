@@ -6,7 +6,7 @@ import logging
 import re
 from typing import Any
 
-from fastapi import APIRouter, Depends, Form, HTTPException
+from fastapi import APIRouter, Depends, Form, HTTPException, Path
 
 from app.auth import require_access_token, require_admin
 from app.database import Database
@@ -31,7 +31,7 @@ async def api_worker_start(_: str = Depends(require_admin)) -> dict[str, str]:
     """Starts the background processing worker if not already running."""
     worker = get_worker()
     if not worker.is_running:
-        asyncio.create_task(worker.run())
+        worker.start()
         return {"status": "starting"}
     return {"status": "already_running"}
 
@@ -196,7 +196,7 @@ async def api_worker_progress(
 
 @router.post("/api/v1/tasks/{task_id}/restart")
 async def api_restart_task(
-    task_id: int,
+    task_id: int = Path(..., ge=1),
     db: Database = Depends(get_database),
     _: str = Depends(require_admin),
 ) -> dict[str, str]:
@@ -206,8 +206,7 @@ async def api_restart_task(
 
     # Auto-start worker
     worker = get_worker()
-    if not worker.is_running:
-        asyncio.create_task(worker.run())
+    worker.start()
 
     return {"status": "restarted"}
 
@@ -225,8 +224,8 @@ async def api_deepgram_balance(
 
 @router.post("/api/tasks/ingest")
 async def api_add_ingest_task(
-    file_id: str = Form(...),
-    title: str | None = Form(None),
+    file_id: str = Form(..., min_length=25, max_length=50, pattern="^[a-zA-Z0-9_-]+$"),
+    title: str | None = Form(None, min_length=1, max_length=200),
     diarize: bool = Form(True),
     db: Database = Depends(get_database),
     drive_client: FileStoragePort = Depends(get_google_drive),
@@ -306,16 +305,15 @@ async def api_add_ingest_task(
 
     # Auto-start worker
     worker = get_worker()
-    if not worker.is_running:
-        asyncio.create_task(worker.run())
+    worker.start()
 
     return {"status": "queued", "file_id": file_id}
 
 
 @router.post("/api/v1/worker/duplicates/swap")
 async def api_worker_duplicates_swap(
-    original_id: int = Form(...),
-    duplicate_id: int = Form(...),
+    original_id: int = Form(..., ge=1),
+    duplicate_id: int = Form(..., ge=1),
     db: Database = Depends(get_database),
     manticore: VectorStorePort = Depends(get_manticore),
     settings: Settings = Depends(get_settings),
@@ -422,8 +420,7 @@ async def api_worker_duplicates_swap(
 
     # Auto-start worker to process stage_3_index for the new original
     worker = get_worker()
-    if not worker.is_running:
-        asyncio.create_task(worker.run())
+    worker.start()
 
     return {
         "status": "success",
@@ -433,7 +430,7 @@ async def api_worker_duplicates_swap(
 
 @router.post("/api/v1/worker/duplicates/save")
 async def api_worker_duplicates_save(
-    duplicate_id: int = Form(...),
+    duplicate_id: int = Form(..., ge=1),
     db: Database = Depends(get_database),
     _: str = Depends(require_admin),
 ) -> dict[str, Any]:
@@ -478,9 +475,9 @@ async def api_get_active_tasks(
 
 @router.delete("/api/v1/tasks/{task_id}")
 async def api_delete_task(
-    task_id: int,
+    task_id: int = Path(..., ge=1),
     db: Database = Depends(get_database),
-    _: str = Depends(require_access_token),
+    _: str = Depends(require_admin),
 ) -> dict[str, str]:
     """Removes a task from the processing queue."""
     async with db.transaction() as conn:
@@ -491,7 +488,7 @@ async def api_delete_task(
 @router.post("/api/v1/tasks/restart_failed")
 async def api_restart_failed_tasks(
     db: Database = Depends(get_database),
-    _: str = Depends(require_access_token),
+    _: str = Depends(require_admin),
 ) -> dict[str, Any]:
     """Requeues all tasks that have failed with errors."""
     async with db.transaction() as conn:
@@ -500,8 +497,7 @@ async def api_restart_failed_tasks(
 
     # Auto-start worker
     worker = get_worker()
-    if not worker.is_running:
-        asyncio.create_task(worker.run())
+    worker.start()
 
     return {"status": "restarted", "count": count}
 
@@ -509,7 +505,7 @@ async def api_restart_failed_tasks(
 @router.post("/api/v1/tasks/restart_no_space")
 async def api_restart_no_space_tasks(
     db: Database = Depends(get_database),
-    _: str = Depends(require_access_token),
+    _: str = Depends(require_admin),
 ) -> dict[str, Any]:
     """Requeues tasks that failed due to temporary storage space constraints."""
     async with db.transaction() as conn:
@@ -520,8 +516,7 @@ async def api_restart_no_space_tasks(
 
     # Auto-start worker
     worker = get_worker()
-    if not worker.is_running:
-        asyncio.create_task(worker.run())
+    worker.start()
 
     return {"status": "restarted", "count": count}
 
@@ -531,7 +526,7 @@ async def api_reindex_all(
     clear_manticore: bool = False,
     db: Database = Depends(get_database),
     settings: Settings = Depends(get_settings),
-    _: str = Depends(require_access_token),
+    _: str = Depends(require_admin),
 ) -> dict[str, Any]:
     """Requeues all fully processed videos to rebuild vector index search points in Manticore."""
     if clear_manticore:
@@ -578,8 +573,7 @@ async def api_reindex_all(
 
     # Auto-start worker
     worker = get_worker()
-    if not worker.is_running:
-        asyncio.create_task(worker.run())
+    worker.start()
 
     return {"status": "queued", "count": count}
 
@@ -587,7 +581,7 @@ async def api_reindex_all(
 @router.post("/api/v1/reindex/integrity")
 async def api_reindex_integrity(
     db: Database = Depends(get_database),
-    _: str = Depends(require_access_token),
+    _: str = Depends(require_admin),
 ) -> dict[str, Any]:
     """Queues all videos with detected integrity issues for reindexing."""
     async with db.transaction() as conn:
@@ -667,7 +661,6 @@ async def api_reindex_integrity(
     # Auto-start worker
     if count > 0:
         worker = get_worker()
-        if not worker.is_running:
-            asyncio.create_task(worker.run())
+        worker.start()
 
     return {"status": "success", "count": count}

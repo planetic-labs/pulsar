@@ -142,3 +142,8 @@ class UnifiedEmbeddingClient:
         except Exception as e:
             logger.error(f"Embedding provider batch failed (async): {e}")
             raise e
+
+    async def close(self) -> None:
+        """Закрывает подключение к БД кэша."""
+        if hasattr(self, "db") and self.db:
+            await self.db.close()

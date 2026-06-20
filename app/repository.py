@@ -3,7 +3,6 @@ from __future__ import annotations
 import json
 import re
 import sqlite3
-from pathlib import Path
 from typing import Any
 
 from app.manticore import models
@@ -39,21 +38,6 @@ def save_cached_embedding(
         """,
         (query, json.dumps(dense), s_indices, s_values),
     )
-
-
-def to_relative_path(path: str | Path | None) -> str | None:
-    if not path:
-        return None
-    from app.config import get_app_settings
-
-    try:
-        app_settings = get_app_settings()
-        p = Path(path)
-        if p.is_absolute() and p.is_relative_to(app_settings.storage_dir):
-            return str(p.relative_to(app_settings.storage_dir))
-    except Exception:
-        pass
-    return str(path)
 
 
 def extract_date_from_title(title: str) -> str | None:

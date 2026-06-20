@@ -7,11 +7,14 @@ from typing import cast
 
 from fastapi import FastAPI, Request
 from fastapi.staticfiles import StaticFiles
+from slowapi import _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
 from starlette.middleware.sessions import SessionMiddleware
 
 from app.config import get_app_settings
 from app.core import ROOT_DIR, get_global_stats, templates
 from app.database import Database
+from app.limiter import limiter
 from app.manticore import init_manticore
 from app.routers import auth, indexed, system, ui, videos, worker
 from app.settings import get_settings
@@ -38,17 +41,34 @@ async def lifespan(app: FastAPI):
 
     # Start background worker
     worker_instance = get_worker()
-    asyncio.create_task(worker_instance.run())
+    worker_instance.start()
 
     logger.info("Application initialized with background worker.")
 
     yield
 
-    # Shutdown logic (if any)
+    # Shutdown logic
     logger.info("Shutting down...")
+    worker_instance = get_worker()
+    if worker_instance.is_running:
+        worker_instance.stop()
+
+    if worker_instance.task:
+        try:
+            logger.info("Waiting for background worker graceful shutdown...")
+            await asyncio.wait_for(worker_instance.task, timeout=10.0)
+        except TimeoutError:
+            logger.warning("Graceful shutdown timed out, cancelling worker task.")
+            worker_instance.task.cancel()
+            try:
+                await worker_instance.task
+            except asyncio.CancelledError:
+                pass
 
 
 app = FastAPI(title="Pulsar", lifespan=lifespan)
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)  # type: ignore # pyre-ignore
 
 
 @app.middleware("http")

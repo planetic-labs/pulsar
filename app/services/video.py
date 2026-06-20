@@ -75,7 +75,7 @@ class VideoService:
         new_is_short = not bool(video["is_short"])
         await self.video_repo.update(video_id, is_short=new_is_short)
 
-        source_file_id = video["source_file_id"]
+        source_file_id = str(video["source_file_id"]) if video["source_file_id"] else ""
         if source_file_id:
             norm_path = self.settings.get_normalized_transcript_path(source_file_id)
             if norm_path.exists():
@@ -150,7 +150,7 @@ class VideoService:
 
         # Удаление локальных файлов и архивация транскрипта
         if source_file_id:
-            await self._delete_physical_files(video_id, source_file_id)
+            await self._delete_physical_files(video_id, str(source_file_id))
 
         # Удаление записи о видео и логов целостности из БД
         async with self.db.transaction() as conn:
@@ -228,8 +228,8 @@ class VideoService:
         if not video:
             raise VideoNotFoundError("Video not found")
 
-        source_file_id = video["source_file_id"]
-        title = video["title"]
+        source_file_id = str(video["source_file_id"]) if video["source_file_id"] else ""
+        title = str(video["title"])
 
         # Проверка активных задач
         sql_check = """
@@ -244,7 +244,7 @@ class VideoService:
                     raise VideoProcessingError("Видео уже находится в обработке или в очереди.")
 
         # Постановка задачи
-        payload = {
+        payload: dict[str, str | int | bool | None] = {
             "file_id": source_file_id,
             "title": title,
             "diarize": True,
@@ -348,7 +348,7 @@ class VideoService:
             dense_vec, sparse_vec = await self.embedder.embed_text(new_text, task_type="RETRIEVAL_DOCUMENT")
 
             # 4. Update Manticore
-            vectors = {"default": dense_vec}
+            vectors: dict[str, Any] = {"default": dense_vec}
             if sparse_vec:
                 vectors["text-sparse"] = sparse_vec
 

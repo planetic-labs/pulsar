@@ -37,7 +37,6 @@ class SearchResult:
     is_short: bool = False
     is_4k: bool = False
     raw_text: str = ""
-    version: int = 42
     lexical_score: float = 0.0
     semantic_score: float = 0.0
     vector_score: float = 0.0
@@ -107,7 +106,7 @@ class SearchService:
         clean_query = re.sub(r"(?:video_id|v):[^\s]+", "", query).strip()
 
         scores_map: dict[int, dict[str, Any]] = {}
-        points: list[dict[str, Any]] = []
+        points: list[Any] = []
 
         if search_mode == "quote" and clean_query:
             # Фразовый поиск
@@ -133,23 +132,7 @@ class SearchService:
 
         elif where_clause and not clean_query:
             # Только фильтрация (без текста)
-            # В Manticore scroll реализуется через обычный SELECT с LIMIT
-            sql = f"SELECT * FROM {self.settings.manticore_table} WHERE {where_clause} LIMIT {limit}"
-            # Используем приватный метод, так как интерфейс scroll не стандартизирован
-            if hasattr(self.vector_store, "_execute_sql"):
-                res = await self.vector_store._execute_sql(sql)  # type: ignore
-                if res and len(res) > 0:
-                    cols_meta = res[0].get("columns")
-                    if isinstance(cols_meta, list):
-                        columns = [list(c.keys())[0] for c in cols_meta]
-                    else:
-                        columns = list(cols_meta.keys()) if cols_meta else []
-                    data = res[0].get("data", [])
-                    for row in data:
-                        row_dict = row.copy() if isinstance(row, dict) else dict(zip(columns, row, strict=False))
-                        m_id = row_dict.pop("id")
-                        points.append({"id": m_id, "payload": row_dict})
-
+            points = await self.vector_store.filter_only(self.settings.manticore_table, where_clause, limit)
             scores_map = {int(p["id"]): {"combined": 1.0, "match_type": "filter"} for p in points}
 
         else:
@@ -196,7 +179,14 @@ class SearchService:
         video_metadata = {}
         if video_ids:
             # Получаем метаданные видео через репозиторий
-            video_metadata = await self.video_repo.get_metadata_batch({int(vid) for vid in video_ids if vid})
+            valid_vids: set[int] = set()
+            for vid in video_ids:
+                if vid is not None:
+                    try:
+                        valid_vids.add(int(str(vid)))
+                    except (ValueError, TypeError):
+                        pass
+            video_metadata = await self.video_repo.get_metadata_batch(valid_vids)
 
         results = []
         for point in points:
@@ -212,20 +202,28 @@ class SearchService:
             m_type = point_data.get("match_type", "hybrid" if clean_query else "filter")
 
             full_text = str(payload.get("text") or "")
-            highlighted_text = payload.get("highlighted_text")
+            raw_highlighted = payload.get("highlighted_text")
+            highlighted_text = str(raw_highlighted) if raw_highlighted else ""
             if not highlighted_text:
                 if m_type == "quote":
                     highlighted_text = quote_highlight(full_text, [clean_query])
                 else:
                     highlighted_text = simple_highlight(full_text, clean_query)
 
-            v_id = payload.get("video_id")
-            v_meta = video_metadata.get(int(v_id), {}) if v_id is not None else {}
+            point_v_id = payload.get("video_id")
+            v_id_int = None
+            if point_v_id is not None:
+                try:
+                    v_id_int = int(str(point_v_id))
+                except (ValueError, TypeError):
+                    pass
+            v_meta = video_metadata.get(v_id_int, {}) if v_id_int is not None else {}
 
             title = str(v_meta.get("title") or payload.get("title") or "Unknown Video")
             raw_source_file_id = v_meta.get("source_file_id") or payload.get("source_file_id")
             source_file_id = str(raw_source_file_id) if raw_source_file_id is not None else None
-            source_url = payload.get("source_url")
+            raw_source_url = payload.get("source_url")
+            source_url = str(raw_source_url) if raw_source_url else None
             if not source_url and source_file_id:
                 source_url = f"https://drive.google.com/file/d/{source_file_id}/view"
 
@@ -237,7 +235,7 @@ class SearchService:
             rec_date_int = None
             if rec_date_raw is not None:
                 try:
-                    rec_date_int = int(rec_date_raw)
+                    rec_date_int = int(str(rec_date_raw))
                 except (ValueError, TypeError):
                     pass
             recorded_date_str = int_to_date(rec_date_int)

@@ -3,7 +3,6 @@ from __future__ import annotations
 import asyncio
 import logging
 from datetime import date
-from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -12,7 +11,8 @@ from app.auth import require_access_token
 from app.config import get_app_settings
 from app.core import templates
 from app.dependencies import get_search_service, get_settings
-from app.services.search import SearchService
+from app.limiter import limiter
+from app.services.search import SearchResult, SearchService
 from app.settings import Settings
 
 logger = logging.getLogger("app.routers.ui")
@@ -21,6 +21,7 @@ router = APIRouter(tags=["UI Pages"])
 
 
 @router.get("/", response_class=HTMLResponse)
+@limiter.limit("30/minute")
 async def index_page(
     request: Request,
     q: str | None = None,
@@ -41,11 +42,11 @@ async def index_page(
     )
 
     try:
-        current_token = require_access_token(request)
+        current_token = await require_access_token(request)
     except HTTPException:
         return RedirectResponse(url="/login")
 
-    results: list[Any] = []
+    results: list[SearchResult] = []
     # Fetch results if there is a query OR if filters are applied
     if q or date_from or date_to or video_type != "all":
         try:
@@ -86,10 +87,10 @@ async def index_page(
 
 
 @router.get("/import", response_class=HTMLResponse)
-def import_page(request: Request) -> Response:
+async def import_page(request: Request) -> Response:
     """Renders the Google Drive file import dashboard view."""
     try:
-        current_token = require_access_token(request)
+        current_token = await require_access_token(request)
     except HTTPException:
         return RedirectResponse(url="/login")
 
@@ -100,10 +101,10 @@ def import_page(request: Request) -> Response:
 
 
 @router.get("/status", response_class=HTMLResponse)
-def status_page(request: Request) -> Response:
+async def status_page(request: Request) -> Response:
     """Renders the queue monitor and task logs dashboard view."""
     try:
-        current_token = require_access_token(request)
+        current_token = await require_access_token(request)
     except HTTPException:
         return RedirectResponse(url="/login")
 
@@ -118,7 +119,7 @@ def status_page(request: Request) -> Response:
 async def speakers_page(request: Request) -> Response:
     """Renders the speakers voice models manager dashboard view."""
     try:
-        current_token = require_access_token(request)
+        current_token = await require_access_token(request)
     except HTTPException:
         return RedirectResponse(url="/login")
 
@@ -150,10 +151,10 @@ async def speakers_page(request: Request) -> Response:
 
 
 @router.get("/indexed", response_class=HTMLResponse)
-def indexed_page(request: Request) -> Response:
+async def indexed_page(request: Request) -> Response:
     """Renders the local indexed files and directory structure explorer view."""
     try:
-        current_token = require_access_token(request)
+        current_token = await require_access_token(request)
     except HTTPException:
         return RedirectResponse(url="/login")
 

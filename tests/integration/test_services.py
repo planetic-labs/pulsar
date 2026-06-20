@@ -7,6 +7,7 @@ import pytest
 import pytest_asyncio
 
 from app.database import Database
+from app.manticore import models
 from app.ports import ScoredPoint
 from app.repos.cache_repo import CacheRepository
 from app.repos.chunk_repo import ChunkRepository
@@ -18,13 +19,18 @@ from app.settings import Settings
 
 
 class MockEmbeddingAdapter:
-    async def embed_text(self, text: str, task_type: str = "RETRIEVAL_QUERY") -> tuple[list[float], list[float] | None]:
+    async def embed_text(
+        self, text: str, task_type: str = "RETRIEVAL_QUERY"
+    ) -> tuple[list[float], models.SparseVector | None]:
         return [0.1] * 128, None
 
     async def embed_batch(
         self, texts: list[str], progress_callback: Any = None
-    ) -> list[tuple[list[float], list[float] | None]]:
+    ) -> list[tuple[list[float], models.SparseVector | None]]:
         return [([0.1] * 128, None) for _ in texts]
+
+    async def close(self) -> None:
+        pass
 
 
 class MockVectorStoreAdapter:
@@ -52,6 +58,9 @@ class MockVectorStoreAdapter:
         # Simplified clean
         self.points.clear()
 
+    async def filter_only(self, table: str, where_clause: str, limit: int) -> list[ScoredPoint]:
+        return [ScoredPoint(id=pid, score=1.0, payload=p["payload"]) for pid, p in self.points.items()][:limit]
+
 
 @pytest_asyncio.fixture
 async def test_db():
@@ -65,7 +74,7 @@ async def test_db():
 @pytest.fixture
 def test_settings():
     return Settings(
-        app_access_token="test-token-12345678",
+        app_access_token="test-token-12345678-long-enough-32-chars",
         session_secret_key="a" * 32,
         sqlite_db_path=Path(":memory:"),
         manticore_url="http://localhost:9308",

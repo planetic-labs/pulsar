@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
 import traceback
 from collections.abc import Callable
@@ -89,6 +88,9 @@ class Worker:
         self.ingest = IngestService()
         self.is_running = False
         self.is_stopping = False
+        self._in_flight_count = 0
+        self._supervisor_task: asyncio.Task | None = None
+        self.task: asyncio.Task | None = None
 
         # Ограничения конкурентности для каждой стадии
         self.semaphores = {
@@ -134,78 +136,98 @@ class Worker:
         if not sem:
             sem = asyncio.Semaphore(1)
 
-        async with sem:
-            try:
-                result = await self.ingest.execute_stage(task_type, task_id, payload, progress_cb)
+        self._in_flight_count += 1
+        sleep_needed = False
+        try:
+            async with sem:
+                try:
+                    result = await self.ingest.execute_stage(task_type, task_id, payload, progress_cb)
 
-                if result.success:
-                    if result.status == "skipped_duplicate_md5":
-                        video_id = result.next_payload.get("video_id") if result.next_payload else None
-                        await self.queue.complete_task(task_id, video_id=video_id, status="skipped_duplicate_md5")
-                    elif result.status == "completed_silent":
-                        video_id = result.next_payload.get("video_id") if result.next_payload else None
-                        await self.queue.complete_task(task_id, video_id=video_id, status="completed")
+                    if result.success:
+                        if result.status == "skipped_duplicate_md5":
+                            video_id = result.next_payload.get("video_id") if result.next_payload else None
+                            await self.queue.complete_task(task_id, video_id=video_id, status="skipped_duplicate_md5")
+                        elif result.status == "completed_silent":
+                            video_id = result.next_payload.get("video_id") if result.next_payload else None
+                            await self.queue.complete_task(task_id, video_id=video_id, status="completed")
+                        else:
+                            next_payload = result.next_payload or {}
+                            # Определяем следующую стадию
+                            if task_type in ("stage_1_download", "ingest_video"):
+                                await self.queue.advance_task(task_id, "stage_2_transcribe", next_payload)
+                            elif task_type == "stage_2_transcribe":
+                                video_id = next_payload.get("video_id")
+                                index_payload = {"video_id": video_id, "title": next_payload.get("title")}
+                                await self.queue.advance_task(
+                                    task_id, "stage_3_index", index_payload, video_id=video_id
+                                )
+                            elif task_type == "stage_3_index":
+                                await self.queue.complete_task(task_id, video_id=payload.get("video_id"))
                     else:
-                        next_payload = result.next_payload or {}
-                        # Определяем следующую стадию
-                        if task_type in ("stage_1_download", "ingest_video"):
-                            await self.queue.advance_task(task_id, "stage_2_transcribe", next_payload)
-                        elif task_type == "stage_2_transcribe":
-                            video_id = next_payload.get("video_id")
-                            index_payload = {"video_id": video_id, "title": next_payload.get("title")}
-                            await self.queue.advance_task(task_id, "stage_3_index", index_payload, video_id=video_id)
-                        elif task_type == "stage_3_index":
-                            await self.queue.complete_task(task_id, video_id=payload.get("video_id"))
-                else:
-                    await self.queue.fail_task(task_id, result.error or "Unknown error")
+                        await self.queue.fail_task(task_id, result.error or "Unknown error")
 
-            except InsufficientSpaceError as e:
-                title = payload.get("title", f"File {payload.get('file_id')}")
-                logger.warning(f"Недостаточно места для {title}: {e}")
+                except InsufficientSpaceError as e:
+                    title = payload.get("title", f"File {payload.get('file_id')}")
+                    logger.warning(f"Недостаточно места для {title}: {e}")
 
-                # Проверяем, есть ли другие задачи в транскрибации
-                sql_check = """
-                    SELECT COUNT(*) as c FROM tasks
-                    WHERE task_type = 'stage_2_transcribe' AND status IN ('pending', 'running')
-                """
-                with db_connection(get_sqlite_settings()) as conn:
-                    t_count = conn.execute(sql_check).fetchone()["c"]
+                    # Проверяем, есть ли другие задачи в транскрибации
+                    sql_check = """
+                        SELECT COUNT(*) as c FROM tasks
+                        WHERE task_type = 'stage_2_transcribe' AND status IN ('pending', 'running')
+                    """
 
-                if t_count > 0:
-                    # Возвращаем задачу в очередь и ждем
-                    await self.queue.complete_task(task_id, status="pending")
-                    logger.info("Есть задачи на транскрибацию. Ждем 60 секунд...")
-                    await asyncio.sleep(60)
-                else:
-                    # Пропускаем задачу из-за нехватки места
-                    new_payload = {**payload, "file_size": e.file_size}
-                    await self.queue.complete_task(task_id, status="skipped_no_space", payload=new_payload)
-                    logger.error(f"Недостаточно места. Файл {title} пропущен.")
+                    def _sync_check():
+                        with db_connection(get_sqlite_settings()) as conn:
+                            return conn.execute(sql_check).fetchone()["c"]
 
-            except FileNotFoundError as e:
-                # Если во время транскрибации пропал аудиофайл
-                title = payload.get("title", "Unknown")
-                file_id = payload.get("file_id")
-                logger.warning(
-                    f"Аудиофайл для {title} не найден на диске. "
-                    f"Создаем новую задачу на скачивание и удаляем текущую задачу транскрибации. Ошибка: {e}"
-                )
-                with db_connection(get_sqlite_settings()) as conn:
-                    conn.execute(
-                        "INSERT INTO tasks (task_type, payload, status) VALUES ('stage_1_download', ?, 'pending')",
-                        (json.dumps({"file_id": file_id, "title": title}),),
+                    t_count = await asyncio.to_thread(_sync_check)
+
+                    if t_count > 0:
+                        # Возвращаем задачу в очередь и сдвигаем её назад (обновляем created_at)
+                        def _sync_requeue():
+                            with db_connection(get_sqlite_settings()) as conn:
+                                conn.execute(
+                                    "UPDATE tasks SET status = 'pending', created_at = CURRENT_TIMESTAMP WHERE id = ?",
+                                    (task_id,),
+                                )
+
+                        await asyncio.to_thread(_sync_requeue)
+                        logger.info("Есть задачи на транскрибацию. Запланировано ожидание 60 секунд...")
+                        sleep_needed = True
+                    else:
+                        # Пропускаем задачу из-за нехватки места
+                        new_payload = {**payload, "file_size": e.file_size}
+                        await self.queue.complete_task(task_id, status="skipped_no_space", payload=new_payload)
+                        logger.error(f"Недостаточно места. Файл {title} пропущен.")
+
+                except FileNotFoundError as e:
+                    # Если во время транскрибации пропал аудиофайл
+                    title = payload.get("title", "Unknown")
+                    logger.warning(
+                        f"Аудиофайл для {title} не найден на диске. "
+                        f"Откатываем задачу на стадию скачивания с увеличением retries. Ошибка: {e}"
                     )
-                    conn.execute("DELETE FROM tasks WHERE id = ?", (task_id,))
 
-            except Exception:
-                error_trace = traceback.format_exc()
-                logger.error(f"Ошибка в задаче {task_id} ({task_type}): {error_trace}")
-                await self.queue.fail_task(task_id, error_trace)
+                    def _sync_rollback():
+                        with db_connection(get_sqlite_settings()) as conn:
+                            conn.execute("UPDATE tasks SET task_type = 'stage_1_download' WHERE id = ?", (task_id,))
 
-            finally:
-                self._state[stage_key].update(
-                    {"active": False, "title": "", "progress": 0, "speed": "", "status_text": "Ожидание"}
-                )
+                    await asyncio.to_thread(_sync_rollback)
+                    await self.queue.fail_task(task_id, f"Аудиофайл пропал, откат на скачивание. Ошибка: {e}")
+
+                except Exception:
+                    error_trace = traceback.format_exc()
+                    logger.error(f"Ошибка в задаче {task_id} ({task_type}): {error_trace}")
+                    await self.queue.fail_task(task_id, error_trace)
+
+        finally:
+            self._in_flight_count -= 1
+            self._state[stage_key].update(
+                {"active": False, "title": "", "progress": 0, "speed": "", "status_text": "Ожидание"}
+            )
+            if sleep_needed:
+                # Спим вне семафора, чтобы не блокировать всю стадию
+                await asyncio.sleep(60)
 
     async def _consume_stage(self, stage_types: list[str]) -> None:
         """Бесконечный цикл обработки задач определенного типа."""
@@ -215,15 +237,33 @@ class Worker:
                 if task:
                     await self._run_task(task.id, task.task_type, task.payload)
                 else:
-                    # Если задач нет в этой группе очередей, проверяем, есть ли они вообще в системе
-                    if not await self.queue.has_pending():
-                        logger.info("Очередь пуста. Автоматическая остановка воркера для экономии ресурсов.")
-                        self.is_running = False
-                        break
                     await asyncio.sleep(2)
             except Exception as e:
                 logger.error(f"Ошибка в консьюмере {stage_types}: {e}")
                 await asyncio.sleep(5)
+
+    async def _supervisor(self) -> None:
+        """Следит за активностью воркера и останавливает его при простое."""
+        consecutive_idle_ticks = 0
+        while self.is_running:
+            await asyncio.sleep(1)
+            if not self.is_running:
+                break
+            try:
+                has_pending_tasks = await self.queue.has_pending()
+            except Exception as e:
+                logger.error(f"Ошибка проверки очереди в супервайзере: {e}")
+                has_pending_tasks = True
+
+            if not has_pending_tasks and self._in_flight_count == 0:
+                consecutive_idle_ticks += 1
+                if consecutive_idle_ticks >= 5:
+                    logger.info(
+                        "Очередь пуста и нет активных задач. Автоматическая остановка воркера для экономии ресурсов."
+                    )
+                    self.is_running = False
+            else:
+                consecutive_idle_ticks = 0
 
     async def run(self) -> None:
         if self.is_running:
@@ -235,6 +275,9 @@ class Worker:
         self.is_stopping = False
         logger.info("Воркер активен: ТРЕХСТАДИЙНЫЙ ПАРАЛЛЕЛЬНЫЙ КОНВЕЙЕР (PIPELINE)")
 
+        # Запускаем фоновый супервайзер
+        self._supervisor_task = asyncio.create_task(self._supervisor())
+
         try:
             await asyncio.gather(
                 self._consume_stage(["stage_1_download", "ingest_video"]),
@@ -244,7 +287,25 @@ class Worker:
         finally:
             self.is_running = False
             self.is_stopping = False
+            if self._supervisor_task:
+                self._supervisor_task.cancel()
+                self._supervisor_task = None
             logger.info("Воркер остановлен.")
+
+    def start(self) -> None:
+        """Запускает воркер в фоновой задаче, если он еще не запущен, и сохраняет ссылку на таску."""
+        if self.is_running or (self.task and not self.task.done()):
+            return
+        self.task = asyncio.create_task(self.run())
+        self.task.add_done_callback(self._done_callback)
+
+    def _done_callback(self, task: asyncio.Task) -> None:
+        try:
+            task.result()
+        except asyncio.CancelledError:
+            pass
+        except Exception as e:
+            logger.error(f"Фоновая задача воркера завершилась с ошибкой: {e}", exc_info=True)
 
 
 _worker_instance = Worker()

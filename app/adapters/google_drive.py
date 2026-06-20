@@ -105,7 +105,7 @@ class GoogleDriveAdapter(FileStoragePort):
         url = f"https://www.googleapis.com/drive/v3/files?{query}"
         try:
             return await self._authorized_get_json(url)
-        except Exception as e:
+        except httpx.HTTPError as e:
             logger.error(f"Google Drive API error at {url}: {e}")
             raise
 
@@ -213,7 +213,7 @@ class GoogleDriveAdapter(FileStoragePort):
                     page_token = drives_res.get("nextPageToken")
                     if not page_token:
                         break
-            except Exception as e:
+            except httpx.HTTPError as e:
                 logger.error(f"Error fetching shared drives: {e}")
             return res_items
 
@@ -318,6 +318,6 @@ class GoogleDriveAdapter(FileStoragePort):
             response = await client.send(request, stream=True)
             response._client = client  # type: ignore
             return response
-        except Exception:
+        except BaseException:
             await client.aclose()
             raise

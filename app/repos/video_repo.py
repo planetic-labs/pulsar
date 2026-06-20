@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import re
-from typing import Any
 
 from app.database import Database
 
@@ -48,13 +47,13 @@ class VideoRepository:
     def __init__(self, db: Database) -> None:
         self.db = db
 
-    async def get_by_id(self, video_id: int) -> dict[str, Any] | None:
+    async def get_by_id(self, video_id: int) -> dict[str, str | int | float | bool | None] | None:
         async with self.db.transaction() as conn:
             async with conn.execute("SELECT * FROM videos WHERE id = ?", (video_id,)) as cursor:
                 row = await cursor.fetchone()
                 return dict(row) if row else None
 
-    async def get_by_source_file_id(self, source_file_id: str) -> dict[str, Any] | None:
+    async def get_by_source_file_id(self, source_file_id: str) -> dict[str, str | int | float | bool | None] | None:
         async with self.db.transaction() as conn:
             async with conn.execute("SELECT * FROM videos WHERE source_file_id = ?", (source_file_id,)) as cursor:
                 row = await cursor.fetchone()
@@ -135,7 +134,7 @@ class VideoRepository:
                 (status, video_id),
             )
 
-    async def update(self, video_id: int, **kwargs: Any) -> None:
+    async def update(self, video_id: int, **kwargs: str | int | float | bool | None) -> None:
         if not kwargs:
             return
         fields = ", ".join(f"{k} = ?" for k in kwargs.keys())
@@ -145,7 +144,7 @@ class VideoRepository:
         async with self.db.transaction() as conn:
             await conn.execute(sql, values)
 
-    async def get_metadata_batch(self, video_ids: set[int]) -> dict[int, dict[str, Any]]:
+    async def get_metadata_batch(self, video_ids: set[int]) -> dict[int, dict[str, str | int | float | bool | None]]:
         if not video_ids:
             return {}
         placeholders = ",".join(["?"] * len(video_ids))
@@ -158,7 +157,7 @@ class VideoRepository:
                     result[row["id"]] = dict(row)
         return result
 
-    async def get_all(self) -> list[dict[str, Any]]:
+    async def get_all(self) -> list[dict[str, str | int | float | bool | None]]:
         async with self.db.transaction() as conn:
             async with conn.execute("SELECT id, title FROM videos ORDER BY title ASC") as cursor:
                 rows = await cursor.fetchall()
