@@ -22,6 +22,8 @@ else
 fi
 
 VERSION_NUM="${VERSION#v}"
+# Заменяем "-patch" на "." для соответствия спецификации PEP 440 (валидная версия Python)
+VERSION_NUM="${VERSION_NUM//-patch/.}"
 
 # 1.1. Обновляем версию в pyproject.toml
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
