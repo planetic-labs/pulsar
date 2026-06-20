@@ -137,10 +137,6 @@ class Settings(BaseSettings):
     )
     local_embedding_dimension: int = Field(default=384, ge=1, validation_alias="LOCAL_EMBEDDING_DIMENSION")
 
-    # --- Voice settings ---
-    voice_api_token: str = Field(default="", validation_alias="VOICE_API_TOKEN")
-    voice_api_url: str = Field(default="", validation_alias="VOICE_API_URL")
-
     # --- Manticore settings ---
     manticore_url: str = Field(default="http://manticore:9308", validation_alias="MANTICORE_URL")
     manticore_table: str = Field(default="chunks", validation_alias="MANTICORE_TABLE")

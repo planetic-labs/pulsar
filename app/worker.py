@@ -64,7 +64,6 @@ logger.setLevel(logging.INFO)
 log_names = [
     "scripts.ingest_drive_file",
     "app.worker",
-    "app.voice",
     "app.embeddings",
     "app.transcription.deepgram",
     "app.audio",

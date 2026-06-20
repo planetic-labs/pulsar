@@ -55,12 +55,6 @@ class LocalAISettings:
 
 
 @dataclass(frozen=True)
-class VoiceSettings:
-    voice_api_token: str
-    voice_api_url: str
-
-
-@dataclass(frozen=True)
 class ManticoreSettings:
     url: str
     table_name: str = "chunks"
@@ -199,12 +193,4 @@ def get_app_settings() -> AppSettings:
         trusted_proxies=s.trusted_proxies,
         ark_audience=s.ark_audience,
         ark_issuer=s.ark_issuer,
-    )
-
-
-def get_voice_settings() -> VoiceSettings:
-    s = get_settings()
-    return VoiceSettings(
-        voice_api_token=s.voice_api_token,
-        voice_api_url=s.voice_api_url,
     )
