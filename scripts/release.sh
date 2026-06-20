@@ -75,10 +75,10 @@ fi
 echo -e "📝 Changelog:\n$CHANGELOG"
 
 # 3. Создаем релиз через GitHub CLI
-# Используем --generate-notes, который применит правила из .github/release.yml
+# Передаем сгенерированный список коммитов напрямую в описание
 gh release create "$VERSION" \
     --title "$VERSION" \
-    --generate-notes
+    --notes "$CHANGELOG"
 
 if [ $? -eq 0 ]; then
     echo "✅ Release $VERSION successfully created!"
