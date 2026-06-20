@@ -23,7 +23,7 @@ dependencies = [
     "urllib3>=2.7.0",
     "pyjwt[crypto]>=2.8.0",
     "boto3>=1.43.33",
-    "pydantic-settings>=2.14.1",
+    "pydantic-settings>=2.14.2",
     "aiosqlite>=0.22.1",
     "slowapi>=0.1.10",
 ]
