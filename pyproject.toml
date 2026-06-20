@@ -16,6 +16,7 @@ dependencies = [
     "pydantic>=2.13.4",
     "google-auth>=2.55.0",
     "requests>=2.32.0",
+    "itsdangerous>=2.2.0",
     "pyjwt[crypto]>=2.8.0",
     "pydantic-settings>=2.14.2",
     "aiosqlite>=0.22.1",
