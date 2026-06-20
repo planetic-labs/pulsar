@@ -46,6 +46,8 @@ services:
 
 volumes:
   manticore_data:
+    name: pulsar_manticore_data
+    external: true
 
 networks:
   planetic-net:
