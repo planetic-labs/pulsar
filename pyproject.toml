@@ -1,6 +1,6 @@
 [project]
 name = "Pulsar"
-version = "2026.05.16"
+version = "2026.06.20"
 description = "Enterprise RAG for indexing Google Drive videos and searching transcripts"
 readme = "README.md"
 requires-python = ">=3.12"
