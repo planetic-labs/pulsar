@@ -61,3 +61,15 @@ def test_quote_highlight():
     highlighted = quote_highlight(text, exact_phrases)
 
     assert "<mark>Быстрый бурый</mark>" in highlighted
+
+
+def test_manticore_escape_string():
+    from app.manticore import escape_string
+
+    assert escape_string("test") == "test"
+    assert escape_string("O'Connor") == "O''Connor"
+    assert escape_string("test\\slash") == "test\\\\slash"
+    assert escape_string("test\nnew") == "test\\nnew"
+    assert escape_string("test\0null") == "test\\0null"
+    assert escape_string("test\x1aCtrlZ") == "test\\ZCtrlZ"
+    assert escape_string("\\' OR 1=1 --") == "\\\\'' OR 1=1 --"

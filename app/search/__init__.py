@@ -34,7 +34,6 @@ class SearchResult:
     is_short: bool = False
     is_4k: bool = False
     raw_text: str = ""
-    version: int = 42
     lexical_score: float = 0.0
     semantic_score: float = 0.0
     vector_score: float = 0.0
@@ -147,7 +146,7 @@ def _quote_highlight(text: str, exact_phrases: list[str]) -> str:
     combined_pattern = "|".join(patterns)
     try:
         return re.sub(combined_pattern, lambda m: f"<mark>{m.group(0)}</mark>", text, flags=re.UNICODE)
-    except Exception:
+    except re.error:
         return text
 
 
@@ -170,7 +169,7 @@ def _find_best_match(text: str, pattern: str, query_words_count: int) -> tuple[i
         precision = (ideal_len / max(ideal_len, min_len)) ** 2
 
         return best_m.start(), best_m.end(), precision
-    except Exception:
+    except re.error:
         return 0, len(text), 0.0
 
 
@@ -373,8 +372,8 @@ async def hybrid_search(
             else:
                 highlighted_text = _simple_highlight(full_text, clean_query)
 
-        v_id = payload.get("video_id")
-        v_meta = video_metadata.get(v_id, {})
+        point_v_id = payload.get("video_id")
+        v_meta = video_metadata.get(point_v_id, {})
 
         title = v_meta.get("title") or str(payload.get("title") or "Unknown Video")
         source_file_id = v_meta.get("source_file_id") or payload.get("source_file_id")

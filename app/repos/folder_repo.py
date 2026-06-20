@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from typing import Any
-
 from app.database import Database
 
 
@@ -23,7 +21,7 @@ class FolderRepository:
         async with self.db.transaction() as conn:
             await conn.execute(sql, (folder_id, name, parent_id))
 
-    async def get_by_id(self, folder_id: str) -> dict[str, Any] | None:
+    async def get_by_id(self, folder_id: str) -> dict[str, str | None] | None:
         """Возвращает папку по идентификатору."""
         async with self.db.transaction() as conn:
             async with conn.execute("SELECT * FROM folders WHERE id = ?", (folder_id,)) as cursor:

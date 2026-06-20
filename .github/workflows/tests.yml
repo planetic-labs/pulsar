@@ -42,8 +42,8 @@ jobs:
           DATABASE_URL: "sqlite:///./test.db"
           SECRET_KEY: "test-secret-key"
           MANTICORE_URL: "http://localhost:9308"
-          APP_ACCESS_TOKEN: "Master"
+          APP_ACCESS_TOKEN: "master-token-must-be-very-long-and-secure-32-chars"
           APP_RESULTS_LIMIT: "50"
           EXCLUDE_KEYWORDS: "ГАЛЕРЕЯ,Gallery"
-          SESSION_SECRET_KEY: "test-secret-key-for-ci-sessions!"
+          SESSION_SECRET_KEY: "session-secret-must-be-very-long-and-secure-32-chars"
 

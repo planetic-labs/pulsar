@@ -68,11 +68,8 @@ class Settings(BaseSettings):
     app_data_dir: Annotated[Path, BeforeValidator(validate_path)] = Field(
         default=Path("/app/data"), validation_alias="APP_DATA_DIR"
     )
-    app_access_token: str = Field(
-        default="change-me-to-a-secure-token", min_length=6, validation_alias="APP_ACCESS_TOKEN"
-    )
+    app_access_token: str = Field(min_length=32, validation_alias="APP_ACCESS_TOKEN")
     session_secret_key: str = Field(
-        default="change-me-to-something-very-secret-and-long-enough",
         min_length=32,
         validation_alias="SESSION_SECRET_KEY",
     )
@@ -85,8 +82,13 @@ class Settings(BaseSettings):
     max_audio_size_mb: int = Field(default=20, ge=1, validation_alias="MAX_AUDIO_SIZE_MB")
     ark_jwks_url: str | None = Field(default=None, validation_alias="ARK_JWKS_URL")
     ark_webhook_secret: str | None = Field(default=None, validation_alias="ARK_WEBHOOK_SECRET")
+    ark_audience: str | None = Field(default=None, validation_alias="ARK_AUDIENCE")
+    ark_issuer: str | None = Field(default=None, validation_alias="ARK_ISSUER")
     exclude_keywords: Annotated[tuple[str, ...], BeforeValidator(parse_comma_separated_tuple)] = Field(
         default=(), validation_alias="EXCLUDE_KEYWORDS"
+    )
+    trusted_proxies: Annotated[tuple[str, ...], BeforeValidator(parse_comma_separated_tuple)] = Field(
+        default=(), validation_alias="TRUSTED_PROXIES"
     )
 
     # --- SQLite settings ---
@@ -146,8 +148,26 @@ class Settings(BaseSettings):
     @field_validator("app_access_token")
     @classmethod
     def validate_access_token(cls, v: str) -> str:
-        if v in ("change-me", "admin", "password"):
-            raise ValueError("APP_ACCESS_TOKEN must be changed from default")
+        if v in (
+            "change-me",
+            "admin",
+            "password",
+            "change-me-to-a-secure-token",
+            "change-me-to-something-secure",
+            "Master",
+        ):
+            raise ValueError("APP_ACCESS_TOKEN must be changed from default and be secure")
+        return v
+
+    @field_validator("session_secret_key")
+    @classmethod
+    def validate_session_secret_key(cls, v: str) -> str:
+        if v in (
+            "change-me",
+            "change-me-to-something-very-secret-and-long-enough",
+            "generate-a-long-random-string-here",
+        ):
+            raise ValueError("SESSION_SECRET_KEY must be changed from default and be secure")
         return v
 
     @classmethod
@@ -176,7 +196,12 @@ class Settings(BaseSettings):
                     value: Any,
                     old_decode=old_decode,
                 ) -> Any:
-                    if field_name in ("exclude_keywords", "google_drive_scopes", "embedding_openrouter_providers"):
+                    if field_name in (
+                        "exclude_keywords",
+                        "google_drive_scopes",
+                        "embedding_openrouter_providers",
+                        "trusted_proxies",
+                    ):
                         return value
                     return old_decode(field_name, field, value)
 
@@ -225,4 +250,4 @@ class Settings(BaseSettings):
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:
     """Единая точка загрузки конфигурации. Вызывается один раз, затем кэшируется."""
-    return Settings()
+    return Settings()  # type: ignore # pyre-ignore

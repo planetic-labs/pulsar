@@ -31,8 +31,12 @@ async def get_database(settings: Settings = Depends(get_settings)) -> AsyncGener
         await db.close()
 
 
-def get_manticore(settings: Settings = Depends(get_settings)) -> VectorStorePort:
-    return ManticoreAdapter(settings.manticore_url)
+async def get_manticore(settings: Settings = Depends(get_settings)) -> AsyncGenerator[VectorStorePort, None]:
+    adapter = ManticoreAdapter(settings.manticore_url)
+    try:
+        yield adapter
+    finally:
+        await adapter.close()
 
 
 def get_google_drive() -> FileStoragePort:
@@ -43,8 +47,12 @@ def get_deepgram() -> TranscriptionPort:
     return DeepgramAdapter(get_deepgram_settings())
 
 
-def get_embedder() -> EmbeddingPort:
-    return EmbeddingAdapter(get_embedding_settings())
+async def get_embedder() -> AsyncGenerator[EmbeddingPort, None]:
+    adapter = EmbeddingAdapter(get_embedding_settings())
+    try:
+        yield adapter
+    finally:
+        await adapter.close()
 
 
 def get_video_repo(db: Database = Depends(get_database)) -> VideoRepository:

@@ -1,21 +1,22 @@
-from __future__ import annotations
-
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any, Protocol, TypedDict
 
 import httpx
 
+from app.manticore import models
+
 
 class ScoredPoint(TypedDict):
     id: int
     score: float
-    payload: dict[str, Any]
+    payload: dict[str, str | int | float | bool | list[float] | None]
 
 
 class VectorPoint(TypedDict):
     id: int
     vector: dict[str, list[float]]
-    payload: dict[str, Any]
+    payload: dict[str, str | int | float | bool | list[float] | None]
 
 
 class FileMetadata(TypedDict):
@@ -67,11 +68,17 @@ class VectorStorePort(Protocol):
         """Удаляет точки по условию WHERE."""
         ...
 
+    async def filter_only(self, table: str, where_clause: str, limit: int) -> list[ScoredPoint]:
+        """Поиск только по условиям фильтрации без векторного или полнотекстового запроса."""
+        ...
+
 
 class FileStoragePort(Protocol):
     """Интерфейс для доступа к удаленному файловому хранилищу (Google Drive и др.)."""
 
-    async def download_file(self, file_id: str, destination: Path, progress_callback: Any = None) -> None:
+    async def download_file(
+        self, file_id: str, destination: Path, progress_callback: Callable[[int, int], None] | None = None
+    ) -> None:
         """Скачивает файл с удаленного хранилища на локальный диск."""
         ...
 
@@ -87,12 +94,18 @@ class FileStoragePort(Protocol):
 class EmbeddingPort(Protocol):
     """Интерфейс для работы с сервисом генерации эмбеддингов."""
 
-    async def embed_text(self, text: str, task_type: str = "RETRIEVAL_QUERY") -> tuple[list[float], list[float] | None]:
+    async def embed_text(
+        self, text: str, task_type: str = "RETRIEVAL_QUERY"
+    ) -> tuple[list[float], models.SparseVector | None]:
         """Генерирует dense и sparse вектора для текста."""
         ...
 
     async def embed_batch(
-        self, texts: list[str], progress_callback: Any = None
-    ) -> list[tuple[list[float], list[float] | None]]:
+        self, texts: list[str], progress_callback: Callable[[int, int], None] | None = None
+    ) -> list[tuple[list[float], models.SparseVector | None]]:
         """Генерирует dense и sparse вектора для пакета текстов."""
+        ...
+
+    async def close(self) -> None:
+        """Закрывает ресурсы."""
         ...

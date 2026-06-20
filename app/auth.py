@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import secrets
 
 import jwt
@@ -21,47 +22,59 @@ def get_jwk_client() -> jwt.PyJWKClient | None:
     return _jwk_client
 
 
-def is_jti_revoked(jti: str) -> bool:
+async def is_jti_revoked(jti: str) -> bool:
     from app.config import get_sqlite_settings
     from app.db import db_connection
 
-    try:
+    def _sync():
         with db_connection(get_sqlite_settings()) as conn:
             row = conn.execute("SELECT 1 FROM revoked_sessions WHERE jti = ?", (jti,)).fetchone()
             return row is not None
+
+    try:
+        return await asyncio.to_thread(_sync)
     except Exception:
         return False
 
 
-def is_user_revoked(user_id: str) -> bool:
+async def is_user_revoked(user_id: str) -> bool:
     from app.config import get_sqlite_settings
     from app.db import db_connection
 
-    try:
+    def _sync():
         with db_connection(get_sqlite_settings()) as conn:
             row = conn.execute("SELECT 1 FROM revoked_users WHERE user_id = ?", (user_id,)).fetchone()
             return row is not None
+
+    try:
+        return await asyncio.to_thread(_sync)
     except Exception:
         return False
 
 
-def revoke_session(jti: str) -> None:
+async def revoke_session(jti: str) -> None:
     from app.config import get_sqlite_settings
     from app.db import db_connection
 
-    with db_connection(get_sqlite_settings()) as conn:
-        conn.execute("INSERT OR IGNORE INTO revoked_sessions (jti) VALUES (?)", (jti,))
+    def _sync():
+        with db_connection(get_sqlite_settings()) as conn:
+            conn.execute("INSERT OR IGNORE INTO revoked_sessions (jti) VALUES (?)", (jti,))
+
+    await asyncio.to_thread(_sync)
 
 
-def revoke_user(user_id: str) -> None:
+async def revoke_user(user_id: str) -> None:
     from app.config import get_sqlite_settings
     from app.db import db_connection
 
-    with db_connection(get_sqlite_settings()) as conn:
-        conn.execute("INSERT OR IGNORE INTO revoked_users (user_id) VALUES (?)", (user_id,))
+    def _sync():
+        with db_connection(get_sqlite_settings()) as conn:
+            conn.execute("INSERT OR IGNORE INTO revoked_users (user_id) VALUES (?)", (user_id,))
+
+    await asyncio.to_thread(_sync)
 
 
-def is_valid_token(token: str | None) -> bool:
+async def is_valid_token(token: str | None) -> bool:
     if not token:
         return False
 
@@ -75,48 +88,41 @@ def is_valid_token(token: str | None) -> bool:
         return False
 
     try:
-        # Load signing key from JWKS based on kid in the JWT token header
         try:
+            # Load signing key from JWKS based on kid in the JWT token header
             signing_key = jwk_client.get_signing_key_from_jwt(token)
-            keys_to_try = [signing_key]
-        except Exception:
-            # Fallback: try all signing keys if kid is missing or lookup fails
-            keys_to_try = jwk_client.get_signing_keys()
-            if not keys_to_try:
-                raise
+        except Exception as e:
+            import logging
 
-        decoded_payload = None
-        last_err = None
-        for k in keys_to_try:
-            try:
-                decoded_payload = jwt.decode(token, k.key, algorithms=["RS256"], options={"verify_exp": True})
-                break
-            except Exception as e:
-                last_err = e
+            logging.warning(f"JWT validation failed: could not load signing key: {e}")
+            return False
 
-        if decoded_payload is None:
-            if last_err:
-                raise last_err
-            else:
-                raise jwt.PyJWTError("No signing keys in JWKS matched")
-
-        payload = decoded_payload
+        # Decode & verify signature, exp, iat, aud, iss
+        payload = jwt.decode(
+            token,
+            signing_key.key,
+            algorithms=["RS256"],
+            audience=settings.ark_audience,
+            issuer=settings.ark_issuer,
+            options={"verify_exp": True, "require": ["exp", "iat", "aud", "iss"]},
+        )
 
         # Business validation: status must be active
         status_val = payload.get("status")
         if status_val != "active":
             import logging
 
-            logging.error(f"JWT status check failed: expected 'active', got {status_val!r}. Payload: {payload}")
+            sub = payload.get("sub")
+            logging.error(f"JWT status check failed: expected 'active', got {status_val!r} for sub: {sub}")
             return False
 
         # Check blacklist (revoked sessions and users)
         jti = payload.get("jti")
         user_id = payload.get("sub")
 
-        if jti and is_jti_revoked(jti):
+        if jti and await is_jti_revoked(jti):
             return False
-        if user_id and is_user_revoked(user_id):
+        if user_id and await is_user_revoked(user_id):
             return False
 
         return True
@@ -192,12 +198,12 @@ def perform_token_refresh(refresh_token: str) -> dict | None:
         raise e
 
 
-def require_access_token(request: Request) -> str:
+async def require_access_token(request: Request) -> str:
     import httpx
 
     token = get_session_token(request)
 
-    if not token or not is_valid_token(token):
+    if not token or not await is_valid_token(token):
         refresh_token = request.session.get("refresh_token")
         if refresh_token:
             try:
@@ -205,7 +211,7 @@ def require_access_token(request: Request) -> str:
                 if new_tokens:
                     new_access_token = new_tokens.get("access_token")
                     new_refresh_token = new_tokens.get("refresh_token")
-                    if new_access_token and is_valid_token(new_access_token):
+                    if new_access_token and await is_valid_token(new_access_token):
                         request.session["access_token"] = new_access_token
                         if new_refresh_token:
                             request.session["refresh_token"] = new_refresh_token
@@ -229,7 +235,7 @@ def require_access_token(request: Request) -> str:
                     detail="Unexpected error during token refresh.",
                 ) from e
 
-    if not token or not is_valid_token(token):
+    if not token or not await is_valid_token(token):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid or missing access token",
@@ -251,15 +257,15 @@ def require_access_token(request: Request) -> str:
             payload = jwt.decode(token, options={"verify_signature": False})
             request.state.user_id = payload.get("sub")
             request.state.roles = ["user"]
-        except Exception:
+        except jwt.PyJWTError:
             request.state.user_id = None
             request.state.roles = []
 
     return str(token)
 
 
-def require_admin(request: Request) -> str:
-    token = require_access_token(request)
+async def require_admin(request: Request) -> str:
+    token = await require_access_token(request)
     if "admin" not in getattr(request.state, "roles", []):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -268,8 +274,8 @@ def require_admin(request: Request) -> str:
     return token
 
 
-def login_user(response: Response, request: Request, token: str, refresh_token: str | None = None) -> bool:
-    if is_valid_token(token):
+async def login_user(response: Response, request: Request, token: str, refresh_token: str | None = None) -> bool:
+    if await is_valid_token(token):
         # Keep validated access token server-side; never write user-supplied token directly to cookie.
         request.session["access_token"] = token
         if refresh_token:

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import sqlite3
 import time
 from pathlib import Path
 
@@ -56,5 +57,5 @@ def get_global_stats() -> dict[str, int | bool]:
             data = new_data.copy()
             data["worker_busy"] = worker_busy
             return data
-    except Exception:
+    except sqlite3.Error:
         return {"total_videos": 0, "total_hours": 0, "worker_busy": False}

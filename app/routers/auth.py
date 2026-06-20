@@ -1,6 +1,10 @@
 from __future__ import annotations
 
+import asyncio
 import logging
+import time
+from collections import defaultdict
+from dataclasses import dataclass
 
 import httpx
 from fastapi import APIRouter, Form, HTTPException, Request, Response, status
@@ -9,8 +13,64 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from app.auth import login_user, logout_user
 from app.config import get_app_settings
 from app.core import templates
+from app.limiter import limiter
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class AuthAttempt:
+    attempts: int
+    last_attempt: float
+
+
+_failed_attempts = defaultdict(lambda: AuthAttempt(attempts=0, last_attempt=0.0))
+
+
+def get_client_ip(request: Request) -> str:
+    """Извлекает IP-адрес клиента с учетом доверенных прокси-серверов."""
+    app_settings = get_app_settings()
+    client_host = request.client.host if request.client else "unknown"
+
+    # Доверяем заголовкам только если клиент пришел от доверенного прокси
+    if app_settings.trusted_proxies and client_host in app_settings.trusted_proxies:
+        x_forwarded_for = request.headers.get("X-Forwarded-For")
+        if x_forwarded_for:
+            return x_forwarded_for.split(",")[0].strip()
+        x_real_ip = request.headers.get("X-Real-IP")
+        if x_real_ip:
+            return x_real_ip.strip()
+
+    return client_host
+
+
+def _cleanup_failed_attempts() -> None:
+    """Очищает старые попытки входа, чтобы предотвратить DoS памяти."""
+    now = time.time()
+    expired_keys = [k for k, v in _failed_attempts.items() if now - v.last_attempt > 900.0]
+    for k in expired_keys:
+        _failed_attempts.pop(k, None)
+
+    if len(_failed_attempts) > 10000:
+        sorted_keys = sorted(_failed_attempts.keys(), key=lambda k: _failed_attempts[k].last_attempt)
+        for k in sorted_keys[:5000]:
+            _failed_attempts.pop(k, None)
+
+
+def register_failed_attempt(key: str) -> float:
+    """Регистрирует неудачную попытку входа и возвращает задержку exponential backoff."""
+    _cleanup_failed_attempts()
+    attempt = _failed_attempts[key]
+    attempt.attempts += 1
+    attempt.last_attempt = time.time()
+    # Экспоненциальная задержка: 2^(attempts - 1) секунд, максимум 15 секунд
+    return min(2.0 ** (attempt.attempts - 1), 15.0)
+
+
+def reset_failed_attempts(key: str) -> None:
+    """Сбрасывает счетчик неудачных попыток при успешном входе."""
+    _failed_attempts.pop(key, None)
+
 
 router = APIRouter(tags=["Auth"])
 
@@ -22,6 +82,7 @@ def login_page(request: Request, error: str | None = None) -> Response:
 
 
 @router.post("/login")
+@limiter.limit("10/minute")
 async def login_post(
     request: Request,
     response: Response,
@@ -30,10 +91,21 @@ async def login_post(
     code: str | None = Form(None),
 ) -> Response:
     """Handles authentication via access token or Ark Messenger email confirmation."""
+    client_ip = get_client_ip(request)
+
     # 1. Fallback / Static access token login
     if token:
-        if login_user(response, request, token):
+        if await login_user(response, request, token):
+            reset_failed_attempts(client_ip)
+            reset_failed_attempts(token)
             return RedirectResponse(url="/", status_code=303)
+
+        # Неудачная попытка статического токена
+        obscured_token = token[:3] + "..." + token[-3:] if len(token) > 6 else "..."
+        logger.warning(f"Failed login attempt from IP {client_ip} using invalid static token: {obscured_token}")
+        delay_ip = register_failed_attempt(client_ip)
+        delay_token = register_failed_attempt(token)
+        await asyncio.sleep(max(delay_ip, delay_token))
         return templates.TemplateResponse(request, "login.html", {"error": "Invalid access token"})
 
     # 2. Ark Messenger 2-step login (email + code)
@@ -56,9 +128,16 @@ async def login_post(
                     if next_step == "home":
                         access_token = data.get("access_token")
                         refresh_token = data.get("refresh_token")
-                        if access_token and login_user(response, request, access_token, refresh_token=refresh_token):
+                        if access_token and await login_user(
+                            response, request, access_token, refresh_token=refresh_token
+                        ):
+                            reset_failed_attempts(client_ip)
+                            reset_failed_attempts(email)
                             return RedirectResponse(url="/", status_code=303)
                         else:
+                            logger.error(f"Failed to log in with returned token for email {email} from IP {client_ip}")
+                            delay = register_failed_attempt(email)
+                            await asyncio.sleep(delay)
                             return templates.TemplateResponse(
                                 request, "login.html", {"error": "Failed to log in with returned token"}
                             )
@@ -75,6 +154,7 @@ async def login_post(
                             },
                         )
                     else:
+                        logger.warning(f"Unexpected login state: {next_step} for email {email} from IP {client_ip}")
                         return templates.TemplateResponse(
                             request, "login.html", {"error": f"Unexpected login state: {next_step}"}
                         )
@@ -83,15 +163,22 @@ async def login_post(
                         detail = res.json().get("detail", "Неверный пинкод или email")
                     except Exception:
                         detail = "Неверный пинкод или email"
+
+                    logger.warning(f"Failed login attempt from IP {client_ip} using email: {email} (Invalid code)")
+                    delay_ip = register_failed_attempt(client_ip)
+                    delay_email = register_failed_attempt(email)
+                    await asyncio.sleep(max(delay_ip, delay_email))
+
                     return templates.TemplateResponse(
                         request, "login.html", {"error": detail, "email": email, "code": code}
                     )
                 else:
+                    logger.error(f"Auth server returned status {res.status_code} for email {email} from IP {client_ip}")
                     return templates.TemplateResponse(
                         request, "login.html", {"error": f"Ошибка сервера авторизации: {res.status_code}"}
                     )
             except Exception as e:
-                logger.error(f"Error calling Ark Messenger verify-code: {e}")
+                logger.error(f"Error calling Ark Messenger verify-code for email {email} from IP {client_ip}: {e}")
                 return templates.TemplateResponse(
                     request, "login.html", {"error": "Не удалось связаться с сервером авторизации"}
                 )
@@ -100,6 +187,7 @@ async def login_post(
 
 
 @router.post("/api/v1/auth/identify")
+@limiter.limit("5/minute")
 async def api_auth_identify(request: Request) -> Response:
     """Triggers user identification sequence in Ark Messenger."""
     app_settings = get_app_settings()
@@ -180,8 +268,8 @@ async def handle_revocation_webhook(request: Request) -> dict[str, str]:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Missing user_id in payload")
 
     if jti:
-        revoke_session(jti)
+        await revoke_session(jti)
     else:
-        revoke_user(user_id)
+        await revoke_user(user_id)
 
     return {"status": "ok"}

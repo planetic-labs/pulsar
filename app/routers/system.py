@@ -16,12 +16,15 @@ router = APIRouter(tags=["System & PWA"])
 @router.websocket("/api/v1/logs/stream")
 async def websocket_logs(websocket: WebSocket) -> None:
     """Streams live application console logs via WebSocket connection."""
-    # Auth check
+    # Auth check: only admin is allowed to stream logs
+    from app.config import get_app_settings
+
+    settings = get_app_settings()
     token = websocket.session.get("access_token") or websocket.session.get("token")
-    if not is_valid_token(token):
+    if not is_valid_token(token) or token != settings.access_token:
         # Check cookie as fallback
         token = websocket.cookies.get("access_token")
-        if not is_valid_token(token):
+        if not is_valid_token(token) or token != settings.access_token:
             await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
             return
 

@@ -82,6 +82,9 @@ class AppSettings:
     ark_jwks_url: str | None = None
     ark_webhook_secret: str | None = None
     exclude_keywords: tuple[str, ...] = ()
+    trusted_proxies: tuple[str, ...] = ()
+    ark_audience: str | None = None
+    ark_issuer: str | None = None
 
     @property
     def raw_transcripts_dir(self) -> Path:
@@ -193,6 +196,9 @@ def get_app_settings() -> AppSettings:
         ark_jwks_url=s.ark_jwks_url,
         ark_webhook_secret=s.ark_webhook_secret,
         exclude_keywords=s.exclude_keywords,
+        trusted_proxies=s.trusted_proxies,
+        ark_audience=s.ark_audience,
+        ark_issuer=s.ark_issuer,
     )
 
 

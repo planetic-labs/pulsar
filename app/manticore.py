@@ -2,7 +2,6 @@ import hashlib
 import logging
 import os
 import socket
-from typing import Any
 
 import httpx
 
@@ -53,6 +52,19 @@ def int_to_date(date_int: int | None) -> str | None:
     if len(val_str) != 8:
         return None
     return f"{val_str[:4]}-{val_str[4:6]}-{val_str[6:]}"
+
+
+def escape_string(val: str) -> str:
+    """Безопасно экранирует строковый литерал для использования в SQL-запросах Manticore."""
+    if not isinstance(val, str):
+        return str(val)
+    escaped = val.replace("\\", "\\\\")
+    escaped = escaped.replace("'", "''")
+    escaped = escaped.replace("\0", "\\0")
+    escaped = escaped.replace("\n", "\\n")
+    escaped = escaped.replace("\r", "\\r")
+    escaped = escaped.replace("\x1a", "\\Z")
+    return escaped
 
 
 class ManticoreClient:
@@ -187,7 +199,12 @@ class ManticoreClient:
         return records, None
 
     def query_points(
-        self, collection_name: str, query: Any, using: str = "default", where_clause: str | None = None, limit: int = 20
+        self,
+        collection_name: str,
+        query: list[float] | str,
+        using: str = "default",
+        where_clause: str | None = None,
+        limit: int = 20,
     ) -> list[ScoredPoint]:
         if using == "default":
             vec_str = ",".join(map(str, query))
@@ -196,7 +213,10 @@ class ManticoreClient:
                 sql += f" AND {where_clause}"
         else:
             if isinstance(query, str):
-                escaped_query = query.replace("'", "''")
+                # Ограничиваем длину и символы в поисковых запросах согласно рекомендации безопасности C-04
+                clean_query = query[:256]
+                clean_query = "".join(ch for ch in clean_query if ch.isprintable() or ch in ("\n", "\r"))
+                escaped_query = escape_string(clean_query)
                 snippet_sql = (
                     f", SNIPPET(text, '{escaped_query}', "
                     f"'limit=10000', 'around=1000', "
@@ -219,7 +239,11 @@ class ManticoreClient:
                 sql += f" LIMIT {limit}"
 
         logger.info(f"Executing query_points SQL: {sql[:150]}... (total length: {len(sql)})")
-        res = self._execute_sql(sql)
+        try:
+            res = self._execute_sql(sql)
+        except Exception as e:
+            logger.error(f"Manticore query failed: {e}. SQL: {sql}")
+            return []
         points = []
         if res and len(res) > 0:
             cols_meta = res[0].get("columns")
@@ -250,7 +274,7 @@ class ManticoreClient:
 
         return points
 
-    def retrieve(self, collection_name: str, ids: list[Any]) -> list[Record]:
+    def retrieve(self, collection_name: str, ids: list[str | int]) -> list[Record]:
         if not ids:
             return []
         m_ids = [str_to_manticore_id(x) for x in ids]

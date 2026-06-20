@@ -93,7 +93,7 @@ class GoogleDriveClient:
         url = f"https://www.googleapis.com/drive/v3/files?{query}"
         try:
             return await self._authorized_get_json(url)
-        except Exception as e:
+        except httpx.HTTPError as e:
             logger.error(f"Google Drive API error at {url}: {e}")
             raise
 
@@ -192,7 +192,7 @@ class GoogleDriveClient:
                     page_token = drives_res.get("nextPageToken")
                     if not page_token:
                         break
-            except Exception as e:
+            except httpx.HTTPError as e:
                 logger.error(f"Error fetching shared drives: {e}")
             return res_items
 
@@ -310,6 +310,6 @@ class GoogleDriveClient:
             # Attach client to response for cleanup
             response._client = client  # type: ignore
             return response
-        except Exception:
+        except BaseException:
             await client.aclose()
             raise
