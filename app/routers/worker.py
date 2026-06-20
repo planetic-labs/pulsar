@@ -350,7 +350,7 @@ async def api_worker_duplicates_swap(
             old_norm = settings.get_normalized_transcript_path(orig_source)
             new_norm = settings.get_normalized_transcript_path(dup_source)
 
-            def rename_files():
+            def rename_files() -> None:
                 if old_raw.exists():
                     new_raw.parent.mkdir(parents=True, exist_ok=True)
                     old_raw.rename(new_raw)

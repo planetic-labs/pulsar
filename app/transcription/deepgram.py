@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 import time
-from collections.abc import Callable
+from collections.abc import AsyncGenerator, Callable, Generator
 from pathlib import Path
 from typing import Any
 
@@ -100,7 +100,7 @@ class DeepgramEngine(TranscriptionEngine):
             "Content-Type": content_type,
         }
 
-        def file_iterator(file_path: Path, chunk_size: int = 65536):
+        def file_iterator(file_path: Path, chunk_size: int = 65536) -> Generator[bytes, None, None]:
             downloaded = 0
             with open(file_path, "rb") as f:
                 while True:
@@ -165,7 +165,7 @@ class DeepgramEngine(TranscriptionEngine):
             "Content-Type": content_type,
         }
 
-        async def async_file_iterator(file_path: Path, chunk_size: int = 65536):
+        async def async_file_iterator(file_path: Path, chunk_size: int = 65536) -> AsyncGenerator[bytes, None]:
             uploaded = 0
             with open(file_path, "rb") as f:
                 while True:

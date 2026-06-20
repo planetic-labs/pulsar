@@ -13,13 +13,13 @@ _client = None
 
 
 class Record:
-    def __init__(self, id: int, payload: dict):
+    def __init__(self, id: int, payload: dict) -> None:
         self.id = id
         self.payload = payload
 
 
 class ScoredPoint:
-    def __init__(self, id: int, score: float, payload: dict):
+    def __init__(self, id: int, score: float, payload: dict) -> None:
         self.id = id
         self.score = score
         self.payload = payload
@@ -68,7 +68,7 @@ def escape_string(val: str) -> str:
 
 
 class ManticoreClient:
-    def __init__(self, url: str):
+    def __init__(self, url: str) -> None:
         self.url = url.rstrip("/")
         # Переиспользуем один клиент для экономии сетевых ресурсов
         self.http_client = httpx.Client(timeout=30.0)
@@ -115,7 +115,7 @@ class ManticoreClient:
 
         raise RuntimeError("Failed to execute DDL: Max retries exceeded")
 
-    def upsert(self, collection_name: str, points: list[dict]):
+    def upsert(self, collection_name: str, points: list[dict]) -> None:
         import json
 
         if not points:
@@ -159,7 +159,7 @@ class ManticoreClient:
             logger.error(f"Manticore bulk upsert errors: {resp_data}")
             raise RuntimeError(f"Manticore bulk upsert failed: {resp_data.get('error', 'check logs')}")
 
-    def delete(self, collection_name: str, ids: list[str | int] | None = None, where_clause: str | None = None):
+    def delete(self, collection_name: str, ids: list[str | int] | None = None, where_clause: str | None = None) -> None:
         if ids:
             m_ids = [str_to_manticore_id(x) for x in ids]
             ids_str = ",".join(str(x) for x in m_ids)
@@ -301,7 +301,7 @@ class ManticoreClient:
                 records.append(Record(id=m_id, payload=row_dict))
         return records
 
-    def delete_collection(self, collection_name: str):
+    def delete_collection(self, collection_name: str) -> None:
         """Удаляет таблицу через проверенный эндпоинт /cli."""
         self._execute_ddl(f"DROP TABLE IF EXISTS {collection_name}")
 
@@ -321,7 +321,7 @@ def get_manticore_client() -> ManticoreClient:
     return _client
 
 
-def init_manticore():
+def init_manticore() -> None:
     client = get_manticore_client()
     settings = get_manticore_settings()
     table_name = settings.table_name
@@ -361,7 +361,7 @@ def init_manticore():
 
 
 class SparseVector:
-    def __init__(self, indices: list[int], values: list[float]):
+    def __init__(self, indices: list[int], values: list[float]) -> None:
         self.indices = indices
         self.values = values
 

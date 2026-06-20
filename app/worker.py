@@ -175,7 +175,7 @@ class Worker:
                         WHERE task_type = 'stage_2_transcribe' AND status IN ('pending', 'running')
                     """
 
-                    def _sync_check():
+                    def _sync_check() -> int:
                         with db_connection(get_sqlite_settings()) as conn:
                             return conn.execute(sql_check).fetchone()["c"]
 
@@ -183,7 +183,7 @@ class Worker:
 
                     if t_count > 0:
                         # Возвращаем задачу в очередь и сдвигаем её назад (обновляем created_at)
-                        def _sync_requeue():
+                        def _sync_requeue() -> None:
                             with db_connection(get_sqlite_settings()) as conn:
                                 conn.execute(
                                     "UPDATE tasks SET status = 'pending', created_at = CURRENT_TIMESTAMP WHERE id = ?",
@@ -207,7 +207,7 @@ class Worker:
                         f"Откатываем задачу на стадию скачивания с увеличением retries. Ошибка: {e}"
                     )
 
-                    def _sync_rollback():
+                    def _sync_rollback() -> None:
                         with db_connection(get_sqlite_settings()) as conn:
                             conn.execute("UPDATE tasks SET task_type = 'stage_1_download' WHERE id = ?", (task_id,))
 

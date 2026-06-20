@@ -188,7 +188,7 @@ class VideoService:
         raw_path = self.settings.get_raw_transcript_path(source_file_id)
         if raw_path.exists():
 
-            def archive_raw():
+            def archive_raw() -> None:
                 archive_dest = archive_dir / f"video_{video_id}_{source_file_id}.json.gz"
                 shutil.move(str(raw_path), str(archive_dest))
                 if raw_path.parent.exists() and not any(raw_path.parent.iterdir()):
@@ -205,7 +205,7 @@ class VideoService:
         if norm_path.exists():
             files_to_delete.append(norm_path)
 
-        def unlink_files(files: list[Path]):
+        def unlink_files(files: list[Path]) -> None:
             for f_path in files:
                 try:
                     if f_path.exists():
@@ -381,7 +381,7 @@ class VideoService:
             path = self.settings.get_normalized_transcript_path(source_file_id)
             if path.exists():
 
-                def sync_file():
+                def sync_file() -> None:
                     with gzip.open(path, "rt", encoding="utf-8") as f:
                         content = json.load(f)
 

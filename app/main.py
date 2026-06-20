@@ -2,10 +2,11 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from collections.abc import AsyncGenerator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from typing import cast
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, Response
 from fastapi.staticfiles import StaticFiles
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
@@ -26,7 +27,7 @@ logger = logging.getLogger(__name__)
 
 
 @asynccontextmanager
-async def lifespan(app: FastAPI):
+async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     # Startup logic
     settings = get_settings()
     db = Database(settings.resolved_db_path)
@@ -72,7 +73,9 @@ app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)  # ty
 
 
 @app.middleware("http")
-async def add_global_stats_to_templates(request: Request, call_next):
+async def add_global_stats_to_templates(
+    request: Request, call_next: Callable[[Request], Awaitable[Response]]
+) -> Response:
     # Manually inject global stats into templates environment globals
 
     cast(dict, templates.env.globals)["stats"] = get_global_stats()

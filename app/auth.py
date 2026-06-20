@@ -26,7 +26,7 @@ async def is_jti_revoked(jti: str) -> bool:
     from app.config import get_sqlite_settings
     from app.db import db_connection
 
-    def _sync():
+    def _sync() -> bool:
         with db_connection(get_sqlite_settings()) as conn:
             row = conn.execute("SELECT 1 FROM revoked_sessions WHERE jti = ?", (jti,)).fetchone()
             return row is not None
@@ -41,7 +41,7 @@ async def is_user_revoked(user_id: str) -> bool:
     from app.config import get_sqlite_settings
     from app.db import db_connection
 
-    def _sync():
+    def _sync() -> bool:
         with db_connection(get_sqlite_settings()) as conn:
             row = conn.execute("SELECT 1 FROM revoked_users WHERE user_id = ?", (user_id,)).fetchone()
             return row is not None
@@ -56,7 +56,7 @@ async def revoke_session(jti: str) -> None:
     from app.config import get_sqlite_settings
     from app.db import db_connection
 
-    def _sync():
+    def _sync() -> None:
         with db_connection(get_sqlite_settings()) as conn:
             conn.execute("INSERT OR IGNORE INTO revoked_sessions (jti) VALUES (?)", (jti,))
 
@@ -67,7 +67,7 @@ async def revoke_user(user_id: str) -> None:
     from app.config import get_sqlite_settings
     from app.db import db_connection
 
-    def _sync():
+    def _sync() -> None:
         with db_connection(get_sqlite_settings()) as conn:
             conn.execute("INSERT OR IGNORE INTO revoked_users (user_id) VALUES (?)", (user_id,))
 
@@ -295,6 +295,6 @@ async def login_user(response: Response, request: Request, token: str, refresh_t
     return False
 
 
-def logout_user(response: Response, request: Request):
+def logout_user(response: Response, request: Request) -> None:
     request.session.clear()
     response.delete_cookie(AUTH_COOKIE_NAME)

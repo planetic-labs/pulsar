@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import AsyncGenerator
 from typing import Any
 
+import httpx
 from fastapi import APIRouter, BackgroundTasks, Depends, Form, HTTPException, Path, Request, Response
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
@@ -153,7 +155,7 @@ async def video_file(
     if resp.headers.get("Content-Range"):
         headers["Content-Range"] = str(resp.headers.get("Content-Range"))
 
-    async def stream_from_resp(r):
+    async def stream_from_resp(r: httpx.Response) -> AsyncGenerator[bytes, None]:
         try:
             # Use smaller chunks for better reactivity
             async for chunk in r.aiter_bytes(chunk_size=256 * 1024):
@@ -161,14 +163,15 @@ async def video_file(
         except Exception as e:
             logger.error(f"Streaming error for video {video_id}: {e}")
 
-    async def cleanup_stream(r):
+    async def cleanup_stream(r: httpx.Response) -> None:
         try:
             await r.aclose()
         except Exception:
             pass
-        if hasattr(r, "_client"):
+        client = getattr(r, "_client", None)
+        if client:
             try:
-                await r._client.aclose()
+                await client.aclose()
             except Exception:
                 pass
 
