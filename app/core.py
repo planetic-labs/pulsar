@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import sqlite3
 import time
+import tomllib
 from pathlib import Path
+from typing import Any
 
 from fastapi.templating import Jinja2Templates
 
@@ -12,11 +14,26 @@ from app.db import db_connection
 ROOT_DIR: Path = Path(__file__).resolve().parents[1]
 templates: Jinja2Templates = Jinja2Templates(directory=str(ROOT_DIR / "templates"))
 
+
+def get_app_version() -> str:
+    try:
+        pyproject_path = ROOT_DIR / "pyproject.toml"
+        if pyproject_path.exists():
+            with open(pyproject_path, "rb") as f:
+                data = tomllib.load(f)
+                return str(data.get("project", {}).get("version", "unknown"))
+    except Exception:
+        pass
+    return "unknown"
+
+
+APP_VERSION: str = get_app_version()
+
 # Cache for global stats (60s)
-_global_stats_cache: dict[str, dict[str, int] | None | float] = {"data": None, "timestamp": 0.0}
+_global_stats_cache: dict[str, Any] = {"data": None, "timestamp": 0.0}
 
 
-def get_global_stats() -> dict[str, int | bool]:
+def get_global_stats() -> dict[str, Any]:
     """Fetches global statistics about indexed videos, duration, and worker status.
 
     Includes a 60-second caching mechanism.
@@ -50,7 +67,7 @@ def get_global_stats() -> dict[str, int | bool]:
             count = row["count"]
             hours = int(total_sec // 3600)
 
-            new_data = {"total_videos": count, "total_hours": hours}
+            new_data = {"total_videos": count, "total_hours": hours, "version": APP_VERSION}
             _global_stats_cache["data"] = new_data
             _global_stats_cache["timestamp"] = now
 
@@ -58,4 +75,4 @@ def get_global_stats() -> dict[str, int | bool]:
             data["worker_busy"] = worker_busy
             return data
     except sqlite3.Error:
-        return {"total_videos": 0, "total_hours": 0, "worker_busy": False}
+        return {"total_videos": 0, "total_hours": 0, "worker_busy": False, "version": APP_VERSION}
