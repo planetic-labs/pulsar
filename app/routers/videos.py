@@ -37,7 +37,7 @@ def api_list_speakers(video_id: int = Path(..., ge=1), _: str = Depends(require_
 
 @router.post("/api/videos/{video_id}/speakers")
 async def api_save_speaker(
-    video_id: int = Path(..., ge=1), request: Request | None = None, _: str = Depends(require_access_token)
+    video_id: int = Path(..., ge=1), _: str = Depends(require_access_token)
 ) -> dict[str, str | bool]:
     """Updates/saves speaker metadata (disabled mock)."""
     return {"status": "saved", "enrolled": False}
