@@ -74,7 +74,7 @@ class Settings(BaseSettings):
         validation_alias="SESSION_SECRET_KEY",
     )
     app_host: str = Field(default="0.0.0.0", validation_alias="APP_HOST")
-    app_port: int = Field(default=8000, validation_alias="APP_PORT")
+    app_port: int = Field(default=8350, validation_alias="APP_PORT")
     app_results_limit: int = Field(default=20, ge=1, le=200, validation_alias="APP_RESULTS_LIMIT")
     ingest_download_concurrency: int = Field(default=1, ge=1, validation_alias="INGEST_DOWNLOAD_CONCURRENCY")
     ingest_process_concurrency: int = Field(default=1, ge=1, validation_alias="INGEST_PROCESS_CONCURRENCY")

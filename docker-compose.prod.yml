@@ -20,17 +20,18 @@ services:
     user: "${UID:-1000}:${GID:-1000}"
     restart: always
     ports:
-      - "127.0.0.1:8000:8000"
+      - "127.0.0.1:8350:8350"
     networks:
       - homelab-net
     environment:
       - HF_HOME=/app/models_cache
+      - APP_PORT=8350
     env_file: .env
     depends_on:
       manticore:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:8350/health"]
       interval: 30s
       timeout: 10s
       retries: 3
