@@ -73,6 +73,7 @@ class Settings(BaseSettings):
         min_length=32,
         validation_alias="SESSION_SECRET_KEY",
     )
+    admin_role_name: str = Field(default="admin", validation_alias="ADMIN_ROLE_NAME")
     app_host: str = Field(default="0.0.0.0", validation_alias="APP_HOST")
     app_port: int = Field(default=8350, validation_alias="APP_PORT")
     app_results_limit: int = Field(default=20, ge=1, le=200, validation_alias="APP_RESULTS_LIMIT")

@@ -95,7 +95,7 @@ async def import_page(request: Request) -> Response:
         return RedirectResponse(url="/login")
 
     settings = get_app_settings()
-    if current_token != settings.access_token:
+    if current_token != settings.access_token and settings.admin_role_name not in getattr(request.state, "roles", []):
         return RedirectResponse(url="/")
     return templates.TemplateResponse(request, "import.html", {})
 
@@ -109,7 +109,7 @@ async def status_page(request: Request) -> Response:
         return RedirectResponse(url="/login")
 
     settings = get_app_settings()
-    if current_token != settings.access_token:
+    if current_token != settings.access_token and settings.admin_role_name not in getattr(request.state, "roles", []):
         return RedirectResponse(url="/")
 
     return templates.TemplateResponse(request, "status.html", {})
@@ -124,7 +124,7 @@ async def speakers_page(request: Request) -> Response:
         return RedirectResponse(url="/login")
 
     settings = get_app_settings()
-    if current_token != settings.access_token:
+    if current_token != settings.access_token and settings.admin_role_name not in getattr(request.state, "roles", []):
         return RedirectResponse(url="/")
 
     from app.manticore import get_manticore_client
@@ -159,6 +159,6 @@ async def indexed_page(request: Request) -> Response:
         return RedirectResponse(url="/login")
 
     settings = get_app_settings()
-    if current_token != settings.access_token:
+    if current_token != settings.access_token and settings.admin_role_name not in getattr(request.state, "roles", []):
         return RedirectResponse(url="/")
     return templates.TemplateResponse(request, "indexed.html", {})
