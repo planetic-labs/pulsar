@@ -97,14 +97,14 @@ async def is_valid_token(token: str | None) -> bool:
             logging.warning(f"JWT validation failed: could not load signing key: {e}")
             return False
 
-        # Decode & verify signature, exp, iat, aud, iss
+        # Decode & verify signature, exp, aud, iss, roles
         payload = jwt.decode(
             token,
             signing_key.key,
             algorithms=["RS256"],
             audience=settings.ark_audience,
             issuer=settings.ark_issuer,
-            options={"verify_exp": True, "require": ["exp", "iat", "aud", "iss"]},
+            options={"verify_exp": True, "require": ["exp", "aud", "iss", "roles"]},
         )
 
         # Business validation: status must be active
@@ -251,12 +251,15 @@ async def require_access_token(request: Request) -> str:
     settings = get_app_settings()
     if token == settings.access_token:
         request.state.user_id = "admin"
-        request.state.roles = ["admin"]
+        request.state.roles = ["admin", settings.admin_role_name]
     else:
         try:
             payload = jwt.decode(token, options={"verify_signature": False})
             request.state.user_id = payload.get("sub")
-            request.state.roles = ["user"]
+            roles = payload.get("roles", [])
+            if not isinstance(roles, list):
+                roles = [roles] if roles else []
+            request.state.roles = roles
         except jwt.PyJWTError:
             request.state.user_id = None
             request.state.roles = []
@@ -266,7 +269,8 @@ async def require_access_token(request: Request) -> str:
 
 async def require_admin(request: Request) -> str:
     token = await require_access_token(request)
-    if "admin" not in getattr(request.state, "roles", []):
+    settings = get_app_settings()
+    if settings.admin_role_name not in getattr(request.state, "roles", []):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Access denied: Admin role required",

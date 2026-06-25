@@ -64,6 +64,7 @@ class ManticoreSettings:
 class AppSettings:
     access_token: str
     session_secret_key: str
+    admin_role_name: str
     host: str
     port: int
     results_limit: int
@@ -178,6 +179,7 @@ def get_app_settings() -> AppSettings:
     return AppSettings(
         access_token=s.app_access_token,
         session_secret_key=s.session_secret_key,
+        admin_role_name=s.admin_role_name,
         host=s.app_host,
         port=s.app_port,
         results_limit=s.app_results_limit,
