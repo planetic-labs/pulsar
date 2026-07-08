@@ -178,7 +178,11 @@ async def login_post(
                         request, "login.html", {"error": f"Ошибка сервера авторизации: {res.status_code}"}
                     )
             except Exception as e:
-                logger.error(f"Error calling Ark Messenger verify-code for email {email} from IP {client_ip}: {e}")
+                logger.error(
+                    f"Error calling Ark Messenger verify-code (URL: {verify_url}, email: {email}) from IP {client_ip}: "
+                    f"{type(e).__name__}: {e}",
+                    exc_info=True,
+                )
                 return templates.TemplateResponse(
                     request, "login.html", {"error": "Не удалось связаться с сервером авторизации"}
                 )
@@ -213,7 +217,10 @@ async def api_auth_identify(request: Request) -> Response:
             response = await client.post(identify_url, json={"email": email}, timeout=10.0)
             return Response(content=response.content, status_code=response.status_code, media_type="application/json")
         except Exception as e:
-            logger.error(f"Error calling Ark Messenger identify: {e}")
+            logger.error(
+                f"Error calling Ark Messenger identify (URL: {identify_url}, email: {email}): {type(e).__name__}: {e}",
+                exc_info=True,
+            )
             raise HTTPException(status_code=502, detail="Error communicating with authentication server") from e
 
 

@@ -238,81 +238,7 @@ function closePlayer() {
     if (playerPlaceholder) playerPlaceholder.classList.remove('hidden');
 }
 
-async function editChunk(chunkId, currentText, btn) {
-    const card = btn.closest('.result-card-ui');
-    if (!card) return;
-    const textP = card.querySelector('p');
-    if (!textP) return;
-    
-    const originalOnClick = card.onclick;
-    card.onclick = null;
 
-    const textarea = document.createElement('textarea');
-    textarea.className = "w-full bg-[#FAF9F6] border border-brand-300 rounded-xl py-3 px-4 text-sm focus:outline-none focus:bg-white transition-all shadow-inner mb-3 italic";
-    textarea.rows = 4;
-    textarea.value = currentText;
-    
-    const actionsDiv = document.createElement('div');
-    actionsDiv.className = "flex gap-2 mb-3";
-    actionsDiv.innerHTML = `
-        <button class="px-4 py-2 bg-brand-500 text-white text-[10px] font-black rounded-lg uppercase tracking-widest hover:bg-brand-600 transition-all shadow-md">Сохранить</button>
-        <button class="px-4 py-2 bg-warm-100 text-warm-500 text-[10px] font-black rounded-lg uppercase tracking-widest hover:bg-warm-200 transition-all">Отмена</button>
-    `;
-
-    const saveBtn = actionsDiv.children[0];
-    const cancelBtn = actionsDiv.children[1];
-
-    textP.style.display = 'none';
-    textP.after(actionsDiv);
-    textP.after(textarea);
-    textarea.focus();
-
-    cancelBtn.onclick = (e) => {
-        e.stopPropagation();
-        textarea.remove();
-        actionsDiv.remove();
-        textP.style.display = 'block';
-        card.onclick = originalOnClick;
-    };
-
-    saveBtn.onclick = async (e) => {
-        e.stopPropagation();
-        const newText = textarea.value;
-        saveBtn.disabled = true;
-        saveBtn.innerHTML = '<svg class="animate-spin h-3 w-3 text-white inline mr-1" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>...';
-        
-        try {
-            const res = await fetch(`/api/chunks/${chunkId}`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ text: newText })
-            });
-            
-            if (res.ok) {
-                textP.textContent = `«${newText}»`;
-                textarea.remove();
-                actionsDiv.remove();
-                textP.style.display = 'block';
-                card.onclick = originalOnClick;
-                const editBtn = card.querySelector('button[data-raw-text]');
-                if (editBtn) {
-                    editBtn.setAttribute('data-raw-text', newText);
-                }
-                
-                card.classList.add('ring-2', 'ring-green-400');
-                setTimeout(() => card.classList.remove('ring-2', 'ring-green-400'), 1500);
-            } else {
-                alert('Ошибка при сохранении');
-                saveBtn.disabled = false;
-                saveBtn.textContent = 'Сохранить';
-            }
-        } catch (err) {
-            alert('Ошибка связи');
-            saveBtn.disabled = false;
-            saveBtn.textContent = 'Сохранить';
-        }
-    };
-}
 
 const speakerModal = document.getElementById('speaker-modal');
 const speakerList = document.getElementById('speaker-list');
@@ -451,7 +377,7 @@ window.openDatePicker = openDatePicker;
 window.clearDates = clearDates;
 window.playFragment = playFragment;
 window.closePlayer = closePlayer;
-window.editChunk = editChunk;
+
 window.saveSpeaker = saveSpeaker;
 window.manageSpeakers = manageSpeakers;
 window.closeSpeakers = closeSpeakers;
