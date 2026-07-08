@@ -7,24 +7,16 @@ from typing import Any
 import httpx
 from fastapi import APIRouter, BackgroundTasks, Depends, Form, HTTPException, Path, Request, Response
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel, Field
 
 from app.auth import require_access_token, require_admin
 from app.dependencies import (
     get_chunk_repo,
     get_google_drive,
     get_video_repo,
-    get_video_service,
 )
 from app.ports import FileStoragePort
 from app.repos.chunk_repo import ChunkRepository
 from app.repos.video_repo import VideoRepository
-from app.services.video import VideoNotFoundError, VideoService
-
-
-class ChunkUpdate(BaseModel):
-    text: str = Field(..., min_length=1, max_length=10000)
-
 
 logger = logging.getLogger("app.routers.videos")
 
@@ -93,20 +85,6 @@ async def api_list_videos(
     """Returns list of all indexed video IDs and titles."""
     rows = await video_repo.get_all()
     return [dict(row) for row in rows]
-
-
-@router.post("/api/chunks/{chunk_id}")
-async def api_update_chunk(
-    body: ChunkUpdate,
-    chunk_id: int = Path(..., ge=1),
-    video_service: VideoService = Depends(get_video_service),
-    _: str = Depends(require_access_token),
-) -> dict[str, Any]:
-    """Updates a single chunk text in SQLite database, JSON transcript, and Manticore search index."""
-    try:
-        return await video_service.update_chunk_text(chunk_id, body.text)
-    except VideoNotFoundError as e:
-        raise HTTPException(status_code=404, detail="Chunk not found") from e
 
 
 @router.post("/api/speakers/register")

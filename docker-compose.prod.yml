@@ -5,7 +5,7 @@ services:
     ports:
       - "127.0.0.1:9308:9308"
     networks:
-      - homelab-net
+      - planetic-net
     volumes:
       - manticore_data:/var/lib/manticore
     healthcheck:
@@ -22,7 +22,7 @@ services:
     ports:
       - "127.0.0.1:8350:8350"
     networks:
-      - homelab-net
+      - planetic-net
     environment:
       - HF_HOME=/app/models_cache
       - APP_PORT=8350
@@ -48,5 +48,5 @@ volumes:
   manticore_data:
 
 networks:
-  homelab-net:
+  planetic-net:
     external: true
