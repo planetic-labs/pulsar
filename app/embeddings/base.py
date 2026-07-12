@@ -1,10 +1,57 @@
 from __future__ import annotations
 
+import contextlib
 from abc import ABC, abstractmethod
-from collections.abc import Callable
+from collections.abc import Callable, Generator
+
+import httpx
 
 from app.config import EmbeddingSettings
 from app.manticore import models
+
+
+class EmbeddingProviderError(Exception):
+    """Исключение, выбрасываемое при ошибках провайдеров эмбеддингов (например, OpenRouter)."""
+
+    pass
+
+
+@contextlib.contextmanager
+def handle_api_errors() -> Generator[None, None, None]:
+    try:
+        yield
+    except httpx.HTTPStatusError as e:
+        status_code = e.response.status_code
+        url = str(e.request.url)
+
+        # Получаем понятное имя хоста/сервиса
+        service_name = "OpenRouter" if "openrouter.ai" in url else "API эмбеддингов"
+
+        if status_code == 401:
+            msg = (
+                f"Ошибка авторизации (401 Unauthorized) при обращении к {service_name}. "
+                "Пожалуйста, убедитесь, что в конфигурации (.env) указан корректный токен доступа "
+                "в переменной EMBEDDING_API_TOKEN."
+            )
+        elif status_code == 429:
+            msg = (
+                f"Превышен лимит запросов или закончились средства на балансе (429 Too Many Requests) "
+                f"при обращении к {service_name}."
+            )
+        elif status_code == 403:
+            msg = (
+                f"Доступ к {service_name} запрещен (403 Forbidden). "
+                "Проверьте права вашего API-ключа и настройки доступа в личном кабинете."
+            )
+        elif status_code == 400:
+            msg = f"Неверный запрос (400 Bad Request) к {service_name}. Детали ошибки от сервера: {e.response.text}"
+        else:
+            msg = f"Ошибка {service_name} ({status_code}): {e.response.text}"
+        raise EmbeddingProviderError(msg) from e
+    except httpx.RequestError as e:
+        url = str(e.request.url) if e.request else ""
+        service_name = "OpenRouter" if "openrouter.ai" in url else "API эмбеддингов"
+        raise EmbeddingProviderError(f"Сетевая ошибка при обращении к {service_name}: {e}") from e
 
 
 class BaseEmbeddingProvider(ABC):

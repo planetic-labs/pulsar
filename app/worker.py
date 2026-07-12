@@ -8,6 +8,7 @@ from typing import Any
 
 from app.config import get_sqlite_settings
 from app.db import db_connection
+from app.embeddings.base import EmbeddingProviderError
 from app.pipeline.download import InsufficientSpaceError
 from app.services.ingest import IngestService
 from app.services.task_queue import TaskQueueService
@@ -213,6 +214,12 @@ class Worker:
 
                     await asyncio.to_thread(_sync_rollback)
                     await self.queue.fail_task(task_id, f"Аудиофайл пропал, откат на скачивание. Ошибка: {e}")
+
+                except EmbeddingProviderError as e:
+                    title = payload.get("title", "Unknown")
+                    friendly_error = f"Ошибка при генерации эмбеддингов для {title}: {e}"
+                    logger.error(friendly_error)
+                    await self.queue.fail_task(task_id, friendly_error)
 
                 except Exception:
                     error_trace = traceback.format_exc()

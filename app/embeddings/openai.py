@@ -8,7 +8,7 @@ from typing import Any
 import httpx
 
 from app.config import EmbeddingSettings
-from app.embeddings.base import BaseEmbeddingProvider
+from app.embeddings.base import BaseEmbeddingProvider, handle_api_errors
 from app.manticore import models
 
 logger = logging.getLogger(__name__)
@@ -32,19 +32,29 @@ class OpenAIEmbeddingProvider(BaseEmbeddingProvider):
             payload["provider"] = {"only": self.settings.openrouter_providers, "allow_fallbacks": False}
         return payload
 
+    def _get_headers(self) -> dict[str, str]:
+        headers = {
+            "HTTP-Referer": "https://pulsar.i28.ru",
+            "X-Title": "Pulsar",
+        }
+        if self.settings.api_token:
+            headers["Authorization"] = f"Bearer {self.settings.api_token}"
+        return headers
+
     async def embed_text_async(
         self, text: str, task_type: str = "RETRIEVAL_QUERY"
     ) -> tuple[list[float], models.SparseVector | None]:
         logger.info(f"OpenAI: Embedding query from remote ({text[:20]}...)")
         url = self._get_url()
-        headers = {"Authorization": f"Bearer {self.settings.api_token}"} if self.settings.api_token else {}
+        headers = self._get_headers()
         formatted_text = self._format_text(text, task_type)
         payload = self._build_payload([formatted_text])
 
-        async with httpx.AsyncClient(timeout=60.0) as client:
-            response = await client.post(url, json=payload, headers=headers)
-            response.raise_for_status()
-            res = response.json()
+        with handle_api_errors():
+            async with httpx.AsyncClient(timeout=60.0) as client:
+                response = await client.post(url, json=payload, headers=headers)
+                response.raise_for_status()
+                res = response.json()
 
         dense = res["data"][0]["embedding"]
         return dense, None
@@ -54,14 +64,15 @@ class OpenAIEmbeddingProvider(BaseEmbeddingProvider):
     ) -> tuple[list[float], models.SparseVector | None]:
         logger.info(f"OpenAI: Embedding query from remote (sync) ({text[:20]}...)")
         url = self._get_url()
-        headers = {"Authorization": f"Bearer {self.settings.api_token}"} if self.settings.api_token else {}
+        headers = self._get_headers()
         formatted_text = self._format_text(text, task_type)
         payload = self._build_payload([formatted_text])
 
-        with httpx.Client(timeout=60.0) as client:
-            response = client.post(url, json=payload, headers=headers)
-            response.raise_for_status()
-            res = response.json()
+        with handle_api_errors():
+            with httpx.Client(timeout=60.0) as client:
+                response = client.post(url, json=payload, headers=headers)
+                response.raise_for_status()
+                res = response.json()
 
         dense = res["data"][0]["embedding"]
         return dense, None
@@ -76,7 +87,7 @@ class OpenAIEmbeddingProvider(BaseEmbeddingProvider):
             return []
 
         url = self._get_url()
-        headers = {"Authorization": f"Bearer {self.settings.api_token}"} if self.settings.api_token else {}
+        headers = self._get_headers()
 
         total = len(texts)
         batch_size = 500  # Увеличиваем батч до 500
@@ -111,7 +122,8 @@ class OpenAIEmbeddingProvider(BaseEmbeddingProvider):
                 batch = texts[i : i + batch_size]
                 tasks.append(process_batch(i, batch, client))
 
-            await asyncio.gather(*tasks)
+            with handle_api_errors():
+                await asyncio.gather(*tasks)
 
         # Гарантируем, что все элементы заполнены
         final_results = [r for r in results if r is not None]
