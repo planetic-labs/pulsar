@@ -6,7 +6,7 @@ from collections.abc import Callable
 import httpx
 
 from app.config import EmbeddingSettings
-from app.embeddings.base import BaseEmbeddingProvider
+from app.embeddings.base import BaseEmbeddingProvider, handle_api_errors
 from app.manticore import models
 
 logger = logging.getLogger(__name__)
@@ -33,10 +33,11 @@ class CustomEmbeddingProvider(BaseEmbeddingProvider):
         formatted_text = self._format_text(text, task_type)
         payload = {"model": self.settings.model_id, "input": [formatted_text]}
 
-        async with httpx.AsyncClient(timeout=60.0) as client:
-            response = await client.post(url, json=payload, headers=headers)
-            response.raise_for_status()
-            res = response.json()
+        with handle_api_errors():
+            async with httpx.AsyncClient(timeout=60.0) as client:
+                response = await client.post(url, json=payload, headers=headers)
+                response.raise_for_status()
+                res = response.json()
 
         dense = res["data"][0]["embedding"]
         sparse = None
@@ -55,10 +56,11 @@ class CustomEmbeddingProvider(BaseEmbeddingProvider):
         formatted_text = self._format_text(text, task_type)
         payload = {"model": self.settings.model_id, "input": [formatted_text]}
 
-        with httpx.Client(timeout=60.0) as client:
-            response = client.post(url, json=payload, headers=headers)
-            response.raise_for_status()
-            res = response.json()
+        with handle_api_errors():
+            with httpx.Client(timeout=60.0) as client:
+                response = client.post(url, json=payload, headers=headers)
+                response.raise_for_status()
+                res = response.json()
 
         dense = res["data"][0]["embedding"]
         sparse = None
@@ -83,22 +85,24 @@ class CustomEmbeddingProvider(BaseEmbeddingProvider):
         results: list[tuple[list[float], models.SparseVector | None]] = []
         total = len(texts)
         batch_size = 50
-        async with httpx.AsyncClient(timeout=300.0) as client:
-            for i in range(0, total, batch_size):
-                batch = texts[i : i + batch_size]
-                current_end = min(i + batch_size, total)
-                logger.info(
-                    f"Custom AI: Обработка батча {i // batch_size + 1} (фрагменты {i} - {current_end} из {total})..."
-                )
+        with handle_api_errors():
+            async with httpx.AsyncClient(timeout=300.0) as client:
+                for i in range(0, total, batch_size):
+                    batch = texts[i : i + batch_size]
+                    current_end = min(i + batch_size, total)
+                    logger.info(
+                        f"Custom AI: Обработка батча {i // batch_size + 1} "
+                        f"(фрагменты {i} - {current_end} из {total})..."
+                    )
 
-                if progress_callback:
-                    progress_callback(i, total)
+                    if progress_callback:
+                        progress_callback(i, total)
 
-                formatted_batch = self._format_texts(batch, task_type)
-                payload = {"model": self.settings.model_id, "input": formatted_batch}
-                response = await client.post(url, json=payload, headers=headers)
-                response.raise_for_status()
-                res = response.json()
+                    formatted_batch = self._format_texts(batch, task_type)
+                    payload = {"model": self.settings.model_id, "input": formatted_batch}
+                    response = await client.post(url, json=payload, headers=headers)
+                    response.raise_for_status()
+                    res = response.json()
 
                 sorted_data = sorted(res["data"], key=lambda x: x.get("index", 0))
                 for item in sorted_data:
