@@ -7,11 +7,12 @@ from datetime import date
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from fastapi.responses import HTMLResponse, RedirectResponse
 
-from app.auth import require_access_token
+from app.auth import require_access_token, require_subeditor
 from app.config import get_app_settings
 from app.core import templates
-from app.dependencies import get_search_service, get_settings
+from app.dependencies import get_chunk_repo, get_search_service, get_settings
 from app.limiter import limiter
+from app.repos.chunk_repo import ChunkRepository
 from app.services.search import SearchResult, SearchService
 from app.settings import Settings
 
@@ -162,3 +163,30 @@ async def indexed_page(request: Request) -> Response:
     if current_token != settings.access_token and settings.admin_role_name not in getattr(request.state, "roles", []):
         return RedirectResponse(url="/")
     return templates.TemplateResponse(request, "indexed.html", {})
+
+
+@router.get("/moderation", response_class=HTMLResponse)
+async def moderation_page(
+    request: Request,
+    chunk_repo: ChunkRepository = Depends(get_chunk_repo),
+) -> Response:
+    """Renders the subtitle moderation/editing queue dashboard view."""
+    try:
+        await require_subeditor(request)
+    except HTTPException:
+        return RedirectResponse(url="/")
+
+    from app.config import get_app_settings
+    from app.services.search import format_timestamp
+
+    user_id = getattr(request.state, "user_id", "anonymous")
+    settings = get_app_settings()
+
+    flag = await chunk_repo.reserve_and_get_next_flag(
+        user_id=user_id, lock_timeout_sec=settings.subtitle_lock_timeout_sec
+    )
+    flags = [flag] if flag else []
+
+    return templates.TemplateResponse(
+        request, "moderation.html", {"flags": flags, "format_timestamp": format_timestamp}
+    )

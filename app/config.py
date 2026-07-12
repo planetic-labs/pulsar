@@ -65,6 +65,8 @@ class AppSettings:
     access_token: str
     session_secret_key: str
     admin_role_name: str
+    subeditor_role_name: str
+    subtitle_lock_timeout_sec: int
     host: str
     port: int
     results_limit: int
@@ -180,6 +182,8 @@ def get_app_settings() -> AppSettings:
         access_token=s.app_access_token,
         session_secret_key=s.session_secret_key,
         admin_role_name=s.admin_role_name,
+        subeditor_role_name=s.subeditor_role_name,
+        subtitle_lock_timeout_sec=s.subtitle_lock_timeout_sec,
         host=s.app_host,
         port=s.app_port,
         results_limit=s.app_results_limit,

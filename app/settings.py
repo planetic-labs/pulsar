@@ -74,6 +74,8 @@ class Settings(BaseSettings):
         validation_alias="SESSION_SECRET_KEY",
     )
     admin_role_name: str = Field(default="admin", validation_alias="ADMIN_ROLE_NAME")
+    subeditor_role_name: str = Field(default="subeditor", validation_alias="SUBEDITOR_ROLE_NAME")
+    subtitle_lock_timeout_sec: int = Field(default=10800, validation_alias="SUBTITLE_LOCK_TIMEOUT_SEC")
     app_host: str = Field(default="0.0.0.0", validation_alias="APP_HOST")
     app_port: int = Field(default=8350, validation_alias="APP_PORT")
     app_results_limit: int = Field(default=20, ge=1, le=200, validation_alias="APP_RESULTS_LIMIT")

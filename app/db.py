@@ -40,41 +40,23 @@ def init_db(connection: sqlite3.Connection) -> None:
     for stmt in SCHEMA_STATEMENTS:
         connection.execute(stmt)
 
-    # Migrations for existing databases: Add video_id, retries, and max_retries columns if they do not exist
+    from app.db_schema import DB_MIGRATIONS
+
     cursor = connection.cursor()
-    cursor.execute("PRAGMA table_info(tasks)")
-    columns = [row[1] for row in cursor.fetchall()]
+    table_columns = {}
 
-    if "video_id" not in columns:
-        try:
-            connection.execute("ALTER TABLE tasks ADD COLUMN video_id INTEGER REFERENCES videos(id) ON DELETE CASCADE")
-            logger.info("Added video_id column to tasks table.")
-        except Exception as e:
-            logger.error(f"Error adding video_id column to tasks: {e}")
+    for table_name, column_name, alter_sql in DB_MIGRATIONS:
+        if table_name not in table_columns:
+            cursor.execute(f"PRAGMA table_info({table_name})")
+            table_columns[table_name] = [row[1] for row in cursor.fetchall()]
 
-    if "retries" not in columns:
-        try:
-            connection.execute("ALTER TABLE tasks ADD COLUMN retries INTEGER DEFAULT 0")
-            logger.info("Added retries column to tasks table.")
-        except Exception as e:
-            logger.error(f"Error adding retries column to tasks: {e}")
-
-    if "max_retries" not in columns:
-        try:
-            connection.execute("ALTER TABLE tasks ADD COLUMN max_retries INTEGER DEFAULT 3")
-            logger.info("Added max_retries column to tasks table.")
-        except Exception as e:
-            logger.error(f"Error adding max_retries column to tasks: {e}")
-
-    # Migrate: add is_silent column to existing videos table
-    cursor.execute("PRAGMA table_info(videos)")
-    v_columns = [row[1] for row in cursor.fetchall()]
-    if "is_silent" not in v_columns:
-        try:
-            connection.execute("ALTER TABLE videos ADD COLUMN is_silent BOOLEAN DEFAULT FALSE")
-            logger.info("Added is_silent column to videos table.")
-        except Exception as e:
-            logger.error(f"Error adding is_silent column to videos: {e}")
+        if column_name not in table_columns[table_name]:
+            try:
+                connection.execute(alter_sql)
+                logger.info(f"Migration: Added column '{column_name}' to table '{table_name}'.")
+                table_columns[table_name].append(column_name)
+            except Exception as e:
+                logger.error(f"Migration failed: '{alter_sql}': {e}")
 
     connection.commit()
     logger.info("SQLite database schema initialized.")

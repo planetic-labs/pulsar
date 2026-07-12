@@ -37,9 +37,25 @@ class MockVectorStoreAdapter:
     def __init__(self):
         self.points = {}
 
-    async def upsert_points(self, table: str, points: list[dict[str, Any]]) -> None:
+    async def upsert(self, collection_name: str, points: list[dict[str, Any]]) -> None:
         for p in points:
             self.points[p["id"]] = p
+
+    async def upsert_points(self, table: str, points: list[dict[str, Any]]) -> None:
+        await self.upsert(table, points)
+
+    async def scroll(
+        self, collection_name: str, where_clause: str | None = None, limit: int = 10
+    ) -> tuple[list[Any], None]:
+        class Record:
+            def __init__(self, id, payload):
+                self.id = id
+                self.payload = payload
+
+        records = []
+        for pid, p in self.points.items():
+            records.append(Record(id=pid, payload=p["payload"]))
+        return records, None
 
     async def search_vectors(
         self, table: str, vector: list[float], limit: int, where: str | None = None
@@ -174,10 +190,93 @@ async def test_search_service_flow(test_db, test_settings):
     )
 
     # Act
-    results = await search_service.search("тест", limit=5)
+    chunk_repo = ChunkRepository(test_db)
 
-    # Assert
+    # 1. Сначала проверяем, что флаг False
+    results = await search_service.search("тест", limit=5)
+    assert len(results) == 1
+    assert results[0].is_flagged is False
+
+    # 2. Создаем жалобу
+    # Сначала нужно вставить чанк в SQLite, так как subtitle_flags ссылается на chunks(id)
+    async with test_db.transaction() as conn:
+        await conn.execute(
+            """
+            INSERT INTO chunks (id, video_id, chunk_index, start_sec, end_sec, text)
+            VALUES (101, ?, 0, 0.0, 5.0, 'Поисковый тест')
+            """,
+            (video_id,),
+        )
+    await chunk_repo.create_flag(101)
+
+    # 3. Теперь проверяем, что флаг True
+    results = await search_service.search("тест", limit=5)
     assert len(results) == 1
     assert results[0].title == "Search Test Video"
     assert results[0].chunk_id == 101
+    assert results[0].is_flagged is True
+    assert results[0].chunk_id == 101
     assert "тест" in results[0].text
+
+
+@pytest.mark.asyncio
+async def test_moderation_flow(test_db, test_settings):
+    video_repo = VideoRepository(test_db)
+    chunk_repo = ChunkRepository(test_db)
+
+    # 1. Создаем видео и чанк
+    video_id = await video_repo.upsert(
+        source_file_id="test_file_moderation",
+        title="Moderation Test Video",
+        status="completed",
+    )
+
+    await chunk_repo.replace_chunks(
+        video_id,
+        [
+            {"chunk_index": 0, "start_sec": 0.0, "end_sec": 10.0, "text": "Текст чанка"},
+        ],
+    )
+
+    chunks = await chunk_repo.get_by_video_id(video_id)
+    chunk_id = chunks[0]["id"]
+
+    # 2. Создаем жалобу (flag)
+    await chunk_repo.create_flag(chunk_id)
+
+    # 3. Проверяем, что жалоба появилась в списке
+    flags = await chunk_repo.get_all_flags()
+    assert len(flags) == 1
+    assert flags[0]["chunk_id"] == chunk_id
+    assert flags[0]["video_title"] == "Moderation Test Video"
+    assert flags[0]["original_text"] == "Текст чанка"
+
+    # 4. Проверяем резервирование
+    # Модератор А захватывает задачу
+    flag_a = await chunk_repo.reserve_and_get_next_flag(user_id="moderator_a", lock_timeout_sec=10)
+    assert flag_a is not None
+    assert flag_a["chunk_id"] == chunk_id
+    assert flag_a["locked_by"] == "moderator_a"
+
+    # Модератор Б пытается захватить задачу, но получает None (так как она заблокирована)
+    flag_b = await chunk_repo.reserve_and_get_next_flag(user_id="moderator_b", lock_timeout_sec=10)
+    assert flag_b is None
+
+    # Модератор А снова запрашивает следующую задачу и получает ту же самую (так как она за ним заблокирована)
+    flag_a_again = await chunk_repo.reserve_and_get_next_flag(user_id="moderator_a", lock_timeout_sec=10)
+    assert flag_a_again is not None
+    assert flag_a_again["chunk_id"] == chunk_id
+
+    # Имитируем истечение времени блокировки (lock_timeout_sec = -1)
+    # Теперь Модератор Б может захватить задачу
+    flag_b_expired = await chunk_repo.reserve_and_get_next_flag(user_id="moderator_b", lock_timeout_sec=-1)
+    assert flag_b_expired is not None
+    assert flag_b_expired["chunk_id"] == chunk_id
+    assert flag_b_expired["locked_by"] == "moderator_b"
+
+    # 5. Удаляем жалобу (dismiss)
+    await chunk_repo.delete_flag(chunk_id)
+
+    # 6. Проверяем, что список флагов пуст
+    flags = await chunk_repo.get_all_flags()
+    assert len(flags) == 0

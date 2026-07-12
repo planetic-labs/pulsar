@@ -2,8 +2,6 @@ from __future__ import annotations
 
 import logging
 import re
-import sqlite3
-from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -132,6 +130,18 @@ SCHEMA_STATEMENTS = [
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
     """,
+    # 8. Subtitle flags table (moderation queue)
+    """
+    CREATE TABLE IF NOT EXISTS subtitle_flags (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        chunk_id INTEGER NOT NULL REFERENCES chunks(id) ON DELETE CASCADE,
+        status TEXT NOT NULL DEFAULT 'pending',
+        locked_by TEXT,
+        locked_at DATETIME,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(chunk_id)
+    );
+    """,
     # Indexes
     "CREATE INDEX IF NOT EXISTS idx_videos_parent_folder ON videos(parent_folder_id);",
     "CREATE INDEX IF NOT EXISTS idx_videos_md5 ON videos(md5_checksum);",
@@ -205,8 +215,12 @@ SCHEMA_STATEMENTS = [
 ]
 
 
-def migrate_existing_tables(conn: sqlite3.Connection | Any) -> None:
-    """Выполняет необходимые миграции столбцов для существующей БД (совместимо с sqlite3 и aiosqlite)."""
-    # Будет вызвано синхронно или асинхронно снаружи в зависимости от обертки.
-    # Так как мы не знаем, aiosqlite или sqlite3 передан, мы используем duck typing для выполнения.
-    pass
+DB_MIGRATIONS = [
+    # (table_name, column_name, alter_sql)
+    ("tasks", "video_id", "ALTER TABLE tasks ADD COLUMN video_id INTEGER REFERENCES videos(id) ON DELETE CASCADE"),
+    ("tasks", "retries", "ALTER TABLE tasks ADD COLUMN retries INTEGER DEFAULT 0"),
+    ("tasks", "max_retries", "ALTER TABLE tasks ADD COLUMN max_retries INTEGER DEFAULT 3"),
+    ("videos", "is_silent", "ALTER TABLE videos ADD COLUMN is_silent BOOLEAN DEFAULT FALSE"),
+    ("subtitle_flags", "locked_by", "ALTER TABLE subtitle_flags ADD COLUMN locked_by TEXT"),
+    ("subtitle_flags", "locked_at", "ALTER TABLE subtitle_flags ADD COLUMN locked_at DATETIME"),
+]

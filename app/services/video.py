@@ -320,3 +320,282 @@ class VideoService:
                     )
                     if id_match and int(id_match.group(1)) == video_id:
                         await conn.execute("DELETE FROM integrity_issues WHERE id = ?", (row["id"],))
+
+    async def edit_chunk_text(self, video_id: int, chunk_id: int, new_text: str) -> None:
+        """Редактирует текст конкретного чанка, обновляя SQLite, Manticore, Raw/Normalized JSON."""
+        # 1. Получаем чанк и проверяем существование
+        chunk = await self.chunk_repo.get_chunk_by_id(chunk_id)
+        if not chunk or chunk["video_id"] != video_id:
+            raise VideoNotFoundError("Chunk not found or mismatch with video")
+
+        video = await self.video_repo.get_by_id(video_id)
+        if not video:
+            raise VideoNotFoundError("Video not found")
+
+        # Если это дубликат, перенаправляем на оригинал
+        if video["original_id"] is not None:
+            orig_video_id = int(video["original_id"])
+            video_id = orig_video_id
+            video = await self.video_repo.get_by_id(orig_video_id)
+            if not video:
+                raise VideoNotFoundError("Original video not found")
+
+        source_file_id = str(video["source_file_id"])
+        start_sec = float(chunk["start_sec"])
+        end_sec = float(chunk["end_sec"])
+        clean_new_text = new_text.strip()
+
+        # 2. Обновляем JSON-файлы на диске
+        raw_path = self.settings.get_raw_transcript_path(source_file_id)
+        norm_path = self.settings.get_normalized_transcript_path(source_file_id)
+
+        loop = asyncio.get_running_loop()
+
+        def update_files_on_disk() -> None:
+            # 2a. Обновляем Normalized JSON
+            if norm_path.exists():
+                with gzip.open(norm_path, "rt", encoding="utf-8") as f:
+                    norm_data = json.load(f)
+
+                utterances = norm_data.get("utterances", [])
+                chunk_utts = [
+                    u for u in utterances if float(u.get("start", 0)) >= start_sec and float(u.get("end", 0)) <= end_sec
+                ]
+
+                if chunk_utts:
+                    self._distribute_words_to_segments(chunk_utts, clean_new_text, text_key="text")
+                    norm_tmp = norm_path.with_suffix(".tmp")
+                    with gzip.open(norm_tmp, "wt", encoding="utf-8") as f:
+                        json.dump(norm_data, f, separators=(",", ":"), ensure_ascii=False)
+                    norm_tmp.rename(norm_path)
+
+            # 2b. Обновляем Raw JSON
+            if raw_path.exists():
+                with gzip.open(raw_path, "rt", encoding="utf-8") as f:
+                    raw_data = json.load(f)
+
+                results = raw_data.get("results", {})
+                raw_utts = results.get("utterances", [])
+                chunk_raw_utts = [
+                    u for u in raw_utts if float(u.get("start", 0)) >= start_sec and float(u.get("end", 0)) <= end_sec
+                ]
+                if chunk_raw_utts:
+                    self._distribute_words_to_segments(chunk_raw_utts, clean_new_text, text_key="transcript")
+
+                # Также правим paragraphs -> sentences
+                channels = results.get("channels", [])
+                if channels:
+                    alt = channels[0].get("alternatives", [{}])[0]
+                    paragraphs = alt.get("paragraphs", {}).get("paragraphs", [])
+                    raw_sentences = []
+                    for p in paragraphs:
+                        for s in p.get("sentences", []):
+                            if float(s.get("start", 0)) >= start_sec and float(s.get("end", 0)) <= end_sec:
+                                raw_sentences.append(s)
+                    if raw_sentences:
+                        self._distribute_words_to_segments(raw_sentences, clean_new_text, text_key="text")
+
+                    # Также правим words list
+                    words_list = alt.get("words", [])
+                    word_indices = [
+                        idx
+                        for idx, w in enumerate(words_list)
+                        if float(w.get("start", 0)) >= start_sec and float(w.get("end", 0)) <= end_sec
+                    ]
+                    if word_indices:
+                        new_words = clean_new_text.split()
+                        start_idx = word_indices[0]
+                        end_idx = word_indices[-1]
+
+                        import difflib
+
+                        old_chunk_words = words_list[start_idx : end_idx + 1]
+                        old_word_strs = [w.get("word", "") for w in old_chunk_words]
+
+                        matcher = difflib.SequenceMatcher(None, old_word_strs, new_words)
+                        aligned_words = []
+
+                        for tag, i1, i2, j1, j2 in matcher.get_opcodes():
+                            if tag == "equal":
+                                for idx in range(i1, i2):
+                                    old_w = old_chunk_words[idx]
+                                    new_w = new_words[j1 + (idx - i1)]
+                                    aligned_words.append(
+                                        {
+                                            "word": new_w,
+                                            "start": old_w.get("start"),
+                                            "end": old_w.get("end"),
+                                            "confidence": old_w.get("confidence", 1.0),
+                                        }
+                                    )
+                            elif tag == "replace":
+                                start_t = old_chunk_words[i1].get("start", start_sec)
+                                end_t = old_chunk_words[i2 - 1].get("end", end_sec)
+                                duration = end_t - start_t
+                                sub_words = new_words[j1:j2]
+                                step = duration / max(1, len(sub_words))
+                                for k, w in enumerate(sub_words):
+                                    w_start = start_t + k * step
+                                    w_end = w_start + step
+                                    aligned_words.append(
+                                        {
+                                            "word": w,
+                                            "start": w_start,
+                                            "end": w_end,
+                                            "confidence": 1.0,
+                                        }
+                                    )
+                            elif tag == "delete":
+                                pass
+                            elif tag == "insert":
+                                if i1 > 0:
+                                    start_t = old_chunk_words[i1 - 1].get("end", start_sec)
+                                else:
+                                    start_t = old_chunk_words[0].get("start", start_sec)
+
+                                if i2 < len(old_chunk_words):
+                                    end_t = old_chunk_words[i2].get("start", end_sec)
+                                else:
+                                    end_t = old_chunk_words[-1].get("end", end_sec)
+
+                                duration = end_t - start_t
+                                sub_words = new_words[j1:j2]
+                                step = duration / max(1, len(sub_words))
+                                for k, w in enumerate(sub_words):
+                                    w_start = start_t + k * step
+                                    w_end = w_start + step
+                                    aligned_words.append(
+                                        {
+                                            "word": w,
+                                            "start": w_start,
+                                            "end": w_end,
+                                            "confidence": 1.0,
+                                        }
+                                    )
+
+                        words_list[start_idx : end_idx + 1] = aligned_words
+
+                raw_tmp = raw_path.with_suffix(".tmp")
+                with gzip.open(raw_tmp, "wt", encoding="utf-8") as f:
+                    json.dump(raw_data, f, separators=(",", ":"), ensure_ascii=False)
+                raw_tmp.rename(raw_path)
+
+        await loop.run_in_executor(None, update_files_on_disk)
+
+        # 3. Обновляем в SQLite
+        await self.chunk_repo.update_chunk(chunk_id, clean_new_text)
+
+        # 4. Рассчитываем эмбеддинг для нового текста
+        dense_vec, sparse_vec = await self.embedder.embed_text(clean_new_text, task_type="RETRIEVAL_DOCUMENT")
+
+        # 5. Обновляем в Manticore
+        from app.manticore import date_to_int
+
+        m_point = {
+            "id": chunk_id,
+            "vector": {"default": dense_vec},
+            "payload": {
+                "chunk_id": chunk_id,
+                "chunk_index": chunk["chunk_index"],
+                "text": clean_new_text,
+                "start_sec": start_sec,
+                "end_sec": end_sec,
+                "video_id": str(video_id),
+                "title": video["title"],
+                "recorded_date": date_to_int(
+                    str(video["recorded_date"]) if video["recorded_date"] is not None else None
+                ),
+                "is_short": bool(video["is_short"]),
+                "is_4k": bool(video["is_4k"]),
+                "source_file_id": source_file_id,
+                "source_url": video["source_url"],
+                "is_primary": True,
+            },
+        }
+        if sparse_vec:
+            m_point["vector"]["text-sparse"] = sparse_vec
+
+        await self.manticore.upsert_points(self.settings.manticore_table, [m_point])
+
+        # 6. Очищаем кэш поисковых запросов
+        async with self.db.transaction() as conn:
+            await conn.execute("DELETE FROM query_cache")
+
+        # 7. Запускаем мгновенную проверку целостности (Sanity Check)
+        await self._verify_chunk_integrity(video_id, chunk_id, clean_new_text, norm_path)
+
+    def _distribute_words_to_segments(self, segments: list[dict], new_text: str, text_key: str = "text") -> None:
+        if not segments:
+            return
+        words = new_text.split()
+        if len(segments) == 1:
+            segments[0][text_key] = new_text
+            return
+
+        lens = [len(str(s.get(text_key, "")).split()) for s in segments]
+        total_len = sum(lens)
+        if total_len == 0:
+            segments[0][text_key] = new_text
+        else:
+            curr_idx = 0
+            for idx, s in enumerate(segments):
+                if idx == len(segments) - 1:
+                    part_words = words[curr_idx:]
+                else:
+                    share = int(round(lens[idx] / total_len * len(words)))
+                    share = max(1, share)
+                    part_words = words[curr_idx : curr_idx + share]
+                    curr_idx += share
+                s[text_key] = " ".join(part_words)
+
+    async def _verify_chunk_integrity(self, video_id: int, chunk_id: int, expected_text: str, norm_path: Path) -> None:
+        """Проверяет успешность записи во все 3 источника: SQLite, JSON, Manticore."""
+        db_chunk = await self.chunk_repo.get_chunk_by_id(chunk_id)
+        if not db_chunk or db_chunk["text"] != expected_text:
+            raise VideoProcessingError("Sanity Check Failed: SQLite chunk text was not updated correctly")
+
+        if norm_path.exists():
+
+            def read_json() -> dict[str, Any]:
+                with gzip.open(norm_path, "rt", encoding="utf-8") as f:
+                    return dict(json.load(f))
+
+            loop = asyncio.get_running_loop()
+            try:
+                norm_data = await loop.run_in_executor(None, read_json)
+                utterances = norm_data.get("utterances", [])
+                chunk_utts = [
+                    u
+                    for u in utterances
+                    if float(u.get("start", 0)) >= db_chunk["start_sec"]
+                    and float(u.get("end", 0)) <= db_chunk["end_sec"]
+                ]
+                if chunk_utts:
+                    json_text = " ".join(str(u.get("text", "")).strip() for u in chunk_utts)
+                    if json_text != expected_text:
+                        raise VideoProcessingError(
+                            f"Sanity Check Failed: JSON text mismatch. Expected: {expected_text}, Got: {json_text}"
+                        )
+            except Exception as e:
+                if isinstance(e, VideoProcessingError):
+                    raise
+                raise VideoProcessingError(f"Sanity Check Failed: JSON validation failed: {e}") from e
+
+        try:
+            m_records = await self.manticore.filter_only(
+                table=self.settings.manticore_table,
+                where_clause=f"chunk_id = {chunk_id}",
+                limit=1,
+            )
+            if not m_records:
+                raise VideoProcessingError("Sanity Check Failed: Chunk was not found in Manticore after update")
+
+            m_text = m_records[0].get("payload", {}).get("text")
+            if m_text != expected_text:
+                raise VideoProcessingError(
+                    f"Sanity Check Failed: Manticore text mismatch. Expected: {expected_text}, Got: {m_text}"
+                )
+        except Exception as e:
+            if not isinstance(e, VideoProcessingError):
+                raise VideoProcessingError(f"Sanity Check Failed: Manticore verification failed: {e}") from e
+            raise
