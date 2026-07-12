@@ -42,6 +42,7 @@ class SearchResult:
     vector_score: float = 0.0
     speaker: str | None = None
     alternative_texts: dict[str, str] = field(default_factory=dict)
+    is_flagged: bool = False
 
 
 def format_timestamp(seconds: float) -> str:
@@ -188,6 +189,24 @@ class SearchService:
                         pass
             video_metadata = await self.video_repo.get_metadata_batch(valid_vids)
 
+        # Получаем список помеченных чанков
+        flagged_chunk_ids = set()
+        chunk_ids = []
+        for p in points:
+            payload = p.get("payload")
+            if payload:
+                chunk_ids.append(_get_int(payload, "chunk_id") or int(p["id"]))
+        if chunk_ids:
+            try:
+                placeholders = ",".join("?" for _ in chunk_ids)
+                sql = f"SELECT chunk_id FROM subtitle_flags WHERE chunk_id IN ({placeholders})"
+                async with self.video_repo.db.transaction() as conn:
+                    async with conn.execute(sql, tuple(chunk_ids)) as cursor:
+                        rows = await cursor.fetchall()
+                        flagged_chunk_ids = {int(row["chunk_id"]) for row in rows}
+            except Exception as e:
+                logger.error(f"Failed to query flagged chunks: {e}")
+
         results = []
         for point in points:
             payload = point.get("payload")
@@ -264,6 +283,7 @@ class SearchService:
                     vector_score=combined_score,
                     speaker=None,
                     alternative_texts={},
+                    is_flagged=(chunk_id in flagged_chunk_ids),
                 )
             )
 

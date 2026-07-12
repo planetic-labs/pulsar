@@ -59,37 +59,20 @@ class Database:
             for stmt in SCHEMA_STATEMENTS:
                 await conn.execute(stmt)
 
-            # Migrations for tasks columns
-            async with conn.execute("PRAGMA table_info(tasks)") as cursor:
-                columns = [row[1] for row in await cursor.fetchall()]
+            from app.db_schema import DB_MIGRATIONS
 
-            if "video_id" not in columns:
-                try:
-                    await conn.execute(
-                        "ALTER TABLE tasks ADD COLUMN video_id INTEGER REFERENCES videos(id) ON DELETE CASCADE"
-                    )
-                except aiosqlite.Error as e:
-                    logger.error(f"Error adding video_id column to tasks: {e}")
+            table_columns = {}
+            for table_name, column_name, alter_sql in DB_MIGRATIONS:
+                if table_name not in table_columns:
+                    async with conn.execute(f"PRAGMA table_info({table_name})") as cursor:
+                        table_columns[table_name] = [row[1] for row in await cursor.fetchall()]
 
-            if "retries" not in columns:
-                try:
-                    await conn.execute("ALTER TABLE tasks ADD COLUMN retries INTEGER DEFAULT 0")
-                except aiosqlite.Error as e:
-                    logger.error(f"Error adding retries column to tasks: {e}")
-
-            if "max_retries" not in columns:
-                try:
-                    await conn.execute("ALTER TABLE tasks ADD COLUMN max_retries INTEGER DEFAULT 3")
-                except aiosqlite.Error as e:
-                    logger.error(f"Error adding max_retries column to tasks: {e}")
-
-            # Migrate: add is_silent column
-            async with conn.execute("PRAGMA table_info(videos)") as cursor:
-                v_columns = [row[1] for row in await cursor.fetchall()]
-            if "is_silent" not in v_columns:
-                try:
-                    await conn.execute("ALTER TABLE videos ADD COLUMN is_silent BOOLEAN DEFAULT FALSE")
-                except aiosqlite.OperationalError:
-                    pass
+                if column_name not in table_columns[table_name]:
+                    try:
+                        await conn.execute(alter_sql)
+                        logger.info(f"Migration: Added column '{column_name}' to table '{table_name}'.")
+                        table_columns[table_name].append(column_name)
+                    except aiosqlite.Error as e:
+                        logger.error(f"Migration failed: '{alter_sql}': {e}")
 
         logger.info("SQLite Database schema initialized via aiosqlite.")

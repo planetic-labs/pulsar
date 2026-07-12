@@ -1,0 +1,269 @@
+{% extends "base.html" %}
+
+{% block title %}Модерация субтитров — Pulsar AI{% endblock %}
+
+{% block content %}
+<div class="flex-1 flex flex-col min-h-0">
+    <!-- Top Bar -->
+    <div class="h-20 border-b border-[#E5E1D8] bg-white flex items-center justify-between px-10 shrink-0">
+        <div>
+            <h1 class="text-xl font-bold text-[#3A3630]">Модерация субтитров</h1>
+            <p class="text-xs text-warm-500 mt-0.5">Очередь жалоб на ошибки и неточности в распознавании текста</p>
+        </div>
+        <div class="flex items-center gap-4">
+            <span class="text-[10px] font-black text-brand-500 bg-brand-50 border border-brand-100 rounded-lg px-3 py-1.5 uppercase tracking-widest">
+                Осталось проверить: <span id="flag-count">{{ flags|length }}</span>
+            </span>
+        </div>
+    </div>
+
+    <div class="flex-1 flex flex-col lg:flex-row overflow-hidden px-4 lg:px-10 pb-6 lg:pb-10 pt-6 lg:pt-8 gap-6 lg:gap-10">
+        <!-- Moderation List Column -->
+        <div class="flex-1 overflow-y-auto lg:pr-4 custom-scrollbar order-2 lg:order-1">
+            {% if not flags %}
+                <div class="h-full min-h-[300px] flex flex-col items-center justify-center text-warm-300 opacity-60">
+                    <div class="w-16 lg:w-20 h-16 lg:h-20 rounded-[1.5rem] lg:rounded-[2rem] bg-white border border-[#E5E1D8] flex items-center justify-center mb-6 shadow-sm">
+                        <svg class="w-8 lg:w-10 h-8 lg:h-10 text-emerald-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                    </div>
+                    <h2 class="text-lg lg:text-xl font-bold text-warm-500 mb-2">Очередь пуста</h2>
+                    <p class="text-xs lg:text-sm">Все субтитры проверены и исправлены</p>
+                </div>
+            {% else %}
+                <div class="w-full" id="flags-list">
+                    {% for flag in flags %}
+                        <div id="flag-card-{{ flag.chunk_id }}" 
+                             onclick="playFlagFragment('{{ flag.video_id }}', {{ flag.start_sec }}, '{{ flag.video_title }}', '{{ format_timestamp(flag.start_sec) }}', '{{ flag.chunk_id }}')"
+                             class="flag-card group p-6 lg:p-8 bg-white border border-[#E5E1D8] rounded-[2rem] cursor-pointer hover:border-brand-300 hover:bg-[#FDFDFB] transition-all relative shadow-xl flex flex-col gap-6 {% if not loop.first %} hidden {% endif %}"
+                             data-video-id="{{ flag.video_id }}"
+                             data-start-sec="{{ flag.start_sec }}"
+                             data-video-title="{{ flag.video_title }}"
+                             data-chunk-id="{{ flag.chunk_id }}"
+                             data-start-ts="{{ format_timestamp(flag.start_sec) }}">
+                            
+                            <div class="flex justify-between items-start gap-4">
+                                <div class="flex flex-col gap-1.5">
+                                    <h3 class="font-bold text-base lg:text-lg text-[#3A3630] group-hover:text-brand-600 transition-colors leading-tight">
+                                        {{ flag.video_title }}
+                                    </h3>
+                                    <div class="flex items-center gap-2">
+                                        <span class="px-2 py-0.5 bg-orange-50 text-orange-600 text-[9px] font-black rounded uppercase tracking-widest border border-orange-100">
+                                            Жалоба 🚩
+                                        </span>
+                                        <span class="text-[10px] text-warm-400 font-medium">
+                                            Получено: {{ flag.created_at[:16].replace('T', ' ') }}
+                                        </span>
+                                    </div>
+                                </div>
+                                <span class="px-3 py-1.5 bg-warm-100 text-warm-600 text-xs font-bold rounded-lg uppercase tracking-widest shrink-0">
+                                    {{ format_timestamp(flag.start_sec) }} — {{ format_timestamp(flag.end_sec) }}
+                                </span>
+                            </div>
+
+                            <!-- Text Editor Area -->
+                            <div class="mt-2" onclick="event.stopPropagation()">
+                                <label class="text-[9px] font-black text-warm-400 uppercase tracking-widest block mb-2">Текст субтитра (редактирование)</label>
+                                 <textarea id="textarea-{{ flag.chunk_id }}" 
+                                           oninput="autoResizeTextarea(this)"
+                                           class="w-full bg-[#FAF9F6] border border-[#E5E1D8] rounded-2xl py-4 px-5 text-base font-medium text-[#3A3630] focus:outline-none focus:border-brand-500 focus:ring-4 focus:ring-brand-500/5 transition-all shadow-inner resize-none overflow-hidden"
+                                           style="line-height: 1.8; height: auto;"
+                                           rows="1">{{ flag.original_text }}</textarea>
+                            </div>
+
+                            <!-- Actions Row -->
+                            <div class="flex justify-between items-center border-t border-[#F2F0EB] pt-6" onclick="event.stopPropagation()">
+                                <div class="text-[9px] font-bold text-warm-400 uppercase tracking-widest">
+                                    Индекс чанка: #{{ flag.chunk_index }}
+                                </div>
+                                <div class="flex gap-3">
+                                    <button onclick="dismissFlag('{{ flag.chunk_id }}', this)" 
+                                            class="px-5 py-2.5 bg-warm-50 border border-warm-200 hover:bg-warm-100 hover:border-warm-300 text-warm-600 rounded-xl text-xs font-bold transition-all shadow-sm">
+                                        Отклонить
+                                    </button>
+                                    <button onclick="saveChunkEdit('{{ flag.video_id }}', '{{ flag.chunk_id }}', this)" 
+                                            class="px-6 py-2.5 bg-brand-500 hover:bg-brand-600 text-white rounded-xl text-xs font-bold transition-all shadow-md">
+                                        Сохранить
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    {% endfor %}
+                </div>
+            {% endif %}
+        </div>
+
+        <!-- Video Player Column -->
+        {% include "components/player.html" %}
+    </div>
+</div>
+
+<script>
+    let activeFlagChunkId = null;
+
+    function autoResizeTextarea(textarea) {
+        if (!textarea) return;
+        textarea.style.height = 'auto';
+        textarea.style.height = (textarea.scrollHeight) + 'px';
+    }
+
+    document.addEventListener('DOMContentLoaded', () => {
+        // Automatically select and play the first active flag card on load
+        const firstCard = document.querySelector('.flag-card:not(.hidden)');
+        if (firstCard) {
+            const vId = firstCard.getAttribute('data-video-id');
+            const startSec = firstCard.getAttribute('data-start-sec');
+            const title = firstCard.getAttribute('data-video-title');
+            const chunkId = firstCard.getAttribute('data-chunk-id');
+            const startTs = firstCard.getAttribute('data-start-ts');
+            playFlagFragment(vId, startSec, title, startTs, chunkId);
+            
+            const ta = document.getElementById(`textarea-${chunkId}`);
+            if (ta) {
+                setTimeout(() => autoResizeTextarea(ta), 50);
+            }
+        }
+    });
+
+    function playFlagFragment(videoId, startSec, title, ts, chunkId) {
+        // Highlight active card
+        if (activeFlagChunkId) {
+            const oldCard = document.getElementById(`flag-card-${activeFlagChunkId}`);
+            if (oldCard) oldCard.classList.remove('ring-2', 'ring-brand-400', 'bg-[#FDFDFB]');
+        }
+        activeFlagChunkId = chunkId;
+        const newCard = document.getElementById(`flag-card-${chunkId}`);
+        if (newCard) newCard.classList.add('ring-2', 'ring-brand-400', 'bg-[#FDFDFB]');
+
+        const video = document.getElementById('main-video');
+        const playerPlaceholder = document.getElementById('player-placeholder');
+        const playerContent = document.getElementById('player-content');
+        const playerTitle = document.getElementById('player-title');
+        const playerMeta = document.getElementById('player-meta');
+
+        if (playerPlaceholder) playerPlaceholder.classList.add('hidden');
+        if (playerContent) playerContent.classList.remove('hidden');
+
+        if (playerTitle) playerTitle.textContent = title;
+        if (playerMeta) playerMeta.textContent = ts;
+
+        if (video) {
+            video.src = `/videos/${videoId}/file#t=${startSec}`;
+            video.play();
+        }
+    }
+
+    async function dismissFlag(chunkId, btnEl) {
+        if (!confirm("Вы уверены, что хотите отклонить жалобу и оставить текст без изменений?")) return;
+        
+        try {
+            btnEl.disabled = true;
+            btnEl.textContent = "Удаление...";
+            
+            const res = await fetch(`/api/moderation/flags/${chunkId}`, {
+                method: 'DELETE'
+            });
+            
+            if (res.ok) {
+                removeFlagCard(chunkId);
+                window.showToast("Жалоба успешно отклонена", "success");
+            } else {
+                btnEl.disabled = false;
+                btnEl.textContent = "Отклонить";
+                window.showToast("Не удалось отклонить жалобу", "error");
+            }
+        } catch (e) {
+            console.error(e);
+            btnEl.disabled = false;
+            btnEl.textContent = "Отклонить";
+            window.showToast("Ошибка сети", "error");
+        }
+    }
+
+    async function saveChunkEdit(videoId, chunkId, btnEl) {
+        const textarea = document.getElementById(`textarea-${chunkId}`);
+        if (!textarea) return;
+        
+        const newText = textarea.value.trim();
+        if (!newText) {
+            window.showToast("Текст не может быть пустым", "error");
+            return;
+        }
+
+        try {
+            btnEl.disabled = true;
+            btnEl.textContent = "Сохранение...";
+            
+            const res = await fetch(`/api/videos/${videoId}/chunks/${chunkId}`, {
+                method: 'PUT',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ text: newText })
+            });
+            
+            if (res.ok) {
+                removeFlagCard(chunkId);
+                window.showToast("Субтитры успешно исправлены во всех источниках", "success");
+            } else {
+                const errData = await res.json();
+                btnEl.disabled = false;
+                btnEl.textContent = "Сохранить";
+                window.showToast(`Ошибка: ${errData.detail || "не удалось сохранить"}`, "error");
+            }
+        } catch (e) {
+            console.error(e);
+            btnEl.disabled = false;
+            btnEl.textContent = "Сохранить";
+            window.showToast("Ошибка сети при сохранении", "error");
+        }
+    }
+
+    function removeFlagCard(chunkId) {
+        const card = document.getElementById(`flag-card-${chunkId}`);
+        if (card) {
+            card.style.opacity = '0';
+            card.style.transform = 'scale(0.95)';
+            setTimeout(() => {
+                card.remove();
+                
+                // Update flags count badge
+                const countBadge = document.getElementById('flag-count');
+                if (countBadge) {
+                    const currentCount = parseInt(countBadge.textContent) - 1;
+                    countBadge.textContent = currentCount;
+                    
+                    // If no flags left, reload or show empty placeholder
+                    if (currentCount <= 0) {
+                        window.location.reload();
+                        return;
+                    }
+                }
+                
+                // Show the next flag in the list and autoplay it
+                const nextCard = document.querySelector('.flag-card');
+                if (nextCard) {
+                    nextCard.classList.remove('hidden');
+                    const vId = nextCard.getAttribute('data-video-id');
+                    const startSec = nextCard.getAttribute('data-start-sec');
+                    const title = nextCard.getAttribute('data-video-title');
+                    const cId = nextCard.getAttribute('data-chunk-id');
+                    const startTs = nextCard.getAttribute('data-start-ts');
+                    playFlagFragment(vId, startSec, title, startTs, cId);
+                    
+                    const ta = document.getElementById(`textarea-${cId}`);
+                    if (ta) {
+                        setTimeout(() => autoResizeTextarea(ta), 50);
+                    }
+                } else {
+                    window.location.reload();
+                }
+            }, 300);
+        }
+        
+        // Close player if this active chunk is removed
+        if (activeFlagChunkId === chunkId) {
+            window.closePlayer();
+            activeFlagChunkId = null;
+        }
+    }
+</script>
+{% endblock %}

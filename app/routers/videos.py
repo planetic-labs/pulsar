@@ -7,16 +7,19 @@ from typing import Any
 import httpx
 from fastapi import APIRouter, BackgroundTasks, Depends, Form, HTTPException, Path, Request, Response
 from fastapi.responses import StreamingResponse
+from pydantic import BaseModel
 
-from app.auth import require_access_token, require_admin
+from app.auth import require_access_token, require_admin, require_subeditor
 from app.dependencies import (
     get_chunk_repo,
     get_google_drive,
     get_video_repo,
+    get_video_service,
 )
 from app.ports import FileStoragePort
 from app.repos.chunk_repo import ChunkRepository
 from app.repos.video_repo import VideoRepository
+from app.services.video import VideoService
 
 logger = logging.getLogger("app.routers.videos")
 
@@ -165,3 +168,61 @@ async def video_file(
     )
 
     raise HTTPException(status_code=404, detail="Local video streaming is not supported")
+
+
+class UpdateChunkRequest(BaseModel):
+    text: str
+
+
+@router.post("/api/videos/{video_id}/chunks/{chunk_id}/flag")
+async def api_flag_chunk(
+    video_id: int = Path(..., ge=1),
+    chunk_id: int = Path(..., ge=1),
+    chunk_repo: ChunkRepository = Depends(get_chunk_repo),
+    _: str = Depends(require_access_token),
+) -> dict[str, str]:
+    """Помечает чанк как содержащий ошибку."""
+    chunk = await chunk_repo.get_chunk_by_id(chunk_id)
+    if not chunk or chunk["video_id"] != video_id:
+        raise HTTPException(status_code=404, detail="Chunk not found")
+    await chunk_repo.create_flag(chunk_id)
+    return {"status": "success"}
+
+
+@router.get("/api/moderation/flags")
+async def api_list_flags(
+    chunk_repo: ChunkRepository = Depends(get_chunk_repo),
+    _: str = Depends(require_subeditor),
+) -> list[dict[str, Any]]:
+    """Возвращает список всех активных жалоб на субтитры (для subeditor/admin)."""
+    return await chunk_repo.get_all_flags()
+
+
+@router.delete("/api/moderation/flags/{chunk_id}")
+async def api_dismiss_flag(
+    chunk_id: int = Path(..., ge=1),
+    chunk_repo: ChunkRepository = Depends(get_chunk_repo),
+    _: str = Depends(require_subeditor),
+) -> dict[str, str]:
+    """Отклоняет жалобу на субтитры (удаляет запись из subtitle_flags без изменений)."""
+    await chunk_repo.delete_flag(chunk_id)
+    return {"status": "success"}
+
+
+@router.put("/api/videos/{video_id}/chunks/{chunk_id}")
+async def api_update_chunk_text(
+    payload: UpdateChunkRequest,
+    video_id: int = Path(..., ge=1),
+    chunk_id: int = Path(..., ge=1),
+    video_service: VideoService = Depends(get_video_service),
+    chunk_repo: ChunkRepository = Depends(get_chunk_repo),
+    _: str = Depends(require_subeditor),
+) -> dict[str, str]:
+    """Редактирует текст субтитра и удаляет жалобу (для subeditor/admin)."""
+    try:
+        await video_service.edit_chunk_text(video_id, chunk_id, payload.text)
+        await chunk_repo.delete_flag(chunk_id)
+        return {"status": "success"}
+    except Exception as e:
+        logger.error(f"Failed to edit chunk {chunk_id} in video {video_id}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e)) from e

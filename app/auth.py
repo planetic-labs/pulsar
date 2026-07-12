@@ -249,6 +249,8 @@ async def require_access_token(request: Request) -> str:
 
     # Write user identity and roles to request state
     settings = get_app_settings()
+    request.state.admin_role_name = settings.admin_role_name
+    request.state.subeditor_role_name = settings.subeditor_role_name
     if token == settings.access_token:
         request.state.user_id = "admin"
         request.state.roles = ["admin", settings.admin_role_name]
@@ -274,6 +276,18 @@ async def require_admin(request: Request) -> str:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Access denied: Admin role required",
+        )
+    return token
+
+
+async def require_subeditor(request: Request) -> str:
+    token = await require_access_token(request)
+    settings = get_app_settings()
+    roles = getattr(request.state, "roles", [])
+    if settings.admin_role_name not in roles and settings.subeditor_role_name not in roles:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access denied: Subeditor or Admin role required",
         )
     return token
 

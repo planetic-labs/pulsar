@@ -366,6 +366,54 @@ function closeSearchModeModal() {
     if (modal) modal.classList.add('hidden');
 }
 
+async function flagChunk(videoId, chunkId, btnElement) {
+    try {
+        const res = await fetch(`/api/videos/${videoId}/chunks/${chunkId}/flag`, {
+            method: 'POST'
+        });
+        if (res.ok) {
+            btnElement.classList.remove('text-warm-500', 'bg-warm-50', 'border-warm-200');
+            btnElement.classList.add('text-rose-600', 'bg-rose-50', 'border-rose-300');
+            btnElement.title = "Жалоба отправлена";
+            btnElement.disabled = true;
+            showToast("Фрагмент отправлен на проверку редактору", "success");
+        } else {
+            showToast("Не удалось отправить жалобу", "error");
+        }
+    } catch (e) {
+        console.error(e);
+        showToast("Ошибка сети при отправке жалобы", "error");
+    }
+}
+
+function showToast(message, type = "success") {
+    let container = document.getElementById('toast-container');
+    if (!container) {
+        container = document.createElement('div');
+        container.id = 'toast-container';
+        container.className = 'fixed bottom-5 right-5 z-50 flex flex-col gap-2 pointer-events-none';
+        document.body.appendChild(container);
+    }
+    
+    const toast = document.createElement('div');
+    toast.className = `px-5 py-3 rounded-xl shadow-lg border text-xs font-bold uppercase tracking-wider transition-all transform translate-y-2 opacity-0 flex items-center gap-2 pointer-events-auto ${
+        type === 'success' ? 'bg-emerald-50 border-emerald-200 text-emerald-800' : 'bg-rose-50 border-rose-200 text-rose-800'
+    }`;
+    toast.innerHTML = message;
+    container.appendChild(toast);
+    
+    setTimeout(() => {
+        toast.classList.remove('translate-y-2', 'opacity-0');
+    }, 10);
+    
+    setTimeout(() => {
+        toast.classList.add('opacity-0', 'translate-y-2');
+        setTimeout(() => {
+            toast.remove();
+        }, 300);
+    }, 3000);
+}
+
 // Expose functions globally for inline HTML event handlers (e.g., onclick)
 window.copyToClipboard = copyToClipboard;
 window.toggleSearchHelp = toggleSearchHelp;
@@ -383,4 +431,6 @@ window.manageSpeakers = manageSpeakers;
 window.closeSpeakers = closeSpeakers;
 window.showSearchModeHelp = showSearchModeHelp;
 window.closeSearchModeModal = closeSearchModeModal;
+window.flagChunk = flagChunk;
+window.showToast = showToast;
 
