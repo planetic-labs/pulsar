@@ -4,65 +4,89 @@
 
 {% block content %}
 <div class="flex-1 flex flex-col h-full bg-[#FAF9F6] overflow-hidden">
-    
-    <!-- Unified Top Card (Player + Search) -->
-    <div class="bg-white border-b border-[#E5E1D8] shadow-sm shrink-0 relative z-50">
-        <!-- 1. Player Part -->
-        <div id="player-placeholder" class="py-12 flex flex-col items-center justify-center text-center opacity-30">
-            <div class="w-12 h-12 rounded-2xl bg-[#FAF9F6] border border-[#E5E1D8] flex items-center justify-center mb-3">
-                <svg class="w-6 h-6 text-warm-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"></path></svg>
+
+    <!-- Mobile Top App Bar with Branding & Quick Logout -->
+    <header class="h-14 bg-white/85 backdrop-blur-md border-b border-[#E5E1D8] flex items-center justify-between px-4 shrink-0 z-30">
+        <div class="flex items-center gap-2.5">
+            <div class="w-8 h-8 bg-brand-500 rounded-xl flex items-center justify-center shadow-sm opacity-85">
+                <svg class="w-4 h-4 text-[#FAF9F6]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v7.764a1 1 0 01-1.447.894L15 15M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"></path></svg>
             </div>
-            <p class="text-[10px] font-bold text-warm-500 uppercase tracking-widest italic">Видео не выбрано</p>
+            <div class="flex flex-col">
+                <span class="text-xs font-black uppercase tracking-wider text-[#3A3630]">Pulsar AI</span>
+                <span class="text-[9px] font-bold text-warm-400 uppercase tracking-widest -mt-0.5">Поиск по видео</span>
+            </div>
         </div>
 
-        <div id="player-content" class="hidden p-3 animate-in fade-in duration-300">
-            <div class="aspect-video bg-black rounded-xl overflow-hidden shadow-lg ring-1 ring-black/5 relative group mb-3">
+        <div class="flex items-center gap-2">
+            {% if stats and stats.total_videos %}
+            <span class="text-[9px] font-bold text-warm-500 bg-warm-50 px-2 py-1 rounded-lg border border-warm-100 shadow-sm">
+                {{ stats.total_videos }} видео
+            </span>
+            {% endif %}
+            <a href="/logout" class="p-2 text-warm-400 hover:text-rose-500 active:scale-90 transition-all rounded-lg" title="Выйти">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+                </svg>
+            </a>
+        </div>
+    </header>
+
+    <!-- Top Card: Video Player (Collapsed when idle) + Search & Filter Controls -->
+    <div class="bg-white border-b border-[#E5E1D8] shadow-sm shrink-0 relative z-20">
+        
+        <!-- Video Player on Mobile (hidden when idle, expands smoothly when playing) -->
+        <div id="player-content" class="hidden p-3 border-b border-[#F2F0EB] bg-[#FAF9F6] animate-in fade-in duration-300">
+            <div class="aspect-video bg-black rounded-xl overflow-hidden shadow-lg ring-1 ring-black/5 relative group mb-2.5">
                 <video id="main-video" controls class="w-full h-full object-contain"></video>
                 <div id="video-overlay" class="absolute inset-0 pointer-events-none bg-brand-500/10 opacity-0 transition-opacity"></div>
-                <button onclick="closePlayer()" class="absolute top-2 right-2 w-8 h-8 rounded-full bg-black/40 backdrop-blur-md border border-white/20 flex items-center justify-center text-white active:scale-90 transition-all z-10">
+                <button onclick="closePlayer()" class="absolute top-2 right-2 w-8 h-8 rounded-full bg-black/50 backdrop-blur-md border border-white/20 flex items-center justify-center text-white active:scale-90 transition-all z-10" title="Закрыть плеер">
                     <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M6 18L18 6M6 6l12 12"></path></svg>
                 </button>
             </div>
-            <div class="px-2 pt-3 flex items-center justify-between gap-4">
+            <div class="px-1 flex items-center justify-between gap-3">
                 <div class="flex-1 min-w-0">
-                    <h3 id="mobile-player-title" class="text-[10px] font-bold text-[#3A3630] truncate uppercase tracking-tight"></h3>
+                    <h3 id="player-title" class="text-[11px] font-bold text-[#3A3630] truncate uppercase tracking-tight"></h3>
                 </div>
-                <div id="mobile-player-meta" class="px-2 py-0.5 bg-brand-50 border border-brand-100 text-brand-600 font-bold text-[8px] rounded uppercase tracking-tighter shrink-0">
+                <div id="player-meta" class="px-2 py-0.5 bg-brand-50 border border-brand-100 text-brand-600 font-bold text-[9px] rounded uppercase tracking-wider shrink-0">
                 </div>
             </div>
         </div>
 
-        <!-- 2. Search Part -->
-        <div class="p-4 border-t border-[#F2F0EB] relative z-[40]">
+        <!-- Search Form and Filters -->
+        <div class="p-3.5 relative z-20">
             <form action="/" method="get" id="search-form" class="relative group">
-                <!-- Consolidated Search State -->
-                <input type="hidden" id="f-mode-mob" name="mode" value="{{ mode }}">
-                <input type="hidden" id="f-video-type-mob" name="video_type" value="{{ video_type }}">
-                <input type="hidden" id="f-date-from-mob" name="date_from" value="{{ date_from }}">
-                <input type="hidden" id="f-date-to-mob" name="date_to" value="{{ date_to }}">
+                <!-- State values for filters -->
+                <input type="hidden" id="f-mode" name="mode" value="{{ mode }}">
+                <input type="hidden" id="f-video-type" name="video_type" value="{{ video_type }}">
+                <input type="hidden" id="f-date-from" name="date_from" value="{{ date_from }}">
+                <input type="hidden" id="f-date-to" name="date_to" value="{{ date_to }}">
 
-                <div class="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-warm-400">
-                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
+                <!-- Search Input Bar -->
+                <div class="relative flex items-center">
+                    <div class="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-warm-400">
+                        <svg class="w-4 h-4 transition-colors group-focus-within:text-brand-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
+                    </div>
+                    <input type="text" name="q" id="search-input" value="{{ query }}" placeholder="Поиск по фрагментам..." 
+                           class="w-full bg-[#FAF9F6] border border-[#E5E1D8] rounded-xl py-2.5 pl-10 pr-24 text-sm text-[#4A453E] placeholder-warm-300 focus:outline-none focus:border-brand-400 focus:bg-white transition-all shadow-inner">
+                    
+                    <div class="absolute inset-y-0 right-0 flex items-center pr-1.5 gap-1">
+                        <!-- Clear Search Button -->
+                        <button type="button" id="clear-search" class="{% if not query %}hidden{% endif %} p-1.5 text-warm-300 hover:text-rose-500 transition-colors">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M6 18L18 6M6 6l12 12"></path></svg>
+                        </button>
+                        <!-- Submit Button -->
+                        <button type="submit" class="p-2 bg-brand-500 text-white rounded-lg shadow-sm hover:bg-brand-600 active:scale-95 transition-all">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
+                        </button>
+                    </div>
                 </div>
-                <input type="text" name="q" id="search-input" value="{{ query }}" placeholder="Поиск по архиву..." 
-                       class="w-full bg-[#FAF9F6] border border-[#F2F0EB] rounded-xl py-3 pl-10 pr-24 text-sm text-[#4A453E] focus:outline-none focus:border-brand-300 transition-all shadow-inner">
-                
-                <div class="absolute inset-y-0 right-0 flex items-center pr-2 gap-1">
-                    <button type="button" id="clear-search" class="{% if not query %}hidden{% endif %} p-1.5 text-warm-300 hover:text-rose-500">
-                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M6 18L18 6M6 6l12 12"></path></svg>
-                    </button>
-                    <button type="submit" class="p-2 bg-brand-500 text-white rounded-lg shadow-sm active:scale-90 transition-all">
-                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
-                    </button>
-                </div>
-            
-                <!-- New Dropdown Filters and Timeline Mobile -->
-                <div class="mt-3 flex flex-col gap-3">
-                    <!-- Row 1: Dropdowns -->
-                    <div class="flex flex-wrap items-center gap-2 pb-1">
+
+                <!-- Dropdowns & Timeline Filter Row -->
+                <div class="mt-3 flex flex-col gap-2.5">
+                    <div class="flex flex-wrap items-center gap-2">
                         <!-- Mode Dropdown Mobile -->
                         <div class="relative dropdown-container shrink-0">
-                            <button type="button" onclick="toggleDropdown('mode-drop-mob')" class="flex items-center gap-2 px-3 py-1.5 bg-white border border-[#F2F0EB] rounded-xl text-[9px] font-black uppercase tracking-wider text-[#4A453E] shadow-sm">
+                            <button type="button" onclick="toggleDropdown('mode-drop')" class="flex items-center gap-1.5 px-2.5 py-1.5 bg-white border border-[#E5E1D8] rounded-xl text-[10px] font-black uppercase tracking-wider text-[#4A453E] shadow-sm active:scale-95 transition-all">
                                 <svg class="w-3.5 h-3.5 text-warm-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4"></path></svg>
                                 <span>
                                     {% if mode == 'hybrid' %}гибридный
@@ -73,393 +97,180 @@
                                 </span>
                                 <svg class="w-3 h-3 text-warm-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M19 9l-7 7-7-7"></path></svg>
                             </button>
-                            <div id="mode-drop-mob" class="hidden absolute top-full left-0 mt-1 w-48 bg-white border border-[#F2F0EB] rounded-2xl shadow-xl z-[100] overflow-hidden">
-                                <div class="flex items-center justify-between hover:bg-warm-50 {% if mode == 'hybrid' %}bg-brand-50/30{% endif %}">
-                                    <button type="button" onclick="setFilter('mode', 'hybrid')" class="flex-1 text-left px-4 py-3 text-[10px] font-black uppercase tracking-wider {% if mode == 'hybrid' %}text-brand-500{% else %}text-warm-500{% endif %}">гибридный</button>
-                                    <button type="button" onclick="event.stopPropagation(); showSearchModeHelp('hybrid')" class="px-4 py-3 text-warm-300 hover:text-brand-500 transition-colors">
+                            <div id="mode-drop" class="hidden absolute top-full left-0 mt-1 w-52 bg-white border border-[#E5E1D8] rounded-2xl shadow-xl z-[100] overflow-hidden">
+                                <div class="flex items-center justify-between hover:bg-warm-50 {% if mode == 'hybrid' %}bg-brand-50/40{% endif %}">
+                                    <button type="button" onclick="setFilter('mode', 'hybrid')" class="flex-1 text-left px-4 py-2.5 text-[10px] font-black uppercase tracking-wider {% if mode == 'hybrid' %}text-brand-600{% else %}text-warm-500{% endif %}">гибридный</button>
+                                    <button type="button" onclick="event.stopPropagation(); showSearchModeHelp('hybrid')" class="px-3 py-2.5 text-warm-300 hover:text-brand-500 transition-colors">
                                         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
                                     </button>
                                 </div>
-                                <div class="flex items-center justify-between hover:bg-warm-50 {% if mode == 'semantic' %}bg-brand-50/30{% endif %}">
-                                    <button type="button" onclick="setFilter('mode', 'semantic')" class="flex-1 text-left px-4 py-3 text-[10px] font-black uppercase tracking-wider {% if mode == 'semantic' %}text-brand-500{% else %}text-warm-500{% endif %}">смысловой</button>
-                                    <button type="button" onclick="event.stopPropagation(); showSearchModeHelp('semantic')" class="px-4 py-3 text-warm-300 hover:text-brand-500 transition-colors">
+                                <div class="flex items-center justify-between hover:bg-warm-50 {% if mode == 'semantic' %}bg-brand-50/40{% endif %}">
+                                    <button type="button" onclick="setFilter('mode', 'semantic')" class="flex-1 text-left px-4 py-2.5 text-[10px] font-black uppercase tracking-wider {% if mode == 'semantic' %}text-brand-600{% else %}text-warm-500{% endif %}">смысловой</button>
+                                    <button type="button" onclick="event.stopPropagation(); showSearchModeHelp('semantic')" class="px-3 py-2.5 text-warm-300 hover:text-brand-500 transition-colors">
                                         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
                                     </button>
                                 </div>
-                                <div class="flex items-center justify-between hover:bg-warm-50 {% if mode == 'lexical' %}bg-brand-50/30{% endif %}">
-                                    <button type="button" onclick="setFilter('mode', 'lexical')" class="flex-1 text-left px-4 py-3 text-[10px] font-black uppercase tracking-wider {% if mode == 'lexical' %}text-brand-500{% else %}text-warm-500{% endif %}">по словам</button>
-                                    <button type="button" onclick="event.stopPropagation(); showSearchModeHelp('lexical')" class="px-4 py-3 text-warm-300 hover:text-brand-500 transition-colors">
+                                <div class="flex items-center justify-between hover:bg-warm-50 {% if mode == 'lexical' %}bg-brand-50/40{% endif %}">
+                                    <button type="button" onclick="setFilter('mode', 'lexical')" class="flex-1 text-left px-4 py-2.5 text-[10px] font-black uppercase tracking-wider {% if mode == 'lexical' %}text-brand-600{% else %}text-warm-500{% endif %}">по словам</button>
+                                    <button type="button" onclick="event.stopPropagation(); showSearchModeHelp('lexical')" class="px-3 py-2.5 text-warm-300 hover:text-brand-500 transition-colors">
                                         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
                                     </button>
                                 </div>
-                                <div class="flex items-center justify-between hover:bg-warm-50 {% if mode == 'quote' %}bg-brand-50/30{% endif %}">
-                                    <button type="button" onclick="setFilter('mode', 'quote')" class="flex-1 text-left px-4 py-3 text-[10px] font-black uppercase tracking-wider {% if mode == 'quote' %}text-brand-500{% else %}text-warm-500{% endif %}">цитаты</button>
-                                    <button type="button" onclick="event.stopPropagation(); showSearchModeHelp('quote')" class="px-4 py-3 text-warm-300 hover:text-brand-500 transition-colors">
+                                <div class="flex items-center justify-between hover:bg-warm-50 {% if mode == 'quote' %}bg-brand-50/40{% endif %}">
+                                    <button type="button" onclick="setFilter('mode', 'quote')" class="flex-1 text-left px-4 py-2.5 text-[10px] font-black uppercase tracking-wider {% if mode == 'quote' %}text-brand-600{% else %}text-warm-500{% endif %}">цитаты</button>
+                                    <button type="button" onclick="event.stopPropagation(); showSearchModeHelp('quote')" class="px-3 py-2.5 text-warm-300 hover:text-brand-500 transition-colors">
                                         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
                                     </button>
                                 </div>
                             </div>
                         </div>
 
-                        <!-- Type Dropdown Mobile -->
+                        <!-- Video Type Dropdown Mobile -->
                         <div class="relative dropdown-container shrink-0">
-                            <button type="button" onclick="toggleDropdown('type-drop-mob')" class="flex items-center gap-2 px-3 py-1.5 bg-white border border-[#F2F0EB] rounded-xl text-[9px] font-black uppercase tracking-wider text-[#4A453E] shadow-sm">
+                            <button type="button" onclick="toggleDropdown('type-drop')" class="flex items-center gap-1.5 px-2.5 py-1.5 bg-white border border-[#E5E1D8] rounded-xl text-[10px] font-black uppercase tracking-wider text-[#4A453E] shadow-sm active:scale-95 transition-all">
                                 <svg class="w-3.5 h-3.5 text-warm-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 10h16M4 14h16M4 18h16"></path></svg>
-                                <span>{% if video_type == 'all' %}все{% elif video_type == 'short' %}короткие{% elif video_type == '4k' %}4K{% else %}длинные{% endif %}</span>
+                                <span>{% if video_type == 'all' %}все видео{% elif video_type == 'short' %}короткие{% elif video_type == '4k' %}4K видео{% else %}длинные{% endif %}</span>
                                 <svg class="w-3 h-3 text-warm-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M19 9l-7 7-7-7"></path></svg>
                             </button>
-                            <div id="type-drop-mob" class="hidden absolute top-full left-0 mt-1 w-48 bg-white border border-[#F2F0EB] rounded-2xl shadow-xl z-[100] overflow-hidden">
-                                <button type="button" onclick="setFilter('video_type', 'all')" class="w-full text-left px-4 py-3 text-[10px] font-black uppercase tracking-wider hover:bg-warm-50 {% if video_type == 'all' %}text-teal-600 bg-teal-50/30{% else %}text-warm-500{% endif %}">все видео</button>
-                                <button type="button" onclick="setFilter('video_type', 'short')" class="w-full text-left px-4 py-3 text-[10px] font-black uppercase tracking-wider hover:bg-warm-50 {% if video_type == 'short' %}text-teal-600 bg-teal-50/30{% else %}text-warm-500{% endif %}">короткие (до 30м)</button>
-                                <button type="button" onclick="setFilter('video_type', 'long')" class="w-full text-left px-4 py-3 text-[10px] font-black uppercase tracking-wider hover:bg-warm-50 {% if video_type == 'long' %}text-teal-600 bg-teal-50/30{% else %}text-warm-500{% endif %}">длинные</button>
-                                <button type="button" onclick="setFilter('video_type', '4k')" class="w-full text-left px-4 py-3 text-[10px] font-black uppercase tracking-wider hover:bg-warm-50 {% if video_type == '4k' %}text-teal-600 bg-teal-50/30{% else %}text-warm-500{% endif %}">4K видео</button>
+                            <div id="type-drop" class="hidden absolute top-full left-0 mt-1 w-48 bg-white border border-[#E5E1D8] rounded-2xl shadow-xl z-[100] overflow-hidden">
+                                <button type="button" onclick="setFilter('video_type', 'all')" class="w-full text-left px-4 py-2.5 text-[10px] font-black uppercase tracking-wider hover:bg-warm-50 {% if video_type == 'all' %}text-teal-600 bg-teal-50/40{% else %}text-warm-500{% endif %}">все видео</button>
+                                <button type="button" onclick="setFilter('video_type', 'short')" class="w-full text-left px-4 py-2.5 text-[10px] font-black uppercase tracking-wider hover:bg-warm-50 {% if video_type == 'short' %}text-teal-600 bg-teal-50/40{% else %}text-warm-500{% endif %}">короткие (до 30м)</button>
+                                <button type="button" onclick="setFilter('video_type', 'long')" class="w-full text-left px-4 py-2.5 text-[10px] font-black uppercase tracking-wider hover:bg-warm-50 {% if video_type == 'long' %}text-teal-600 bg-teal-50/40{% else %}text-warm-500{% endif %}">длинные</button>
+                                <button type="button" onclick="setFilter('video_type', '4k')" class="w-full text-left px-4 py-2.5 text-[10px] font-black uppercase tracking-wider hover:bg-warm-50 {% if video_type == '4k' %}text-teal-600 bg-teal-50/40{% else %}text-warm-500{% endif %}">4K видео</button>
                             </div>
                         </div>
 
-                        <!-- Timeline Toggle Mobile with integrated Reset -->
+                        <!-- Timeline Toggle Button with integrated Reset -->
                         <div class="relative flex items-center shrink-0">
                             <button type="button" onclick="toggleTimeline()" 
-                                    class="flex items-center gap-2 px-3 py-1.5 bg-white border border-[#F2F0EB] rounded-xl text-[9px] font-black uppercase tracking-wider shadow-sm {% if date_from or date_to %}text-brand-600 border-brand-200 bg-brand-50/30 pr-8{% else %}text-[#4A453E]{% endif %}">
+                                    class="flex items-center gap-1.5 px-2.5 py-1.5 bg-white border border-[#E5E1D8] rounded-xl text-[10px] font-black uppercase tracking-wider shadow-sm active:scale-95 transition-all {% if date_from or date_to %}text-brand-600 border-brand-200 bg-brand-50/30 pr-7{% else %}text-[#4A453E]{% endif %}">
                                 <svg class="w-3.5 h-3.5 {% if date_from or date_to %}text-brand-500{% else %}text-warm-400{% endif %}" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg>
                                 <span>Период</span>
                             </button>
                             {% if date_from or date_to %}
                             <button type="button" onclick="event.stopPropagation(); clearDates(document.getElementById('search-form'))" 
-                                    class="absolute right-2 text-rose-500 p-1">
+                                    class="absolute right-1.5 text-brand-400 hover:text-rose-500 p-1" title="Сбросить период">
                                 <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M6 18L18 6M6 6l12 12"></path></svg>
                             </button>
                             {% endif %}
                         </div>
-                        </div>
+                    </div>
 
-                        <!-- Row 2: Timeline Mobile -->
-                        <div id="timeline-container-mob" class="{% if not (date_from or date_to) %}hidden{% endif %} bg-white border border-[#F2F0EB] rounded-2xl p-4 shadow-sm {% if video_type == 'short' %}opacity-30 pointer-events-none select-none grayscale{% endif %} transition-all animate-in slide-in-from-top-1">
-                        <div class="flex items-center justify-between mb-3">
+                    <!-- Row 2: Advanced Timeline Filter on Mobile -->
+                    <div id="timeline-container" class="{% if not (date_from or date_to) %}hidden{% endif %} bg-white border border-[#E5E1D8] rounded-2xl p-3.5 shadow-sm {% if video_type == 'short' %}opacity-30 pointer-events-none select-none grayscale{% endif %} transition-all animate-in slide-in-from-top-1">
+                        <div class="flex items-center justify-between mb-2">
                             <span class="text-[9px] font-black text-warm-400 uppercase tracking-widest">период</span>
-                            <div id="timeline-range-text-mob" class="text-[9px] font-black uppercase tracking-wider text-brand-500 text-right">
+                            <div id="timeline-range-text" class="text-[9px] font-black uppercase tracking-wider text-brand-500 text-right">
                                 {% if date_from or date_to %}
                                     {{ date_from.replace('-', '.') if date_from else '..' }} — {{ date_to.replace('-', '.') if date_to else '..' }}
                                 {% else %}
-                                    всё время
+                                    за всё время
                                 {% endif %}
                             </div>
                         </div>
-                        <div class="relative h-4 flex items-center px-1 mb-2">
+
+                        <!-- Axis Markers -->
+                        <div class="flex justify-between text-[8px] font-bold text-warm-300 px-0.5 mb-1.5 uppercase">
+                            <span>2020</span>
+                            <span>2022</span>
+                            <span>2024</span>
+                            <span class="text-brand-500">2026</span>
+                        </div>
+
+                        <div class="relative h-4 flex items-center px-1">
                             <div class="absolute w-full h-[1.5px] bg-warm-100 rounded-full"></div>
                             <!-- Range Bar -->
-                            <div id="timeline-range-bar-mob" class="absolute h-[2px] bg-brand-400 z-10"></div>
+                            <div id="timeline-range-bar" class="absolute h-[2px] bg-brand-400 z-10"></div>
                             
-                            <!-- Invisible but functional mobile sliders -->
-                            <input type="range" id="timeline-slider-from-mob" min="0" max="1000" value="0"
+                            <!-- Mobile Dual Sliders -->
+                            <input type="range" id="timeline-slider-from" min="0" max="1000" value="0"
                                    class="absolute w-full h-1 appearance-none bg-transparent pointer-events-none z-20
                                           [&::-webkit-slider-thumb]:pointer-events-auto [&::-webkit-slider-thumb]:appearance-none 
-                                          [&::-webkit-slider-thumb]:w-[5px] [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:bg-brand-500 
+                                          [&::-webkit-slider-thumb]:w-[6px] [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:bg-brand-500 
                                           [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:shadow-md">
                             
-                            <input type="range" id="timeline-slider-to-mob" min="0" max="1000" value="1000"
+                            <input type="range" id="timeline-slider-to" min="0" max="1000" value="1000"
                                    class="absolute w-full h-1 appearance-none bg-transparent pointer-events-none z-20
                                           [&::-webkit-slider-thumb]:pointer-events-auto [&::-webkit-slider-thumb]:appearance-none 
-                                          [&::-webkit-slider-thumb]:w-[5px] [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:bg-brand-500 
+                                          [&::-webkit-slider-thumb]:w-[6px] [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:bg-brand-500 
                                           [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:shadow-md">
                         </div>
                     </div>
                 </div>
-            </div>
+            </form>
         </div>
     </div>
 
+    <!-- Worker Busy Banner (if indexing) -->
     {% if stats.worker_busy %}
-    <div id="worker-busy-banner-mobile" class="px-4 mb-2">
-        <div class="bg-amber-50/80 border border-amber-100 rounded-xl p-3 flex items-center justify-between gap-3 animate-pulse">
-            <div class="flex items-center gap-2">
-                <div class="w-2 h-2 rounded-full bg-amber-400"></div>
-                <p class="text-[9px] font-bold text-amber-800 uppercase tracking-widest leading-tight">Идет обработка видео...</p>
-                <button type="button" onclick="showWorkerHelp()" class="p-1 text-amber-400">
-                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+    <div id="worker-busy-banner-mobile" class="px-3.5 pt-2 shrink-0">
+        <div class="bg-amber-50/80 border border-amber-100 rounded-xl p-2.5 flex items-center justify-between gap-2.5 animate-pulse shadow-sm">
+            <div class="flex items-center gap-2 min-w-0">
+                <div class="w-2 h-2 rounded-full bg-amber-400 shrink-0"></div>
+                <p class="text-[9px] font-bold text-amber-800 uppercase tracking-widest leading-tight truncate">Идет обработка видео...</p>
+                <button type="button" onclick="showWorkerHelp()" class="p-1 text-amber-500 shrink-0">
+                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
                 </button>
             </div>
-            <button onclick="hideWorkerBusyMobile()" class="text-amber-400"><svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M6 18L18 6M6 6l12 12"></path></svg></button>
+            <button onclick="hideWorkerBusyMobile()" class="text-amber-400 p-1 shrink-0"><svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M6 18L18 6M6 6l12 12"></path></svg></button>
         </div>
     </div>
     <script>
         if (sessionStorage.getItem('hideWorkerBusy')) {
-            document.getElementById('worker-busy-banner-mobile').style.display = 'none';
+            const b = document.getElementById('worker-busy-banner-mobile');
+            if (b) b.style.display = 'none';
         }
         function hideWorkerBusyMobile() {
-            document.getElementById('worker-busy-banner-mobile').style.display = 'none';
+            const b = document.getElementById('worker-busy-banner-mobile');
+            if (b) b.style.display = 'none';
             sessionStorage.setItem('hideWorkerBusy', 'true');
         }
         function showWorkerHelp() {
-            document.getElementById('mode-help-title').textContent = "Фоновая обработка";
-            document.getElementById('mode-help-text').innerHTML = "В данный момент система добавляет новые видео в базу. Поиск полноценно работает по всем уже проиндексированным данным. Снижение скорости может происходить из-за нагрузки на сервер в момент обработки видео.";
-            document.getElementById('search-mode-modal').classList.remove('hidden');
+            const title = document.getElementById('mode-help-title');
+            const text = document.getElementById('mode-help-text');
+            const modal = document.getElementById('search-mode-modal');
+            if (title) title.textContent = "Фоновая обработка";
+            if (text) text.innerHTML = "В данный момент система добавляет новые видео в базу. Поиск полноценно работает по всем уже проиндексированным данным. Снижение скорости может происходить из-за временной нагрузки на сервер в момент обработки видео.";
+            if (modal) modal.classList.remove('hidden');
         }
     </script>
     {% endif %}
 
-    <!-- 3. Results Section (Scrollable) -->
-    <div class="flex-1 overflow-y-auto custom-scrollbar pb-10">
+    <!-- Results Section (Scrollable) -->
+    <div class="flex-1 overflow-y-auto custom-scrollbar px-3.5 py-4 pb-12">
         {% if not query %}
-            <div class="h-full flex flex-col items-center justify-center text-warm-300 opacity-60">
-                <div class="w-16 h-16 rounded-[1.5rem] bg-white border border-[#E5E1D8] flex items-center justify-center mb-6">
-                    <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
+            <div class="h-full min-h-[260px] flex flex-col items-center justify-center text-warm-300 opacity-60 text-center">
+                <div class="w-16 h-16 rounded-[1.5rem] bg-white border border-[#E5E1D8] flex items-center justify-center mb-4 shadow-sm">
+                    <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
                 </div>
-                <h2 class="text-sm font-bold text-warm-500 uppercase">Начните работу</h2>
+                <h2 class="text-sm font-bold text-warm-500 uppercase tracking-wider mb-1">Начните работу</h2>
+                <p class="text-xs text-warm-400">Введите запрос для поиска по архиву видео</p>
             </div>
         {% elif not results %}
-            <div class="h-full flex flex-col items-center justify-center text-warm-400 p-8 text-center">
-                <div class="w-12 h-12 bg-warm-100 rounded-full flex items-center justify-center mb-4">
-                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.172 9.172a4 4 0 015.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+            <div class="h-full min-h-[220px] flex flex-col items-center justify-center text-warm-400 p-6 text-center">
+                <div class="w-14 h-14 bg-warm-100 rounded-full flex items-center justify-center mb-3">
+                    <svg class="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.172 9.172a4 4 0 015.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
                 </div>
-                <h2 class="text-sm font-bold mb-1">Ничего не найдено</h2>
-                <p class="text-xs italic opacity-60">Попробуйте изменить запрос</p>
+                <h2 class="text-sm font-bold mb-1 text-[#3A3630]">Совпадений не найдено</h2>
+                <p class="text-xs italic text-warm-400">Попробуйте изменить запрос или фильтры</p>
             </div>
         {% else %}
-            <div class="p-4 space-y-4">
-                {% for item in results %}
-                <div onclick="playFragment('{{ item.video_id }}', {{ item.start_sec }}, '{{ item.title }}', '{{ item.start_ts }}', '{{ item.chunk_id }}')" 
-                     id="chunk-{{ item.chunk_id }}"
-                     class="group p-4 bg-white border border-[#E5E1D8] rounded-2xl active:scale-[0.98] transition-all">
-                    <h3 class="font-bold text-xs text-[#3A3630] mb-2 leading-tight uppercase tracking-tight">{{ item.title }}</h3>
-                    <div class="flex gap-2 mb-3">
-                        <span class="px-2 py-0.5 bg-warm-100 text-warm-600 text-[8px] font-bold rounded-md">{{ item.start_ts }}</span>
-                        {% if item.match_type == 'quote' %}
-                        <span class="px-2 py-0.5 bg-rose-50 text-rose-500 text-[8px] font-black rounded uppercase tracking-widest border border-rose-100">Quote</span>
-                        {% endif %}
-                    </div>
-                    <p class="text-xs text-[#5C574F] leading-relaxed italic">
-                        «{{ item.text | safe }}»
-                    </p>
+            <div class="space-y-3.5">
+                <div class="flex items-center justify-between px-1">
+                    <span class="text-[9px] font-bold text-warm-400 uppercase tracking-[0.2em]">Найдено результатов: {{ results|length }}</span>
                 </div>
+                
+                {% for item in results %}
+                    {% include "components/result_card.html" %}
                 {% endfor %}
             </div>
         {% endif %}
     </div>
 </div>
 
-<script>
-    const searchInput = document.getElementById('search-input');
-    const clearSearchBtn = document.getElementById('clear-search');
+<!-- Modal Dialogs -->
+{% include "components/modals.html" %}
 
-    searchInput.addEventListener('input', () => {
-        clearSearchBtn.classList.toggle('hidden', !searchInput.value);
-    });
-
-    clearSearchBtn.addEventListener('click', () => {
-        searchInput.value = '';
-        clearSearchBtn.classList.add('hidden');
-        searchInput.focus();
-    });
-
-    function toggleDropdown(id) {
-        document.querySelectorAll('.dropdown-container div[id]').forEach(d => {
-            if (d.id !== id) d.classList.add('hidden');
-        });
-        document.getElementById(id).classList.toggle('hidden');
-    }
-
-    function setFilter(name, value) {
-        const input = document.getElementById(`f-${name.replace('_', '-')}-mob`);
-        if (input) {
-            input.value = value;
-            document.getElementById('search-form').submit();
-        }
-    }
-
-    function syncAndSubmit(input, hiddenId, displayId) {
-        if (input.value) {
-            document.getElementById(hiddenId).value = input.value;
-            document.getElementById(displayId).innerText = input.value.split('-').join('.');
-            document.getElementById('search-form').submit();
-        }
-    }
-
-    function openDatePicker(container, defaultDate, displayId) {
-        const input = container.querySelector('input[type="date"]');
-        if (!input.value) {
-            input.value = defaultDate;
-        }
-        input.showPicker();
-    }
-
-    function clearDates(form) {
-        document.getElementById('f-date-from-mob').value = '';
-        document.getElementById('f-date-to-mob').value = '';
-        form.submit();
-    }
-
-    function toggleTimeline() {
-        const timeline = document.getElementById('timeline-container-mob');
-        const dateFrom = document.getElementById('f-date-from-mob').value;
-        const dateTo = document.getElementById('f-date-to-mob').value;
-
-        if (dateFrom || dateTo) {
-            timeline.classList.remove('hidden');
-        } else {
-            timeline.classList.toggle('hidden');
-        }
-    }
-
-    let activeChunkId = null;
-
-    function playFragment(videoId, startSec, title, ts, chunkId) {
-        if (activeChunkId) {
-            const oldCard = document.getElementById(`chunk-${activeChunkId}`);
-            if (oldCard) oldCard.classList.remove('ring-2', 'ring-brand-400');
-        }
-        activeChunkId = chunkId;
-        const newCard = document.getElementById(`chunk-${chunkId}`);
-        if (newCard) newCard.classList.add('ring-2', 'ring-brand-400');
-
-        const video = document.getElementById('main-video');
-        const playerPlaceholder = document.getElementById('player-placeholder');
-        const playerContent = document.getElementById('player-content');
-        const playerTitle = document.getElementById('mobile-player-title');
-        const playerMeta = document.getElementById('mobile-player-meta');
-
-        playerPlaceholder.classList.add('hidden');
-        playerContent.classList.remove('hidden');
-
-        playerTitle.textContent = title;
-        playerMeta.textContent = ts;
-
-        video.src = `/videos/${videoId}/file#t=${startSec}`;
-        video.play();
-        
-        const overlay = document.getElementById('video-overlay');
-        overlay.classList.add('opacity-100');
-        setTimeout(() => overlay.classList.remove('opacity-100'), 500);
-
-        window.scrollTo({ top: 0, behavior: 'smooth' });
-    }
-
-    function closePlayer() {
-        if (activeChunkId) {
-            const card = document.getElementById(`chunk-${activeChunkId}`);
-            if (card) card.classList.remove('ring-2', 'ring-brand-400');
-            activeChunkId = null;
-        }
-        const video = document.getElementById('main-video');
-        video.pause();
-        video.src = "";
-        document.getElementById('player-content').classList.add('hidden');
-        document.getElementById('player-placeholder').classList.remove('hidden');
-    }
-
-    // Close dropdowns on click outside
-    window.addEventListener('click', function(e) {
-        if (e.target && !e.target.closest('.dropdown-container')) {
-            document.querySelectorAll('.dropdown-container div[id]').forEach(d => {
-                d.classList.add('hidden');
-            });
-        }
-    });
-
-    // Timeline Logic Mobile
-    (function() {
-        const sliderFrom = document.getElementById('timeline-slider-from-mob');
-        const sliderTo = document.getElementById('timeline-slider-to-mob');
-        const rangeBar = document.getElementById('timeline-range-bar-mob');
-        const rangeText = document.getElementById('timeline-range-text-mob');
-        const dateFromInput = document.getElementById('f-date-from-mob');
-        const dateToInput = document.getElementById('f-date-to-mob');
-        
-        if (!sliderFrom || !sliderTo) return;
-
-        const startTimestamp = new Date('2020-01-01T00:00:00').getTime();
-        const today = new Date();
-        today.setHours(23, 59, 59, 999);
-        const endTimestamp = today.getTime();
-        const totalDuration = endTimestamp - startTimestamp;
-
-        function updateTimelineVisuals() {
-            let valFrom = parseInt(sliderFrom.value);
-            let valTo = parseInt(sliderTo.value);
-            if (valFrom > valTo) { [valFrom, valTo] = [valTo, valFrom]; }
-            rangeBar.style.left = (valFrom / 10) + '%';
-            rangeBar.style.right = (100 - (valTo / 10)) + '%';
-            
-            const d1s = new Date(startTimestamp + (valFrom / 1000) * totalDuration).toISOString().split('T')[0];
-            const d2s = new Date(startTimestamp + (valTo / 1000) * totalDuration).toISOString().split('T')[0];
-            rangeText.innerText = d1s.split('-').join('.') + ' — ' + d2s.split('-').join('.');
-            return {d1s, d2s};
-        }
-
-        function setSlidersFromInputs() {
-            const v1 = dateFromInput.value || '2020-01-01';
-            const v2 = dateToInput.value || new Date().toISOString().split('T')[0];
-            sliderFrom.value = (new Date(v1).getTime() - startTimestamp) / totalDuration * 1000;
-            sliderTo.value = (new Date(v2).getTime() - startTimestamp) / totalDuration * 1000;
-            updateTimelineVisuals();
-        }
-
-        sliderFrom.oninput = updateTimelineVisuals;
-        sliderTo.oninput = updateTimelineVisuals;
-
-        setSlidersFromInputs();
-
-        // Delay attaching onchange handlers to prevent browser autofill/restoration from triggering infinite page reload loops
-        setTimeout(() => {
-            sliderFrom.onchange = () => {
-                const {d1s} = updateTimelineVisuals();
-                dateFromInput.value = d1s;
-                document.getElementById('search-form').submit();
-            };
-            sliderTo.onchange = () => {
-                const {d2s} = updateTimelineVisuals();
-                dateToInput.value = d2s;
-                document.getElementById('search-form').submit();
-            };
-        }, 100);
-    })();
-
-    const SEARCH_MODE_INFO = {
-        hybrid: {
-            title: "Гибридный поиск",
-            text: "Алгоритм объединяет два метода: анализ смысла и поиск по точным словам. Запрос одновременно обрабатывается нейросетью для выявления контекста и базой данных для нахождения буквенных совпадений. Итоговый список формируется путем сложения этих результатов.<br><br><b>Сравнение:</b> В отличие от чисто «Смыслового поиска», этот режим не пропустит редкие имена или термины. В сравнении с поиском «По словам», он находит более широкую выборку, включая фрагменты, подходящие по теме, даже без точных совпадений."
-        },
-        semantic: {
-            title: "Смысловой поиск",
-            text: "Поиск основывается на технологии векторных связей. Система переводит ваш запрос в «карту смыслов», находя фрагменты, которые наиболее близки к основной идее вашего вопроса, а не к конкретным буквам. Это позволяет находить ответы на вопросы, даже если в тексте использованы синонимы.<br><br><b>Сравнение:</b> В отличие от поиска «По словам», этот режим понимает идеи, а не просто буквы. В сравнении с «Поиском цитат», он гораздо более гибкий: он найдет фрагмент, даже если вы перепутали порядок слов или пересказали суть своими словами."
-        },
-        lexical: {
-            title: "По словам",
-            text: "Метод нахождения прямых словесных совпадений. Система ищет в тексте именно те слова, которые вы ввели. Слова могут встречаться в любой последовательности и на любом расстоянии друг от друга — главное, чтобы они присутствовали в фрагменте.<br><br><b>Сравнение:</b> В отличие от «Смыслового поиска», этот режим строго ограничен вашим запросом и не ищет по синонимам. В сравнении с «Поиском цитат», здесь порядок слов не имеет значения, что позволяет находить упоминания, даже если они разнесены по разным частям предложения."
-        },
-        quote: {
-            title: "Поиск цитат",
-            text: "Режим для нахождения конкретных фраз в строгой последовательности. Алгоритм ищет слова именно в том порядке, в котором они указаны в запросе. Допускаются лишь небольшие разрывы (до 60 символов) между словами на знаки препинания или короткие вставки, при этом учитываются изменения окончаний слов.<br><br><b>Сравнение:</b> В отличие от поиска «По словам», этот режим гарантирует сохранение смысла фразы за счет строгого порядка слов. В сравнении с «Гибридным», он игнорирует общий смысл видео, фокусируясь исключительно на буквальном совпадении искомого выражения."
-        }
-    };
-
-    function showSearchModeHelp(mode) {
-        const info = SEARCH_MODE_INFO[mode];
-        if (!info) return;
-        document.getElementById('mode-help-title').textContent = info.title;
-        document.getElementById('mode-help-text').innerHTML = info.text;
-        document.getElementById('search-mode-modal').classList.remove('hidden');
-    }
-
-    function closeSearchModeModal() {
-        document.getElementById('search-mode-modal').classList.add('hidden');
-    }
-</script>
-
-<!-- Search Mode Info Modal -->
-<div id="search-mode-modal" class="hidden fixed inset-0 z-[120] flex items-center justify-center p-4" onclick="closeSearchModeModal()">
-    <div class="absolute inset-0 bg-slate-900/60 backdrop-blur-sm"></div>
-    <div class="relative bg-white w-full max-w-md rounded-[2.5rem] shadow-2xl border border-brand-100 overflow-hidden animate-in zoom-in-95 duration-200" onclick="event.stopPropagation()">
-        <div class="p-8">
-            <div class="flex items-center gap-4 mb-6">
-                <div class="w-12 h-12 bg-brand-50 rounded-2xl flex items-center justify-center shadow-inner shrink-0">
-                    <svg class="w-6 h-6 text-brand-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
-                </div>
-                <h3 id="mode-help-title" class="text-sm font-black text-[#3A3630] uppercase tracking-tight leading-tight">Подсказка</h3>
-            </div>
-            <div id="mode-help-text" class="text-[13px] font-medium text-warm-600 leading-relaxed mb-8 italic text-center">
-            </div>
-            <button onclick="closeSearchModeModal()" class="w-full py-3.5 bg-brand-500 text-white font-black text-[10px] uppercase tracking-widest rounded-2xl hover:bg-brand-600 shadow-lg shadow-brand-500/20 active:scale-95 transition-all">Закрыть</button>
-        </div>
-    </div>
-</div>
+<!-- Client Logic -->
+<script src="/static/js/search_app.js" defer></script>
 {% endblock %}

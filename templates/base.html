@@ -65,22 +65,8 @@
 </head>
 <body class="h-full antialiased overflow-hidden text-[#4A453E]">
     <div class="flex h-full flex-col lg:flex-row">
-        <!-- Mobile Header -->
-        <header class="{% if request.url.path == '/' %} hidden {% else %} lg:hidden {% endif %} h-16 bg-[#F2F0EB] border-b border-[#E5E1D8] flex items-center justify-between px-6 z-[60] shrink-0 relative">
-            <div class="absolute inset-y-0 left-1/2 -translate-x-1/2 flex items-center">
-                <div class="w-8 h-8 bg-brand-500 rounded-xl flex items-center justify-center shadow-sm opacity-80">
-                    <svg class="w-5 h-5 text-[#FAF9F6]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v7.764a1 1 0 01-1.447.894L15 15M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"></path></svg>
-                </div>
-            </div>
-            <div></div>
-            <button onclick="toggleMobileMenu()" class="p-2 text-warm-500 hover:text-brand-500 transition-colors z-10">
-                <svg id="menu-icon" class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"></path></svg>
-                <svg id="close-icon" class="w-6 h-6 hidden" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
-            </button>
-        </header>
-
         <!-- Sidebar (Desktop Only) -->
-        <aside id="sidebar" class="hidden lg:flex lg:w-72 bg-[#F2F0EB] border-r border-[#E5E1D8] flex-col shrink-0 transition-transform duration-300">
+        <aside id="sidebar" class="hidden lg:flex lg:w-72 bg-[#F2F0EB] border-r border-[#E5E1D8] flex-col shrink-0">
             <div class="bg-[#F2F0EB] h-full flex flex-col w-full">
                 <div class="p-8">
                     <div class="hidden lg:flex items-center justify-center mb-10">
@@ -115,8 +101,8 @@
                             <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg>
                             <span class="text-sm">Мониторинг</span>
                         </a>
-                        </nav>
-                        </div>
+                    </nav>
+                </div>
 
                 <div class="px-8 mt-auto mb-4">
                     <div class="p-4 rounded-2xl bg-white/40 border border-white/60">
@@ -132,12 +118,11 @@
                     </div>
                 </div>
 
-                        <div class="p-8 border-t border-[#E5E1D8]">
-                            <a href="/logout" class="flex items-center gap-3 px-4 py-2 text-rose-400/70 hover:text-rose-500 transition-colors font-bold text-sm uppercase tracking-widest">
-                                Выйти
-                            </a>
-                        </div>
-
+                <div class="p-8 border-t border-[#E5E1D8]">
+                    <a href="/logout" class="flex items-center gap-3 px-4 py-2 text-rose-400/70 hover:text-rose-500 transition-colors font-bold text-sm uppercase tracking-widest">
+                        Выйти
+                    </a>
+                </div>
             </div>
         </aside>
 
@@ -148,24 +133,6 @@
     </div>
 
     <script>
-        function toggleMobileMenu() {
-            const sidebar = document.getElementById('sidebar');
-            const menuIcon = document.getElementById('menu-icon');
-            const closeIcon = document.getElementById('close-icon');
-            
-            const isOpen = sidebar.classList.contains('translate-x-0');
-            
-            if (isOpen) {
-                sidebar.classList.replace('translate-x-0', '-translate-x-full');
-                menuIcon.classList.remove('hidden');
-                closeIcon.classList.add('hidden');
-            } else {
-                sidebar.classList.replace('-translate-x-full', 'translate-x-0');
-                menuIcon.classList.add('hidden');
-                closeIcon.classList.remove('hidden');
-            }
-        }
-
         // Unregister Service Worker if any to prevent fetch errors and page loading issues
         if ('serviceWorker' in navigator) {
             navigator.serviceWorker.getRegistrations().then((registrations) => {
