@@ -1,19 +1,22 @@
 function copyToClipboard(text, btnElement) {
     navigator.clipboard.writeText(text).then(() => {
-        const originalHTML = btnElement.innerHTML;
-        btnElement.innerHTML = `
-            <svg class="w-3.5 h-3.5 text-emerald-500 scale-110 transition-transform" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
-                <polyline points="20 6 9 17 4 12"></polyline>
-            </svg>
-        `;
-        btnElement.classList.remove('bg-warm-50', 'border-warm-200', 'text-warm-500');
-        btnElement.classList.add('bg-emerald-50', 'border-emerald-200');
-        
-        setTimeout(() => {
-            btnElement.innerHTML = originalHTML;
-            btnElement.classList.remove('bg-emerald-50', 'border-emerald-200');
-            btnElement.classList.add('bg-warm-50', 'border-warm-200', 'text-warm-500');
-        }, 2000);
+        if (btnElement) {
+            const originalHTML = btnElement.innerHTML;
+            btnElement.innerHTML = `
+                <svg class="w-3.5 h-3.5 text-emerald-500 scale-110 transition-transform" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
+                    <polyline points="20 6 9 17 4 12"></polyline>
+                </svg>
+            `;
+            btnElement.classList.remove('bg-warm-50', 'border-warm-200', 'text-warm-500');
+            btnElement.classList.add('bg-emerald-50', 'border-emerald-200');
+            
+            setTimeout(() => {
+                btnElement.innerHTML = originalHTML;
+                btnElement.classList.remove('bg-emerald-50', 'border-emerald-200');
+                btnElement.classList.add('bg-warm-50', 'border-warm-200', 'text-warm-500');
+            }, 2000);
+        }
+        showToast("Ссылка скопирована", "success");
     }).catch(err => {
         console.error('Failed to copy text: ', err);
     });
@@ -201,7 +204,7 @@ function playFragment(videoId, startSec, title, ts, chunkId) {
 
     if (video) {
         video.src = `/videos/${videoId}/file#t=${startSec}`;
-        video.play();
+        video.play().catch(() => {});
     }
     
     // Visual cue on video
@@ -213,8 +216,8 @@ function playFragment(videoId, startSec, title, ts, chunkId) {
 
     // Scroll player into view on mobile
     if (window.innerWidth < 1024) {
-        const pCol = document.getElementById('player-column');
-        if (pCol) pCol.scrollIntoView({ behavior: 'smooth' });
+        const pCol = document.getElementById('player-column') || playerContent;
+        if (pCol) pCol.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
     }
 }
 
@@ -238,12 +241,6 @@ function closePlayer() {
     if (playerPlaceholder) playerPlaceholder.classList.remove('hidden');
 }
 
-
-
-const speakerModal = document.getElementById('speaker-modal');
-const speakerList = document.getElementById('speaker-list');
-const speakerTitle = document.getElementById('speaker-video-title');
-
 async function saveSpeaker(videoId, tag, name, inputEl) {
     try {
         inputEl.classList.add('ring-2', 'ring-brand-200');
@@ -266,6 +263,9 @@ async function saveSpeaker(videoId, tag, name, inputEl) {
 }
 
 async function manageSpeakers(videoId, title) {
+    const speakerModal = document.getElementById('speaker-modal');
+    const speakerList = document.getElementById('speaker-list');
+    const speakerTitle = document.getElementById('speaker-video-title');
     if (!speakerModal) return;
     speakerModal.classList.remove('hidden');
     if (speakerTitle) speakerTitle.textContent = title;
@@ -325,6 +325,7 @@ async function manageSpeakers(videoId, title) {
 }
 
 function closeSpeakers() {
+    const speakerModal = document.getElementById('speaker-modal');
     if (speakerModal) speakerModal.classList.add('hidden');
     // Refresh search to show new names
     const q = new URLSearchParams(window.location.search).get('q');
@@ -391,12 +392,12 @@ function showToast(message, type = "success") {
     if (!container) {
         container = document.createElement('div');
         container.id = 'toast-container';
-        container.className = 'fixed bottom-5 right-5 z-50 flex flex-col gap-2 pointer-events-none';
+        container.className = 'fixed bottom-5 left-1/2 -translate-x-1/2 sm:translate-x-0 sm:left-auto sm:right-5 z-[150] flex flex-col gap-2 pointer-events-none max-w-[90vw]';
         document.body.appendChild(container);
     }
     
     const toast = document.createElement('div');
-    toast.className = `px-5 py-3 rounded-xl shadow-lg border text-xs font-bold uppercase tracking-wider transition-all transform translate-y-2 opacity-0 flex items-center gap-2 pointer-events-auto ${
+    toast.className = `px-4 py-2.5 rounded-xl shadow-lg border text-xs font-bold uppercase tracking-wider transition-all transform translate-y-2 opacity-0 flex items-center gap-2 pointer-events-auto ${
         type === 'success' ? 'bg-emerald-50 border-emerald-200 text-emerald-800' : 'bg-rose-50 border-rose-200 text-rose-800'
     }`;
     toast.innerHTML = message;

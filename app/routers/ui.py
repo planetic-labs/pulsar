@@ -21,6 +21,11 @@ logger = logging.getLogger("app.routers.ui")
 router = APIRouter(tags=["UI Pages"])
 
 
+def is_mobile_request(request: Request) -> bool:
+    ua = request.headers.get("user-agent", "").lower()
+    return any(m in ua for m in ["mobile", "android", "iphone", "ipad"])
+
+
 @router.get("/", response_class=HTMLResponse)
 @limiter.limit("30/minute")
 async def index_page(
@@ -63,8 +68,7 @@ async def index_page(
             logger.error(f"Search failed: {e}")
             results = []
 
-    ua = request.headers.get("user-agent", "").lower()
-    is_mobile = any(m in ua for m in ["mobile", "android", "iphone", "ipad"])
+    is_mobile = is_mobile_request(request)
     template = "index_mobile.html" if is_mobile else "index.html"
 
     today_val = date.today().isoformat()
@@ -90,6 +94,9 @@ async def index_page(
 @router.get("/import", response_class=HTMLResponse)
 async def import_page(request: Request) -> Response:
     """Renders the Google Drive file import dashboard view."""
+    if is_mobile_request(request):
+        return RedirectResponse(url="/")
+
     try:
         current_token = await require_access_token(request)
     except HTTPException:
@@ -104,6 +111,9 @@ async def import_page(request: Request) -> Response:
 @router.get("/status", response_class=HTMLResponse)
 async def status_page(request: Request) -> Response:
     """Renders the queue monitor and task logs dashboard view."""
+    if is_mobile_request(request):
+        return RedirectResponse(url="/")
+
     try:
         current_token = await require_access_token(request)
     except HTTPException:
@@ -119,6 +129,9 @@ async def status_page(request: Request) -> Response:
 @router.get("/speakers", response_class=HTMLResponse)
 async def speakers_page(request: Request) -> Response:
     """Renders the speakers voice models manager dashboard view."""
+    if is_mobile_request(request):
+        return RedirectResponse(url="/")
+
     try:
         current_token = await require_access_token(request)
     except HTTPException:
@@ -154,6 +167,9 @@ async def speakers_page(request: Request) -> Response:
 @router.get("/indexed", response_class=HTMLResponse)
 async def indexed_page(request: Request) -> Response:
     """Renders the local indexed files and directory structure explorer view."""
+    if is_mobile_request(request):
+        return RedirectResponse(url="/")
+
     try:
         current_token = await require_access_token(request)
     except HTTPException:
@@ -171,6 +187,9 @@ async def moderation_page(
     chunk_repo: ChunkRepository = Depends(get_chunk_repo),
 ) -> Response:
     """Renders the subtitle moderation/editing queue dashboard view."""
+    if is_mobile_request(request):
+        return RedirectResponse(url="/")
+
     try:
         await require_subeditor(request)
     except HTTPException:
