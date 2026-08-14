@@ -18,7 +18,7 @@ dependencies = [
     "requests>=2.34.2",
     "itsdangerous>=2.2.0",
     "pyjwt[crypto]>=2.8.0",
-    "pydantic-settings>=2.14.2",
+    "pydantic-settings>=2.15.0",
     "aiosqlite>=0.22.1",
     "slowapi>=0.1.10",
 ]
