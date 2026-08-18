@@ -14,6 +14,7 @@ from app.ports import EmbeddingPort, FileStoragePort, TranscriptionPort, VectorS
 from app.repos.cache_repo import CacheRepository
 from app.repos.chunk_repo import ChunkRepository
 from app.repos.folder_repo import FolderRepository
+from app.repos.search_history_repo import SearchHistoryRepository
 from app.repos.task_repo import TaskRepository
 from app.repos.video_repo import VideoRepository
 from app.services.search import SearchService
@@ -73,6 +74,10 @@ def get_folder_repo(db: Database = Depends(get_database)) -> FolderRepository:
 
 def get_cache_repo(db: Database = Depends(get_database)) -> CacheRepository:
     return CacheRepository(db)
+
+
+def get_search_history_repo(db: Database = Depends(get_database)) -> SearchHistoryRepository:
+    return SearchHistoryRepository(db)
 
 
 def get_video_service(
