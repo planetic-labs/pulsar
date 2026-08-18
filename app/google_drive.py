@@ -300,7 +300,8 @@ class GoogleDriveClient:
         access_token = await self._get_access_token()
         headers["Authorization"] = f"Bearer {access_token}"
 
-        client = httpx.AsyncClient()
+        timeout = httpx.Timeout(timeout=300.0, connect=20.0, read=300.0, write=60.0, pool=60.0)
+        client = httpx.AsyncClient(timeout=timeout)
         try:
             # We use send instead of stream context manager here
             # to return the response and allow the caller to close it.

@@ -128,7 +128,14 @@ async def video_file(
 
     source_file_id = str(row["source_file_id"])
     # Open the stream from Google Drive
-    resp = await drive_client.open_media_stream(source_file_id, range_header=request.headers.get("range"))
+    try:
+        resp = await drive_client.open_media_stream(source_file_id, range_header=request.headers.get("range"))
+    except httpx.TimeoutException as e:
+        logger.warning(f"Timeout streaming video {video_id} ({source_file_id}): {e}")
+        raise HTTPException(status_code=504, detail="Google Drive streaming timeout") from e
+    except httpx.HTTPError as e:
+        logger.error(f"Error streaming video {video_id} ({source_file_id}): {e}")
+        raise HTTPException(status_code=502, detail="Google Drive streaming error") from e
 
     # Prepare headers for the browser
     headers = {

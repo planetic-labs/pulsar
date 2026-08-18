@@ -312,7 +312,8 @@ class GoogleDriveAdapter(FileStoragePort):
         access_token = await self._get_access_token()
         headers["Authorization"] = f"Bearer {access_token}"
 
-        client = httpx.AsyncClient()
+        timeout = httpx.Timeout(timeout=300.0, connect=20.0, read=300.0, write=60.0, pool=60.0)
+        client = httpx.AsyncClient(timeout=timeout)
         try:
             request = client.build_request("GET", url, headers=headers)
             response = await client.send(request, stream=True)
