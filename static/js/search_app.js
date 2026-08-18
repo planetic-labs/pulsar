@@ -22,6 +22,46 @@ function copyToClipboard(text, btnElement) {
     });
 }
 
+function formatPlaybackTime(seconds) {
+    const total = Math.floor(Math.max(0, Number(seconds) || 0));
+    const hours = Math.floor(total / 3600);
+    const minutes = Math.floor((total % 3600) / 60);
+    const secs = total % 60;
+    const pad = (n) => String(n).padStart(2, '0');
+    if (hours > 0) {
+        return `${pad(hours)}:${pad(minutes)}:${pad(secs)}`;
+    }
+    return `${pad(minutes)}:${pad(secs)}`;
+}
+
+function copyCurrentPlaybackTime(btnElement) {
+    const video = document.getElementById('main-video');
+    const currentTime = video ? video.currentTime : 0;
+    const formatted = formatPlaybackTime(currentTime);
+    
+    navigator.clipboard.writeText(formatted).then(() => {
+        if (btnElement) {
+            const originalHTML = btnElement.innerHTML;
+            btnElement.innerHTML = `
+                <svg class="w-3.5 h-3.5 text-emerald-500 scale-110 transition-transform shrink-0" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
+                    <polyline points="20 6 9 17 4 12"></polyline>
+                </svg>
+                <span class="text-emerald-700 font-bold">${formatted}</span>
+            `;
+            btnElement.classList.remove('bg-warm-50', 'border-warm-200', 'text-warm-600', 'hover:bg-brand-50', 'hover:border-brand-200', 'hover:text-brand-600');
+            btnElement.classList.add('bg-emerald-50', 'border-emerald-200');
+            
+            setTimeout(() => {
+                btnElement.innerHTML = originalHTML;
+                btnElement.classList.remove('bg-emerald-50', 'border-emerald-200');
+                btnElement.classList.add('bg-warm-50', 'border-warm-200', 'text-warm-600', 'hover:bg-brand-50', 'hover:border-brand-200', 'hover:text-brand-600');
+            }, 2000);
+        }
+    }).catch(err => {
+        console.error('Failed to copy playback time: ', err);
+    });
+}
+
 // Search input visual clear handler
 const searchInput = document.getElementById('search-input');
 const clearSearchBtn = document.getElementById('clear-search');
@@ -436,4 +476,6 @@ window.showSearchModeHelp = showSearchModeHelp;
 window.closeSearchModeModal = closeSearchModeModal;
 window.flagChunk = flagChunk;
 window.showToast = showToast;
+window.formatPlaybackTime = formatPlaybackTime;
+window.copyCurrentPlaybackTime = copyCurrentPlaybackTime;
 

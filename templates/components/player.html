@@ -1,37 +1,32 @@
 <!-- Video Player Column -->
-<div id="player-column" class="w-full lg:w-[400px] xl:w-[500px] shrink-0 order-1 lg:order-2">
-    <div class="bg-white rounded-[1.5rem] lg:rounded-[2.5rem] border border-[#E5E1D8] p-4 lg:p-8 sticky top-4 shadow-xl flex flex-col overflow-hidden min-h-[300px] lg:min-h-[600px] max-h-[50vh] lg:max-h-[calc(100vh-120px)] transition-all">
-        <div id="player-placeholder" class="flex-1 flex flex-col items-center justify-center text-center opacity-40">
-            <div class="w-16 lg:w-20 h-16 lg:h-20 rounded-[1.5rem] lg:rounded-[2.5rem] bg-[#FAF9F6] border border-[#E5E1D8] flex items-center justify-center mb-4 lg:mb-6 shadow-inner">
-                <svg class="w-8 lg:w-10 h-8 lg:h-10 text-warm-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"></path></svg>
+<div id="player-column" class="w-full lg:w-[400px] xl:w-[480px] shrink-0 order-1 lg:order-2">
+    <div class="bg-white rounded-[1.25rem] lg:rounded-[2rem] border border-[#E5E1D8] p-3.5 lg:p-5 sticky top-4 shadow-xl flex flex-col transition-all h-fit">
+        <div id="player-placeholder" class="py-8 lg:py-14 flex flex-col items-center justify-center text-center opacity-40">
+            <div class="w-14 lg:w-16 h-14 lg:h-16 rounded-[1.25rem] lg:rounded-[1.5rem] bg-[#FAF9F6] border border-[#E5E1D8] flex items-center justify-center mb-3 lg:mb-4 shadow-inner">
+                <svg class="w-7 lg:w-8 h-7 lg:h-8 text-warm-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"></path></svg>
             </div>
-            <h3 class="text-xs lg:text-sm font-bold text-warm-500 uppercase tracking-widest mb-1 lg:mb-2">Видео не выбрано</h3>
-            <p class="text-[10px] lg:text-xs text-warm-400 max-w-[180px] lg:max-w-[200px] leading-relaxed italic">Выберите фрагмент для начала анализа</p>
+            <h3 class="text-xs font-bold text-warm-500 uppercase tracking-widest mb-1">Видео не выбрано</h3>
+            <p class="text-[10px] lg:text-xs text-warm-400 max-w-[180px] leading-relaxed italic">Выберите фрагмент для начала анализа</p>
         </div>
 
-        <div id="player-content" class="hidden flex-1 flex flex-col min-h-0">
-            <div class="flex items-center justify-between mb-4 lg:mb-6">
-                <div>
-                    <h2 class="text-[9px] lg:text-[10px] font-black text-brand-400 uppercase tracking-[0.2em] lg:tracking-[0.3em] mb-1">Source Stream</h2>
-                    <h3 class="text-xs lg:text-sm font-bold text-[#3A3630]">Просмотр фрагмента</h3>
-                </div>
-                <button onclick="closePlayer()" class="w-8 h-8 rounded-full bg-[#FAF9F6] border border-[#E5E1D8] flex items-center justify-center text-warm-400 hover:text-slate-900 transition-all shadow-sm">
-                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M6 18L18 6M6 6l12 12"></path></svg>
-                </button>
+        <div id="player-content" class="hidden flex flex-col">
+            <div class="mb-2.5 lg:mb-3">
+                <h4 id="player-title" class="text-xs lg:text-sm font-bold text-[#3A3630] leading-snug break-words"></h4>
             </div>
 
-            <div class="aspect-video bg-black rounded-xl lg:rounded-2xl overflow-hidden ring-1 ring-[#E5E1D8] mb-4 lg:mb-8 video-shadow relative group">
+            <div class="aspect-video max-h-[40vh] lg:max-h-[46vh] bg-black rounded-xl lg:rounded-2xl overflow-hidden ring-1 ring-[#E5E1D8] mb-2.5 lg:mb-3 video-shadow relative group flex items-center justify-center">
                 <video id="main-video" controls class="w-full h-full object-contain"></video>
                 <div id="video-overlay" class="absolute inset-0 pointer-events-none bg-brand-500/10 opacity-0 transition-opacity"></div>
             </div>
 
-            <div class="space-y-3 lg:space-y-4 overflow-y-auto custom-scrollbar flex-1">
-                <h4 id="player-title" class="text-base lg:text-xl font-bold text-[#3A3630] leading-tight"></h4>
-                <div id="player-meta" class="inline-flex items-center gap-2 px-3 lg:px-4 py-1.5 lg:py-2 rounded-xl bg-brand-500/5 border border-brand-500/10 text-brand-500 font-bold text-[10px] lg:text-xs uppercase tracking-widest">
-                </div>
-                <p class="text-[10px] lg:text-xs text-slate-500 leading-relaxed pt-3 lg:pt-4 border-t border-[#F2F0EB]">
-                    Вы просматриваете фрагмент video, синхронизированный с результатом поиска. Система автоматически позиционирует плеер на нужной секунде.
-                </p>
+            <div class="flex items-center justify-end">
+                <button id="copy-current-time-btn" onclick="copyCurrentPlaybackTime(this)" class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-warm-50 hover:bg-brand-50 border border-warm-200 hover:border-brand-200 text-warm-600 hover:text-brand-600 font-semibold text-[10px] lg:text-xs transition-all shadow-sm group" title="Скопировать текущий таймкод">
+                    <svg class="w-3.5 h-3.5 text-warm-500 group-hover:text-brand-500 transition-colors" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                        <circle cx="12" cy="12" r="10"></circle>
+                        <polyline points="12 6 12 12 16 14"></polyline>
+                    </svg>
+                    <span>Скопировать тайминг</span>
+                </button>
             </div>
         </div>
     </div>
