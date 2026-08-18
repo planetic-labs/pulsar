@@ -1,11 +1,12 @@
+name: pulsar-prod
+
 services:
   manticore:
     image: manticoresearch/manticore:latest
     restart: always
-    ports:
-      - "127.0.0.1:9308:9308"
+    stop_grace_period: 30s
     networks:
-      - planetic-net
+      - default
     volumes:
       - manticore_data:/var/lib/manticore
     healthcheck:
@@ -14,17 +15,23 @@ services:
       timeout: 5s
       retries: 3
       start_period: 10s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "20m"
+        max-file: "5"
 
   pulsar:
     image: ghcr.io/planetic-labs/pulsar:latest
     user: "${UID:-1000}:${GID:-1000}"
     restart: always
+    stop_grace_period: 30s
     ports:
       - "127.0.0.1:8350:8350"
     networks:
+      - default
       - planetic-net
     environment:
-      - HF_HOME=/app/models_cache
       - APP_PORT=8350
     env_file: .env
     depends_on:
@@ -35,18 +42,26 @@ services:
       interval: 30s
       timeout: 10s
       retries: 3
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "20m"
+        max-file: "5"
     volumes:
       # Только данные, код уже внутри контейнера
       - ./data:/app/data
       - ./storage:/app/storage
-      - ./models_cache:/app/models_cache
       - ./config:/app/config
       - ./logs:/app/logs
 
 
 volumes:
   manticore_data:
+    name: pulsar-prod-manticore-data
+    external: true
 
 networks:
+  default:
   planetic-net:
     external: true
+

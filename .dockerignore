@@ -3,11 +3,29 @@
 .venv
 __pycache__
 *.pyc
+*.pyo
+*.pyd
 
-data
-downloads
-audio
-transcripts
+# Секреты и конфигурации
+.env
+.env.*
+config/service-key.json
+
+# Данные и кэши (монтируются через volumes)
+data/
+downloads/
+storage/
+models_cache/
+logs/
 backups/
-server.log
+tmp/
+*.sqlite
+*.db
 
+# Кэши инструментов и IDE
+.pytest_cache/
+.ruff_cache/
+.claude/
+.idea/
+.vscode/
+server.log
