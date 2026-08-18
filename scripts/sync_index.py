@@ -379,20 +379,21 @@ async def main():
                     )
 
                     # If it was already indexed, re-queue stage_3_index to update metadata in Qdrant
-                    if lv["processing_status"] in ("indexed_chunks_ready", "transcribed", "indexing"):
-                        if lv["id"] not in active_indexing_ids:
-                            conn.execute(
-                                "INSERT INTO tasks (video_id, task_type, payload, status, priority) "
-                                "VALUES (?, ?, ?, ?, ?)",
-                                (
-                                    lv["id"],
-                                    "stage_3_index",
-                                    json.dumps({"video_id": lv["id"], "title": name}, ensure_ascii=False),
-                                    "pending",
-                                    5,
-                                ),
-                            )
-                            logger.info(f"Queued re-indexing task to sync Qdrant metadata for video: {name}")
+                    if (
+                        lv["processing_status"] in ("indexed_chunks_ready", "transcribed", "indexing")
+                        and lv["id"] not in active_indexing_ids
+                    ):
+                        conn.execute(
+                            "INSERT INTO tasks (video_id, task_type, payload, status, priority) VALUES (?, ?, ?, ?, ?)",
+                            (
+                                lv["id"],
+                                "stage_3_index",
+                                json.dumps({"video_id": lv["id"], "title": name}, ensure_ascii=False),
+                                "pending",
+                                5,
+                            ),
+                        )
+                        logger.info(f"Queued re-indexing task to sync Qdrant metadata for video: {name}")
             else:
                 # New file found, check if it is already in active download tasks to avoid duplicates
                 if file_id not in active_task_file_ids:

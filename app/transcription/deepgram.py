@@ -4,7 +4,7 @@ import logging
 import time
 from collections.abc import AsyncGenerator, Callable, Generator
 from pathlib import Path
-from typing import Any
+from typing import Any, ClassVar
 
 import httpx
 
@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 
 class DeepgramEngine(TranscriptionEngine):
     # Shared cache across all instances
-    _balance_cache: dict[str, Any] = {"data": None}
+    _balance_cache: ClassVar[dict[str, Any]] = {"data": None}
 
     def __init__(self, settings: DeepgramSettings) -> None:
         self.settings = settings
@@ -37,7 +37,7 @@ class DeepgramEngine(TranscriptionEngine):
                 DeepgramEngine._balance_cache["data"] = data
                 return data
         except Exception as e:
-            logger.error(f"Failed to fetch Deepgram balance: {str(e)}")
+            logger.error(f"Failed to fetch Deepgram balance: {e!s}")
             return self._balance_cache["data"] or {"balances": []}
 
     async def get_balance_async(self, force_refresh: bool = False) -> dict[str, Any]:
@@ -55,7 +55,7 @@ class DeepgramEngine(TranscriptionEngine):
                 DeepgramEngine._balance_cache["data"] = data
                 return data
         except Exception as e:
-            logger.error(f"Failed to fetch Deepgram balance (async): {str(e)}")
+            logger.error(f"Failed to fetch Deepgram balance (async): {e!s}")
             return self._balance_cache["data"] or {"balances": []}
 
     def check_balance_threshold(self, threshold: float = 1.0) -> tuple[bool, float]:
@@ -139,7 +139,7 @@ class DeepgramEngine(TranscriptionEngine):
             logger.error(f"Deepgram HTTP Error: {e.response.text}")
             raise RuntimeError(f"Deepgram API returned error {e.response.status_code}") from e
         except Exception as e:
-            logger.error(f"Unexpected error during Deepgram transcription: {str(e)}")
+            logger.error(f"Unexpected error during Deepgram transcription: {e!s}")
             raise
 
     async def transcribe_file_async(

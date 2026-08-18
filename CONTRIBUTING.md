@@ -76,7 +76,7 @@ uv run ty check
 
 Always verify your changes by running the test suite:
 ```bash
-PYTHONPATH=. uv run pytest
+uv run pytest
 ```
 
 ## Branching Strategy

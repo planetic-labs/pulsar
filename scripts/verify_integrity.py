@@ -119,11 +119,14 @@ class IntegrityChecker:
 
                         if first_chunk and "utterances" in norm_data and len(norm_data["utterances"]) > 0:
                             json_text = norm_data["utterances"][0].get("text", "")
-                            if json_text and not first_chunk["text"].startswith(json_text):
-                                if not first_chunk["text"].strip().startswith(json_text.strip()):
-                                    msg = f"Video {v['video_id']}: Text mismatch between DB and JSON"
-                                    text_mismatch_errors.append(msg)
-                                    self.issues.append(msg)
+                            if (
+                                json_text
+                                and not first_chunk["text"].startswith(json_text)
+                                and not first_chunk["text"].strip().startswith(json_text.strip())
+                            ):
+                                msg = f"Video {v['video_id']}: Text mismatch between DB and JSON"
+                                text_mismatch_errors.append(msg)
+                                self.issues.append(msg)
 
                         # Check chunk count matching
                         is_short_val = bool(v["is_short"])
@@ -277,12 +280,9 @@ class IntegrityChecker:
             data = res[0].get("data", [])
             if not data:
                 break
-            columns = [list(c.keys())[0] for c in res[0].get("columns", [])]
+            columns = [next(iter(c.keys())) for c in res[0].get("columns", [])]
             for row in data:
-                if isinstance(row, dict):
-                    r_dict = row
-                else:
-                    r_dict = dict(zip(columns, row, strict=False))
+                r_dict = row if isinstance(row, dict) else dict(zip(columns, row, strict=False))
                 doc_id = r_dict["id"]
                 last_id = max(last_id, doc_id)
                 q_point_ids.add(doc_id)
@@ -428,16 +428,13 @@ class IntegrityChecker:
                 if res_vecs and len(res_vecs) > 0:
                     cols_meta = res_vecs[0].get("columns")
                     if isinstance(cols_meta, list):
-                        columns = [list(c.keys())[0] for c in cols_meta]
+                        columns = [next(iter(c.keys())) for c in cols_meta]
                     else:
                         columns = list(cols_meta.keys()) if cols_meta else []
                     data = res_vecs[0].get("data", [])
 
                     for row in data:
-                        if isinstance(row, dict):
-                            row_dict = row
-                        else:
-                            row_dict = dict(zip(columns, row, strict=False))
+                        row_dict = row if isinstance(row, dict) else dict(zip(columns, row, strict=False))
 
                         doc_id = row_dict["id"]
                         vec_val = row_dict.get("vec")
@@ -723,7 +720,7 @@ class IntegrityChecker:
         self.check_filesystem_and_sqlite()
 
         # 2. Проверка SQLite vs Manticore
-        db_chunk_ids, q_point_map = self.check_sqlite_vs_manticore()
+        db_chunk_ids, _q_point_map = self.check_sqlite_vs_manticore()
 
         # 2.5. Проверка векторов
         self.check_vector_data(db_chunk_ids)

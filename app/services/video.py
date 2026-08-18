@@ -48,6 +48,16 @@ class VideoService:
         self.manticore = manticore
         self.embedder = embedder
         self.settings = settings
+        self._bg_tasks: set[asyncio.Task[Any]] = set()
+
+    def _start_worker_if_needed(self) -> None:
+        from app.worker import get_worker
+
+        worker = get_worker()
+        if not worker.is_running:
+            task = asyncio.create_task(worker.run())
+            self._bg_tasks.add(task)
+            task.add_done_callback(self._bg_tasks.discard)
 
     async def get_video_details(self, video_id: int) -> dict[str, Any]:
         """Возвращает детальную информацию о видео, включая папки и количество чанков."""
@@ -59,12 +69,11 @@ class VideoService:
             LEFT JOIN videos orig ON v.original_id = orig.id
             WHERE v.id = ?
         """
-        async with self.db.transaction() as conn:
-            async with conn.execute(sql, (video_id,)) as cursor:
-                row = await cursor.fetchone()
-                if not row:
-                    raise VideoNotFoundError("Video not found")
-                return dict(row)
+        async with self.db.transaction() as conn, conn.execute(sql, (video_id,)) as cursor:
+            row = await cursor.fetchone()
+            if not row:
+                raise VideoNotFoundError("Video not found")
+            return dict(row)
 
     async def toggle_short(self, video_id: int) -> dict[str, Any]:
         """Переключает статус is_short для видео и запускает его переиндексацию."""
@@ -108,12 +117,8 @@ class VideoService:
                     video_id=video_id,
                 )
 
-                # Запуск воркера (через импорт)
-                from app.worker import get_worker
-
-                worker = get_worker()
-                if not worker.is_running:
-                    asyncio.create_task(worker.run())
+                # Запуск воркера
+                self._start_worker_if_needed()
 
         return {"status": "ok", "is_short": new_is_short, "queued": True}
 
@@ -131,11 +136,13 @@ class VideoService:
             WHERE status IN ('pending', 'running')
               AND (video_id = ? OR json_extract(payload, '$.file_id') = ? OR json_extract(payload, '$.video_id') = ?)
         """
-        async with self.db.transaction() as conn:
-            async with conn.execute(sql_check, (video_id, source_file_id, video_id)) as cursor:
-                active_task = await cursor.fetchone()
-                if active_task:
-                    raise VideoProcessingError("Нельзя удалить видео, которое сейчас обрабатывается воркером.")
+        async with (
+            self.db.transaction() as conn,
+            conn.execute(sql_check, (video_id, source_file_id, video_id)) as cursor,
+        ):
+            active_task = await cursor.fetchone()
+            if active_task:
+                raise VideoProcessingError("Нельзя удалить видео, которое сейчас обрабатывается воркером.")
 
         # Получаем чанки для удаления из Manticore
         chunks = await self.chunk_repo.get_by_video_id(video_id)
@@ -210,12 +217,16 @@ class VideoService:
                 try:
                     if f_path.exists():
                         f_path.unlink()
-                        if f_path.parent.exists() and f_path.parent not in (
-                            self.settings.raw_transcripts_dir,
-                            self.settings.normalized_transcripts_dir,
+                        if (
+                            f_path.parent.exists()
+                            and f_path.parent
+                            not in (
+                                self.settings.raw_transcripts_dir,
+                                self.settings.normalized_transcripts_dir,
+                            )
+                            and not any(f_path.parent.iterdir())
                         ):
-                            if not any(f_path.parent.iterdir()):
-                                f_path.parent.rmdir()
+                            f_path.parent.rmdir()
                 except Exception as ex:
                     logger.error(f"Failed to delete file {f_path}: {ex}")
 
@@ -237,11 +248,13 @@ class VideoService:
             WHERE status IN ('pending', 'running')
               AND (video_id = ? OR json_extract(payload, '$.file_id') = ? OR json_extract(payload, '$.video_id') = ?)
         """
-        async with self.db.transaction() as conn:
-            async with conn.execute(sql_check, (video_id, source_file_id, video_id)) as cursor:
-                active_task = await cursor.fetchone()
-                if active_task:
-                    raise VideoProcessingError("Видео уже находится в обработке или в очереди.")
+        async with (
+            self.db.transaction() as conn,
+            conn.execute(sql_check, (video_id, source_file_id, video_id)) as cursor,
+        ):
+            active_task = await cursor.fetchone()
+            if active_task:
+                raise VideoProcessingError("Видео уже находится в обработке или в очереди.")
 
         # Постановка задачи
         payload: dict[str, str | int | bool | None] = {
@@ -262,11 +275,7 @@ class VideoService:
         await self.video_repo.update(video_id, status="pending", duration_sec=None, size_bytes=None)
 
         # Запуск воркера
-        from app.worker import get_worker
-
-        worker = get_worker()
-        if not worker.is_running:
-            asyncio.create_task(worker.run())
+        self._start_worker_if_needed()
 
     async def mark_video_silent(self, video_id: int) -> None:
         """Помечает видео как тихое, удаляет его чанки из SQLite и Manticore и сбрасывает задачи."""
@@ -544,7 +553,7 @@ class VideoService:
                 if idx == len(segments) - 1:
                     part_words = words[curr_idx:]
                 else:
-                    share = int(round(lens[idx] / total_len * len(words)))
+                    share = round(lens[idx] / total_len * len(words))
                     share = max(1, share)
                     part_words = words[curr_idx : curr_idx + share]
                     curr_idx += share

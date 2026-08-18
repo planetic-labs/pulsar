@@ -81,10 +81,7 @@ def chunk_from_utterances(
                 should_close = True
                 closed_by_pause = True
             # Или если накопили max_chars и закончили предложение
-            elif current_length >= max_chars and ends_sentence:
-                should_close = True
-            # Принудительное закрытие при достижении абсолютного лимита
-            elif current_length >= absolute_max_chars:
+            elif (current_length >= max_chars and ends_sentence) or current_length >= absolute_max_chars:
                 should_close = True
 
         if should_close:

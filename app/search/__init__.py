@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextlib
 import logging
 import re
 import sqlite3
@@ -220,12 +221,11 @@ async def hybrid_search(
     elif video_type == "4k":
         where_clauses.append("is_4k = 1")
 
-    if date_from or date_to:
-        if video_type != "short":
-            if date_from:
-                where_clauses.append(f"recorded_date >= {date_to_int(date_from)}")
-            if date_to:
-                where_clauses.append(f"recorded_date <= {date_to_int(date_to)}")
+    if (date_from or date_to) and video_type != "short":
+        if date_from:
+            where_clauses.append(f"recorded_date >= {date_to_int(date_from)}")
+        if date_to:
+            where_clauses.append(f"recorded_date <= {date_to_int(date_to)}")
 
     v_match = re.search(r"(?:video_id|v):(\d+)", query)
     v_id = None
@@ -271,7 +271,7 @@ async def hybrid_search(
     else:
         client = UnifiedEmbeddingClient(get_embedding_settings())
         try:
-            query_dense, query_sparse = await client.embed_text_async(
+            query_dense, _query_sparse = await client.embed_text_async(
                 clean_query or "video", task_type="RETRIEVAL_QUERY"
             )
         except Exception as e:
@@ -388,10 +388,8 @@ async def hybrid_search(
         rec_date_raw = payload.get("recorded_date")
         rec_date_int = None
         if rec_date_raw is not None:
-            try:
+            with contextlib.suppress(ValueError, TypeError):
                 rec_date_int = int(rec_date_raw)
-            except ValueError, TypeError:
-                pass
         recorded_date_str = int_to_date(rec_date_int)
 
         results.append(

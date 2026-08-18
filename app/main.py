@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections.abc import AsyncGenerator, Awaitable, Callable
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 from typing import cast
 
 from fastapi import FastAPI, Request, Response
@@ -61,10 +61,8 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
         except TimeoutError:
             logger.warning("Graceful shutdown timed out, cancelling worker task.")
             worker_instance.task.cancel()
-            try:
+            with suppress(asyncio.CancelledError):
                 await worker_instance.task
-            except asyncio.CancelledError:
-                pass
 
 
 app = FastAPI(title="Pulsar", lifespan=lifespan)

@@ -203,7 +203,9 @@ function playFragment(videoId, startSec, title, ts, chunkId) {
     if (playerMeta) playerMeta.textContent = ts;
 
     if (video) {
-        video.src = `/videos/${videoId}/file#t=${startSec}`;
+        const safeVideoId = encodeURIComponent(String(videoId));
+        const safeStartSec = parseFloat(startSec) || 0;
+        video.src = `/videos/${safeVideoId}/file#t=${safeStartSec}`;
         video.play().catch(() => {});
     }
     

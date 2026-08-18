@@ -70,7 +70,7 @@ async def main() -> None:
             ingest_drive_file(f.file_id)
             safe_print(f"  DONE: {f.name}")
         except Exception as e:
-            safe_print(f"  FAILED: {f.name} - {str(e)}")
+            safe_print(f"  FAILED: {f.name} - {e!s}")
 
     safe_print("\nBatch Ingestion Finished.")
 

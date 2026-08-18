@@ -266,7 +266,7 @@ async def handle_revocation_webhook(request: Request) -> dict[str, str]:
     try:
         data = json.loads(payload)
     except Exception as e:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Invalid JSON payload: {str(e)}") from e
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Invalid JSON payload: {e!s}") from e
 
     user_id = data.get("user_id")
     jti = data.get("jti")

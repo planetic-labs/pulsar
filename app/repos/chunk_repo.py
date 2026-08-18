@@ -37,10 +37,9 @@ class ChunkRepository:
     async def get_by_video_id(self, video_id: int) -> list[dict[str, Any]]:
         """Возвращает все чанки для видео, упорядоченные по индексу."""
         sql = "SELECT * FROM chunks WHERE video_id = ? ORDER BY chunk_index ASC"
-        async with self.db.transaction() as conn:
-            async with conn.execute(sql, (video_id,)) as cursor:
-                rows = await cursor.fetchall()
-                return [dict(row) for row in rows]
+        async with self.db.transaction() as conn, conn.execute(sql, (video_id,)) as cursor:
+            rows = await cursor.fetchall()
+            return [dict(row) for row in rows]
 
     async def delete_by_video_id(self, video_id: int) -> None:
         """Удаляет все чанки для указанного видео."""
@@ -55,10 +54,9 @@ class ChunkRepository:
     async def get_chunk_by_id(self, chunk_id: int) -> dict[str, Any] | None:
         """Возвращает чанк по его ID."""
         sql = "SELECT * FROM chunks WHERE id = ?"
-        async with self.db.transaction() as conn:
-            async with conn.execute(sql, (chunk_id,)) as cursor:
-                row = await cursor.fetchone()
-                return dict(row) if row else None
+        async with self.db.transaction() as conn, conn.execute(sql, (chunk_id,)) as cursor:
+            row = await cursor.fetchone()
+            return dict(row) if row else None
 
     async def create_flag(self, chunk_id: int) -> None:
         """Создает жалобу на чанк (уникальный chunk_id)."""
@@ -90,10 +88,9 @@ class ChunkRepository:
             JOIN videos v ON c.video_id = v.id
             ORDER BY f.created_at DESC
         """
-        async with self.db.transaction() as conn:
-            async with conn.execute(sql) as cursor:
-                rows = await cursor.fetchall()
-                return [dict(row) for row in rows]
+        async with self.db.transaction() as conn, conn.execute(sql) as cursor:
+            rows = await cursor.fetchall()
+            return [dict(row) for row in rows]
 
     async def reserve_and_get_next_flag(self, user_id: str, lock_timeout_sec: int) -> dict[str, Any] | None:
         """Находит, резервирует и возвращает следующую свободную жалобу для конкретного пользователя."""

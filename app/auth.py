@@ -122,10 +122,7 @@ async def is_valid_token(token: str | None) -> bool:
 
         if jti and await is_jti_revoked(jti):
             return False
-        if user_id and await is_user_revoked(user_id):
-            return False
-
-        return True
+        return not (user_id and await is_user_revoked(user_id))
     except jwt.PyJWTError as e:
         import logging
 

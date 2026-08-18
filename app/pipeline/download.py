@@ -336,12 +336,16 @@ class DownloadStage(PipelineStage):
         try:
             if raw_path.exists():
                 raw_path.unlink()
-                if raw_path.parent.exists() and raw_path.parent not in (
-                    app_settings.raw_transcripts_dir,
-                    app_settings.normalized_transcripts_dir,
+                if (
+                    raw_path.parent.exists()
+                    and raw_path.parent
+                    not in (
+                        app_settings.raw_transcripts_dir,
+                        app_settings.normalized_transcripts_dir,
+                    )
+                    and not any(raw_path.parent.iterdir())
                 ):
-                    if not any(raw_path.parent.iterdir()):
-                        raw_path.parent.rmdir()
+                    raw_path.parent.rmdir()
         except OSError as e:
             logger.error(f"Не удалось удалить сырой транскрипт {raw_path}: {e}")
 
@@ -349,12 +353,16 @@ class DownloadStage(PipelineStage):
         try:
             if norm_path.exists():
                 norm_path.unlink()
-                if norm_path.parent.exists() and norm_path.parent not in (
-                    app_settings.raw_transcripts_dir,
-                    app_settings.normalized_transcripts_dir,
+                if (
+                    norm_path.parent.exists()
+                    and norm_path.parent
+                    not in (
+                        app_settings.raw_transcripts_dir,
+                        app_settings.normalized_transcripts_dir,
+                    )
+                    and not any(norm_path.parent.iterdir())
                 ):
-                    if not any(norm_path.parent.iterdir()):
-                        norm_path.parent.rmdir()
+                    norm_path.parent.rmdir()
         except OSError as e:
             logger.error(f"Не удалось удалить нормализованный транскрипт {norm_path}: {e}")
 

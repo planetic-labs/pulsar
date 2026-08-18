@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 import traceback
 from collections.abc import Callable
@@ -35,10 +36,8 @@ class LogBroadcaster:
 
     def _do_broadcast(self, message: str) -> None:
         for q in self.queues:
-            try:
+            with contextlib.suppress(asyncio.QueueFull):
                 q.put_nowait(message)
-            except asyncio.QueueFull:
-                pass
 
 
 broadcaster = LogBroadcaster()

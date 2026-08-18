@@ -6,10 +6,10 @@ from app.pipeline.index import IndexStage
 from app.pipeline.transcribe import TranscribeStage
 
 __all__ = [
+    "DownloadStage",
+    "IndexStage",
+    "InsufficientSpaceError",
     "PipelineStage",
     "StageResult",
-    "DownloadStage",
-    "InsufficientSpaceError",
     "TranscribeStage",
-    "IndexStage",
 ]

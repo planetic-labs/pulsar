@@ -24,20 +24,22 @@ class TaskRepository:
             VALUES (?, ?, ?, ?, 'pending')
             RETURNING id
         """
-        async with self.db.transaction() as conn:
-            async with conn.execute(
-                sql, (task_type, json.dumps(payload, ensure_ascii=False), priority, video_id)
-            ) as cursor:
-                row = await cursor.fetchone()
-                assert row is not None
-                return int(row["id"])
+        async with (
+            self.db.transaction() as conn,
+            conn.execute(sql, (task_type, json.dumps(payload, ensure_ascii=False), priority, video_id)) as cursor,
+        ):
+            row = await cursor.fetchone()
+            assert row is not None
+            return int(row["id"])
 
     async def get_by_id(self, task_id: int) -> dict[str, str | int | None] | None:
         """Возвращает задачу по идентификатору."""
-        async with self.db.transaction() as conn:
-            async with conn.execute("SELECT * FROM tasks WHERE id = ?", (task_id,)) as cursor:
-                row = await cursor.fetchone()
-                return dict(row) if row else None
+        async with (
+            self.db.transaction() as conn,
+            conn.execute("SELECT * FROM tasks WHERE id = ?", (task_id,)) as cursor,
+        ):
+            row = await cursor.fetchone()
+            return dict(row) if row else None
 
     async def update_status(
         self,

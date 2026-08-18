@@ -48,16 +48,20 @@ class VideoRepository:
         self.db = db
 
     async def get_by_id(self, video_id: int) -> dict[str, str | int | float | bool | None] | None:
-        async with self.db.transaction() as conn:
-            async with conn.execute("SELECT * FROM videos WHERE id = ?", (video_id,)) as cursor:
-                row = await cursor.fetchone()
-                return dict(row) if row else None
+        async with (
+            self.db.transaction() as conn,
+            conn.execute("SELECT * FROM videos WHERE id = ?", (video_id,)) as cursor,
+        ):
+            row = await cursor.fetchone()
+            return dict(row) if row else None
 
     async def get_by_source_file_id(self, source_file_id: str) -> dict[str, str | int | float | bool | None] | None:
-        async with self.db.transaction() as conn:
-            async with conn.execute("SELECT * FROM videos WHERE source_file_id = ?", (source_file_id,)) as cursor:
-                row = await cursor.fetchone()
-                return dict(row) if row else None
+        async with (
+            self.db.transaction() as conn,
+            conn.execute("SELECT * FROM videos WHERE source_file_id = ?", (source_file_id,)) as cursor,
+        ):
+            row = await cursor.fetchone()
+            return dict(row) if row else None
 
     async def upsert(
         self,
@@ -105,8 +109,9 @@ class VideoRepository:
                 updated_at = CURRENT_TIMESTAMP
             RETURNING id
         """
-        async with self.db.transaction() as conn:
-            async with conn.execute(
+        async with (
+            self.db.transaction() as conn,
+            conn.execute(
                 sql,
                 (
                     source_file_id,
@@ -122,10 +127,11 @@ class VideoRepository:
                     status,
                     is_4k,
                 ),
-            ) as cursor:
-                row = await cursor.fetchone()
-                assert row is not None
-                return int(row["id"])
+            ) as cursor,
+        ):
+            row = await cursor.fetchone()
+            assert row is not None
+            return int(row["id"])
 
     async def update_status(self, video_id: int, status: str) -> None:
         async with self.db.transaction() as conn:
@@ -137,7 +143,7 @@ class VideoRepository:
     async def update(self, video_id: int, **kwargs: str | int | float | bool | None) -> None:
         if not kwargs:
             return
-        fields = ", ".join(f"{k} = ?" for k in kwargs.keys())
+        fields = ", ".join(f"{k} = ?" for k in kwargs)
         values = list(kwargs.values())
         values.append(video_id)
         sql = f"UPDATE videos SET {fields}, updated_at = CURRENT_TIMESTAMP WHERE id = ?"
@@ -150,15 +156,16 @@ class VideoRepository:
         placeholders = ",".join(["?"] * len(video_ids))
         sql = f"SELECT * FROM videos WHERE id IN ({placeholders})"
         result = {}
-        async with self.db.transaction() as conn:
-            async with conn.execute(sql, list(video_ids)) as cursor:
-                rows = await cursor.fetchall()
-                for row in rows:
-                    result[row["id"]] = dict(row)
+        async with self.db.transaction() as conn, conn.execute(sql, list(video_ids)) as cursor:
+            rows = await cursor.fetchall()
+            for row in rows:
+                result[row["id"]] = dict(row)
         return result
 
     async def get_all(self) -> list[dict[str, str | int | float | bool | None]]:
-        async with self.db.transaction() as conn:
-            async with conn.execute("SELECT id, title FROM videos ORDER BY title ASC") as cursor:
-                rows = await cursor.fetchall()
-                return [dict(row) for row in rows]
+        async with (
+            self.db.transaction() as conn,
+            conn.execute("SELECT id, title FROM videos ORDER BY title ASC") as cursor,
+        ):
+            rows = await cursor.fetchall()
+            return [dict(row) for row in rows]

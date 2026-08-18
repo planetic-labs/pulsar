@@ -96,7 +96,7 @@ def send_telegram_notification(text: str) -> None:
 def run_in_container(script: str, timeout: int = 600) -> subprocess.CompletedProcess[str]:
     """Выполняет Python-скрипт внутри контейнера pulsar с таймаутом."""
     compose_cmd = get_docker_compose_cmd()
-    cmd = compose_cmd + ["exec", "-T", "pulsar", "uv", "run", "python", script]
+    cmd = [*compose_cmd, "exec", "-T", "pulsar", "uv", "run", "python", script]
     return subprocess.run(cmd, capture_output=True, text=True, check=True, timeout=timeout)
 
 
@@ -116,7 +116,7 @@ def is_worker_active() -> tuple[bool, int]:
             "    ).fetchone()\n"
             "    print(r['cnt'] if r else 0)\n"
         )
-        cmd = compose_cmd + ["exec", "-T", "pulsar", "uv", "run", "python", "-c", py_code]
+        cmd = [*compose_cmd, "exec", "-T", "pulsar", "uv", "run", "python", "-c", py_code]
         res = subprocess.run(cmd, capture_output=True, text=True, check=True, timeout=30)
         output = res.stdout.strip()
         count = int(output) if output.isdigit() else 0

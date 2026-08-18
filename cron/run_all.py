@@ -27,7 +27,7 @@ def clean_manticore_json() -> None:
     try:
         compose_cmd = get_docker_compose_cmd()
         # Read manticore.json from manticore container
-        cmd = compose_cmd + ["exec", "-T", "manticore", "cat", "/var/lib/manticore/manticore.json"]
+        cmd = [*compose_cmd, "exec", "-T", "manticore", "cat", "/var/lib/manticore/manticore.json"]
         res = subprocess.run(cmd, capture_output=True, text=True, check=True, timeout=60)
         config = json.loads(res.stdout)
 
@@ -45,19 +45,12 @@ def clean_manticore_json() -> None:
         if dirty:
             # Write cleaned configuration back using cat to prevent shell injection
             cleaned_json = json.dumps(config, separators=(",", ":"))
-            write_cmd = compose_cmd + [
-                "exec",
-                "-T",
-                "manticore",
-                "sh",
-                "-c",
-                "cat > /var/lib/manticore/manticore.json",
-            ]
+            write_cmd = [*compose_cmd, "exec", "-T", "manticore", "sh", "-c", "cat > /var/lib/manticore/manticore.json"]
             subprocess.run(write_cmd, input=cleaned_json, text=True, check=True, timeout=60)
             logger.info("Successfully cleaned manticore.json. Restarting Manticore container to apply changes...")
 
             # Restart manticore to apply changes
-            restart_cmd = compose_cmd + ["restart", "manticore"]
+            restart_cmd = [*compose_cmd, "restart", "manticore"]
             subprocess.run(restart_cmd, check=True, timeout=120)
             logger.info("Manticore container restarted and configuration applied.")
         else:
