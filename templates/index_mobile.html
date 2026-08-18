@@ -36,19 +36,24 @@
         
         <!-- Video Player on Mobile (hidden when idle, expands smoothly when playing) -->
         <div id="player-content" class="hidden p-3 border-b border-[#F2F0EB] bg-[#FAF9F6] animate-in fade-in duration-300">
-            <div class="aspect-video bg-black rounded-xl overflow-hidden shadow-lg ring-1 ring-black/5 relative group mb-2.5">
+            <div class="px-1 mb-2">
+                <h3 id="player-title" class="text-[11px] font-bold text-[#3A3630] truncate uppercase tracking-tight"></h3>
+            </div>
+            <div class="aspect-video bg-black rounded-xl overflow-hidden shadow-lg ring-1 ring-black/5 relative group mb-2">
                 <video id="main-video" controls class="w-full h-full object-contain"></video>
                 <div id="video-overlay" class="absolute inset-0 pointer-events-none bg-brand-500/10 opacity-0 transition-opacity"></div>
                 <button onclick="closePlayer()" class="absolute top-2 right-2 w-8 h-8 rounded-full bg-black/50 backdrop-blur-md border border-white/20 flex items-center justify-center text-white active:scale-90 transition-all z-10" title="Закрыть плеер">
                     <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M6 18L18 6M6 6l12 12"></path></svg>
                 </button>
             </div>
-            <div class="px-1 flex items-center justify-between gap-3">
-                <div class="flex-1 min-w-0">
-                    <h3 id="player-title" class="text-[11px] font-bold text-[#3A3630] truncate uppercase tracking-tight"></h3>
-                </div>
-                <div id="player-meta" class="px-2 py-0.5 bg-brand-50 border border-brand-100 text-brand-600 font-bold text-[9px] rounded uppercase tracking-wider shrink-0">
-                </div>
+            <div class="px-1 flex justify-end">
+                <button onclick="copyCurrentPlaybackTime(this)" class="px-2.5 py-1 bg-warm-50 border border-warm-200 text-warm-600 active:scale-90 font-semibold text-[10px] rounded-lg uppercase tracking-wider flex items-center gap-1.5 shadow-sm" title="Скопировать текущий таймкод">
+                    <svg class="w-3 h-3 text-warm-500" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                        <circle cx="12" cy="12" r="10"></circle>
+                        <polyline points="12 6 12 12 16 14"></polyline>
+                    </svg>
+                    <span>Скопировать тайминг</span>
+                </button>
             </div>
         </div>
 
