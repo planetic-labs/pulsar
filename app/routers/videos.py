@@ -136,7 +136,7 @@ async def video_file(
     if resp.headers.get("Content-Range"):
         headers["Content-Range"] = str(resp.headers.get("Content-Range"))
 
-    async def stream_from_resp(r: httpx.Response) -> AsyncGenerator[bytes, None]:
+    async def stream_from_resp(r: httpx.Response) -> AsyncGenerator[bytes]:
         try:
             # Use smaller chunks for better reactivity
             async for chunk in r.aiter_bytes(chunk_size=256 * 1024):

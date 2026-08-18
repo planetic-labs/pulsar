@@ -42,7 +42,7 @@ def _get_duration(input_path: Path) -> float:
     try:
         completed = subprocess.run(command, capture_output=True, text=True, timeout=30)
         return float(completed.stdout.strip())
-    except (ValueError, TypeError, subprocess.TimeoutExpired):
+    except ValueError, TypeError, subprocess.TimeoutExpired:
         return 0.0
 
 

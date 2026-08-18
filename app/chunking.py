@@ -71,7 +71,7 @@ def chunk_from_utterances(
             next_u = utterances[i + 1]
             try:
                 pause = float(next_u["start"]) - float(u["end"])
-            except (ValueError, TypeError, KeyError):
+            except ValueError, TypeError, KeyError:
                 pause = 0.0
 
             is_long_pause = pause >= pause_threshold

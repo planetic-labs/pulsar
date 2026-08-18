@@ -100,7 +100,7 @@ class DeepgramEngine(TranscriptionEngine):
             "Content-Type": content_type,
         }
 
-        def file_iterator(file_path: Path, chunk_size: int = 65536) -> Generator[bytes, None, None]:
+        def file_iterator(file_path: Path, chunk_size: int = 65536) -> Generator[bytes]:
             downloaded = 0
             with open(file_path, "rb") as f:
                 while True:
@@ -165,7 +165,7 @@ class DeepgramEngine(TranscriptionEngine):
             "Content-Type": content_type,
         }
 
-        async def async_file_iterator(file_path: Path, chunk_size: int = 65536) -> AsyncGenerator[bytes, None]:
+        async def async_file_iterator(file_path: Path, chunk_size: int = 65536) -> AsyncGenerator[bytes]:
             uploaded = 0
             with open(file_path, "rb") as f:
                 while True:

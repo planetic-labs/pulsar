@@ -491,9 +491,13 @@ class VideoService:
         # 5. Обновляем в Manticore
         from app.manticore import date_to_int
 
+        vector_data: dict[str, Any] = {"default": dense_vec}
+        if sparse_vec:
+            vector_data["text-sparse"] = sparse_vec
+
         m_point = {
             "id": chunk_id,
-            "vector": {"default": dense_vec},
+            "vector": vector_data,
             "payload": {
                 "chunk_id": chunk_id,
                 "chunk_index": chunk["chunk_index"],
@@ -512,8 +516,6 @@ class VideoService:
                 "is_primary": True,
             },
         }
-        if sparse_vec:
-            m_point["vector"]["text-sparse"] = sparse_vec
 
         await self.manticore.upsert_points(self.settings.manticore_table, [m_point])
 
