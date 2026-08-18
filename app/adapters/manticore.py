@@ -145,15 +145,12 @@ class ManticoreAdapter(VectorStorePort):
         if res and len(res) > 0:
             cols_meta = res[0].get("columns")
             if isinstance(cols_meta, list):
-                columns = [list(c.keys())[0] for c in cols_meta]
+                columns = [next(iter(c.keys())) for c in cols_meta]
             else:
                 columns = list(cols_meta.keys()) if cols_meta else []
             data = res[0].get("data", [])
             for row in data:
-                if isinstance(row, dict):
-                    row_dict = row.copy()
-                else:
-                    row_dict = dict(zip(columns, row, strict=False))
+                row_dict = row.copy() if isinstance(row, dict) else dict(zip(columns, row, strict=False))
                 m_id = row_dict.pop("id")
 
                 if "dist" in row_dict:

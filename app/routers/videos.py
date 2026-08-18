@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextlib
 import logging
 from collections.abc import AsyncGenerator
 from typing import Any
@@ -145,16 +146,12 @@ async def video_file(
             logger.error(f"Streaming error for video {video_id}: {e}")
 
     async def cleanup_stream(r: httpx.Response) -> None:
-        try:
+        with contextlib.suppress(Exception):
             await r.aclose()
-        except Exception:
-            pass
         client = getattr(r, "_client", None)
         if client:
-            try:
+            with contextlib.suppress(Exception):
                 await client.aclose()
-            except Exception:
-                pass
 
     background_tasks = BackgroundTasks()
     background_tasks.add_task(cleanup_stream, resp)

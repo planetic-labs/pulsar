@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 import re
 from dataclasses import dataclass, field
@@ -183,10 +184,8 @@ class SearchService:
             valid_vids: set[int] = set()
             for vid in video_ids:
                 if vid is not None:
-                    try:
+                    with contextlib.suppress(ValueError, TypeError):
                         valid_vids.add(int(str(vid)))
-                    except ValueError, TypeError:
-                        pass
             video_metadata = await self.video_repo.get_metadata_batch(valid_vids)
 
         # Получаем список помеченных чанков
@@ -200,10 +199,12 @@ class SearchService:
             try:
                 placeholders = ",".join("?" for _ in chunk_ids)
                 sql = f"SELECT chunk_id FROM subtitle_flags WHERE chunk_id IN ({placeholders})"
-                async with self.video_repo.db.transaction() as conn:
-                    async with conn.execute(sql, tuple(chunk_ids)) as cursor:
-                        rows = await cursor.fetchall()
-                        flagged_chunk_ids = {int(row["chunk_id"]) for row in rows}
+                async with (
+                    self.video_repo.db.transaction() as conn,
+                    conn.execute(sql, tuple(chunk_ids)) as cursor,
+                ):
+                    rows = await cursor.fetchall()
+                    flagged_chunk_ids = {int(row["chunk_id"]) for row in rows}
             except Exception as e:
                 logger.error(f"Failed to query flagged chunks: {e}")
 
@@ -232,10 +233,8 @@ class SearchService:
             point_v_id = payload.get("video_id")
             v_id_int = None
             if point_v_id is not None:
-                try:
+                with contextlib.suppress(ValueError, TypeError):
                     v_id_int = int(str(point_v_id))
-                except ValueError, TypeError:
-                    pass
             v_meta = video_metadata.get(v_id_int, {}) if v_id_int is not None else {}
 
             title = str(v_meta.get("title") or payload.get("title") or "Unknown Video")
@@ -253,10 +252,8 @@ class SearchService:
             rec_date_raw = payload.get("recorded_date")
             rec_date_int = None
             if rec_date_raw is not None:
-                try:
+                with contextlib.suppress(ValueError, TypeError):
                     rec_date_int = int(str(rec_date_raw))
-                except ValueError, TypeError:
-                    pass
             recorded_date_str = int_to_date(rec_date_int)
 
             results.append(

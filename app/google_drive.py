@@ -7,7 +7,7 @@ import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, ClassVar
 from urllib.parse import urlencode
 
 import httpx
@@ -32,7 +32,7 @@ class DriveFile:
 
 
 class GoogleDriveClient:
-    _cache: dict[str, tuple[float, list[dict[str, Any]]]] = {}
+    _cache: ClassVar[dict[str, tuple[float, list[dict[str, Any]]]]] = {}
     _CACHE_TTL = 300  # 5 minutes
 
     def __init__(self, settings: GoogleDriveSettings) -> None:
@@ -273,19 +273,19 @@ class GoogleDriveClient:
         access_token = await self._get_access_token()
         url = f"https://www.googleapis.com/drive/v3/files/{file_id}?alt=media&supportsAllDrives=true"
 
-        async with httpx.AsyncClient() as client:
-            async with client.stream(
-                "GET", url, headers={"Authorization": f"Bearer {access_token}"}, timeout=None
-            ) as response:
-                response.raise_for_status()
+        async with (
+            httpx.AsyncClient() as client,
+            client.stream("GET", url, headers={"Authorization": f"Bearer {access_token}"}, timeout=None) as response,
+        ):
+            response.raise_for_status()
 
-                with destination.open("wb") as f:
-                    downloaded = 0
-                    async for chunk in response.aiter_bytes(chunk_size=1024 * 1024):
-                        f.write(chunk)
-                        downloaded += len(chunk)
-                        if progress_callback and total_size:
-                            progress_callback(downloaded, total_size)
+            with destination.open("wb") as f:
+                downloaded = 0
+                async for chunk in response.aiter_bytes(chunk_size=1024 * 1024):
+                    f.write(chunk)
+                    downloaded += len(chunk)
+                    if progress_callback and total_size:
+                        progress_callback(downloaded, total_size)
 
         return destination
 

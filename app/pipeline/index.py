@@ -61,10 +61,7 @@ class IndexStage(PipelineStage):
         texts = [c["text"] for c in chunks]
 
         def embedding_progress(current: int, total: int) -> None:
-            if total > 0:
-                pct = 10 + int((current / total) * 65)
-            else:
-                pct = 10
+            pct = 10 + int(current / total * 65) if total > 0 else 10
             if progress_callback:
                 progress_callback({"progress": pct, "status_text": f"Эмбеддинги: {current}/{total}"})
 

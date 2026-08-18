@@ -35,6 +35,12 @@ jobs:
       - name: Run formatting check (Ruff)
         run: uv run ruff format --check .
 
+      - name: Run type checking (ty)
+        run: uv run ty check
+
+      - name: Run security audit (pip-audit)
+        run: uv run pip-audit
+
       - name: Run tests
         run: uv run pytest tests/unit tests/integration
         env:

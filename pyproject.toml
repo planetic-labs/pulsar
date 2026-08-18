@@ -3,6 +3,11 @@ name = "Pulsar"
 version = "2026.07.12"
 description = "Enterprise RAG for indexing Google Drive videos and searching transcripts"
 readme = "README.md"
+license = "MIT"
+authors = [
+    { name = "Pulsar Contributors" }
+]
+keywords = ["rag", "fastapi", "manticore", "deepgram", "embeddings", "video-search"]
 requires-python = ">=3.14"
 dependencies = [
     "fastapi>=0.141.1",
@@ -23,6 +28,11 @@ dependencies = [
     "slowapi>=0.1.10",
 ]
 
+[project.urls]
+Homepage = "https://github.com/planetic-labs/pulsar"
+Repository = "https://github.com/planetic-labs/pulsar.git"
+Issues = "https://github.com/planetic-labs/pulsar/issues"
+
 [dependency-groups]
 dev = [
     "pre-commit>=4.6.2",
@@ -31,22 +41,57 @@ dev = [
     "pytest>=9.1.1",
     "pytest-asyncio>=1.4.0",
     "pytest-mock>=3.15.1",
+    "pip-audit>=2.8.0",
 ]
 
 [tool.uv]
 package = false
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+asyncio_mode = "strict"
+filterwarnings = [
+    "ignore::DeprecationWarning:slowapi.*",
+]
+
+[tool.coverage.run]
+source = ["app"]
+omit = [
+    "tests/*",
+    "scripts/*",
+    "cron/*",
+]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "if __name__ == .__main__.:",
+    "raise NotImplementedError",
+    "if TYPE_CHECKING:",
+]
 
 [tool.ruff]
 line-length = 120
 target-version = "py314"
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "N", "W", "B", "C4", "UP", "ANN"]
+select = [
+    "E", "F", "I", "N", "W", "B", "C4", "UP", "ANN",
+    "ASYNC", # flake8-async: best practices for asyncio
+    "RUF",   # Ruff-specific rules
+    "SIM",   # flake8-simplify: cleaner syntax
+]
 ignore = [
     "B008", # Allow function calls in argument defaults (FastAPI)
     "ANN401", # Dynamically typed expressions (typing.Any) are allowed
     "ANN002", # Missing type annotation for *args
     "ANN003", # Missing type annotation for **kwargs
+    "RUF001", # Allow cyrillic characters in strings
+    "RUF002", # Allow cyrillic characters in docstrings
+    "RUF003", # Allow cyrillic characters in comments
+    "ASYNC230", # Allow standard blocking file I/O in async functions
+    "ASYNC240", # Allow Path methods in async routines
 ]
 
 [tool.ruff.lint.per-file-ignores]

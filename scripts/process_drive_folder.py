@@ -61,7 +61,7 @@ async def main() -> None:
         print(f"Processing [{index}/{len(files)}]: {file_meta.name}")
         try:
             ingest_drive_file(file_meta.file_id)
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             print(f"FAILED [{index}/{len(files)}]: {file_meta.name}: {exc}")
             if not args.continue_on_error:
                 raise

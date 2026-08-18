@@ -23,7 +23,9 @@ class FolderRepository:
 
     async def get_by_id(self, folder_id: str) -> dict[str, str | None] | None:
         """Возвращает папку по идентификатору."""
-        async with self.db.transaction() as conn:
-            async with conn.execute("SELECT * FROM folders WHERE id = ?", (folder_id,)) as cursor:
-                row = await cursor.fetchone()
-                return dict(row) if row else None
+        async with (
+            self.db.transaction() as conn,
+            conn.execute("SELECT * FROM folders WHERE id = ?", (folder_id,)) as cursor,
+        ):
+            row = await cursor.fetchone()
+            return dict(row) if row else None

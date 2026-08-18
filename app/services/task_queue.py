@@ -1,4 +1,5 @@
 import asyncio
+import contextlib
 import json
 import logging
 from dataclasses import dataclass
@@ -213,19 +214,15 @@ class TaskQueueService:
         if app_settings.downloads_dir.exists():
             for p in app_settings.downloads_dir.glob("*"):
                 if p.is_file():
-                    try:
+                    with contextlib.suppress(OSError):
                         p.unlink()
-                    except OSError:
-                        pass
 
         # 4. Очистка неиспользуемых аудиофайлов в audio
         if app_settings.audio_dir.exists():
             for ext in ("*.wav", "*.ogg"):
                 for p in app_settings.audio_dir.glob(ext):
                     if p.resolve() not in active_audio_paths:
-                        try:
+                        with contextlib.suppress(OSError):
                             p.unlink()
-                        except OSError:
-                            pass
 
         logger.info("Очистка временных файлов и базы данных завершена.")

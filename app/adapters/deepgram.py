@@ -4,7 +4,7 @@ import logging
 import time
 from collections.abc import AsyncGenerator, Callable
 from pathlib import Path
-from typing import Any
+from typing import Any, ClassVar
 
 import httpx
 
@@ -17,7 +17,7 @@ logger = logging.getLogger("app.adapters.deepgram")
 class DeepgramAdapter(TranscriptionPort):
     """Адаптер для работы со службой STT Deepgram."""
 
-    _balance_cache: dict[str, Any] = {"data": None}
+    _balance_cache: ClassVar[dict[str, Any]] = {"data": None}
 
     def __init__(self, settings: DeepgramSettings) -> None:
         self.settings = settings
@@ -37,7 +37,7 @@ class DeepgramAdapter(TranscriptionPort):
                 DeepgramAdapter._balance_cache["data"] = data
                 return data
         except (httpx.HTTPError, ValueError) as e:
-            logger.error(f"Failed to fetch Deepgram balance: {str(e)}")
+            logger.error(f"Failed to fetch Deepgram balance: {e!s}")
             return self._balance_cache["data"] or {"balances": []}
 
     async def get_balance_async(self, force_refresh: bool = False) -> dict[str, Any]:
@@ -55,7 +55,7 @@ class DeepgramAdapter(TranscriptionPort):
                 DeepgramAdapter._balance_cache["data"] = data
                 return data
         except (httpx.HTTPError, ValueError) as e:
-            logger.error(f"Failed to fetch Deepgram balance (async): {str(e)}")
+            logger.error(f"Failed to fetch Deepgram balance (async): {e!s}")
             return self._balance_cache["data"] or {"balances": []}
 
     async def check_balance(self, threshold: float = 1.0) -> tuple[bool, float]:

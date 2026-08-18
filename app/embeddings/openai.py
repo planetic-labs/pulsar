@@ -68,11 +68,10 @@ class OpenAIEmbeddingProvider(BaseEmbeddingProvider):
         formatted_text = self._format_text(text, task_type)
         payload = self._build_payload([formatted_text])
 
-        with handle_api_errors():
-            with httpx.Client(timeout=60.0) as client:
-                response = client.post(url, json=payload, headers=headers)
-                response.raise_for_status()
-                res = response.json()
+        with handle_api_errors(), httpx.Client(timeout=60.0) as client:
+            response = client.post(url, json=payload, headers=headers)
+            response.raise_for_status()
+            res = response.json()
 
         dense = res["data"][0]["embedding"]
         return dense, None

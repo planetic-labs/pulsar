@@ -32,7 +32,7 @@
                 <div class="w-full" id="flags-list">
                     {% for flag in flags %}
                         <div id="flag-card-{{ flag.chunk_id }}" 
-                             onclick="playFlagFragment('{{ flag.video_id }}', {{ flag.start_sec }}, '{{ flag.video_title }}', '{{ format_timestamp(flag.start_sec) }}', '{{ flag.chunk_id }}')"
+                             onclick="selectFlagCard(this)"
                              class="flag-card group p-6 lg:p-8 bg-white border border-[#E5E1D8] rounded-[2rem] cursor-pointer hover:border-brand-300 hover:bg-[#FDFDFB] transition-all relative shadow-xl flex flex-col gap-6 {% if not loop.first %} hidden {% endif %}"
                              data-video-id="{{ flag.video_id }}"
                              data-start-sec="{{ flag.start_sec }}"
@@ -105,25 +105,32 @@
         textarea.style.height = (textarea.scrollHeight) + 'px';
     }
 
+    function selectFlagCard(card) {
+        if (!card) return;
+        const vId = card.dataset.videoId;
+        const startSec = card.dataset.startSec;
+        const title = card.dataset.videoTitle;
+        const chunkId = card.dataset.chunkId;
+        const startTs = card.dataset.startTs;
+        playFlagFragment(vId, startSec, title, startTs, chunkId);
+
+        const ta = document.getElementById(`textarea-${chunkId}`);
+        if (ta) {
+            setTimeout(() => autoResizeTextarea(ta), 50);
+        }
+    }
+
     document.addEventListener('DOMContentLoaded', () => {
         // Automatically select and play the first active flag card on load
         const firstCard = document.querySelector('.flag-card:not(.hidden)');
         if (firstCard) {
-            const vId = firstCard.getAttribute('data-video-id');
-            const startSec = firstCard.getAttribute('data-start-sec');
-            const title = firstCard.getAttribute('data-video-title');
-            const chunkId = firstCard.getAttribute('data-chunk-id');
-            const startTs = firstCard.getAttribute('data-start-ts');
-            playFlagFragment(vId, startSec, title, startTs, chunkId);
-            
-            const ta = document.getElementById(`textarea-${chunkId}`);
-            if (ta) {
-                setTimeout(() => autoResizeTextarea(ta), 50);
-            }
+            selectFlagCard(firstCard);
         }
     });
 
     function playFlagFragment(videoId, startSec, title, ts, chunkId) {
+        if (!videoId) return;
+
         // Highlight active card
         if (activeFlagChunkId) {
             const oldCard = document.getElementById(`flag-card-${activeFlagChunkId}`);
@@ -142,12 +149,14 @@
         if (playerPlaceholder) playerPlaceholder.classList.add('hidden');
         if (playerContent) playerContent.classList.remove('hidden');
 
-        if (playerTitle) playerTitle.textContent = title;
-        if (playerMeta) playerMeta.textContent = ts;
+        if (playerTitle) playerTitle.textContent = title || '';
+        if (playerMeta) playerMeta.textContent = ts || '';
 
         if (video) {
-            video.src = `/videos/${videoId}/file#t=${startSec}`;
-            video.play();
+            const safeVideoId = encodeURIComponent(String(videoId));
+            const safeStartSec = parseFloat(startSec) || 0;
+            video.src = `/videos/${safeVideoId}/file#t=${safeStartSec}`;
+            video.play().catch(() => {});
         }
     }
 
@@ -242,17 +251,7 @@
                 const nextCard = document.querySelector('.flag-card');
                 if (nextCard) {
                     nextCard.classList.remove('hidden');
-                    const vId = nextCard.getAttribute('data-video-id');
-                    const startSec = nextCard.getAttribute('data-start-sec');
-                    const title = nextCard.getAttribute('data-video-title');
-                    const cId = nextCard.getAttribute('data-chunk-id');
-                    const startTs = nextCard.getAttribute('data-start-ts');
-                    playFlagFragment(vId, startSec, title, startTs, cId);
-                    
-                    const ta = document.getElementById(`textarea-${cId}`);
-                    if (ta) {
-                        setTimeout(() => autoResizeTextarea(ta), 50);
-                    }
+                    selectFlagCard(nextCard);
                 } else {
                     window.location.reload();
                 }
