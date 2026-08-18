@@ -62,21 +62,159 @@ function copyCurrentPlaybackTime(btnElement) {
     });
 }
 
-// Search input visual clear handler
+// --- Search History Management ---
+let currentSearchHistory = [];
+
+function escapeHtml(str) {
+    if (!str) return '';
+    return String(str).replace(/[&<>'"]/g, 
+        tag => ({
+            '&': '&amp;',
+            '<': '&lt;',
+            '>': '&gt;',
+            "'": '&#39;',
+            '"': '&quot;'
+        }[tag] || tag)
+    );
+}
+
+async function loadSearchHistory() {
+    try {
+        const res = await fetch('/api/search/history');
+        if (res.ok) {
+            const data = await res.json();
+            currentSearchHistory = data.history || [];
+        }
+    } catch (e) {
+        console.error('Failed to load search history', e);
+    }
+}
+
+function renderSearchHistory(filterText = '') {
+    const listEl = document.getElementById('search-history-list');
+    const dropEl = document.getElementById('search-history-drop');
+    if (!listEl || !dropEl) return;
+
+    const trimmed = (filterText || '').trim().toLowerCase();
+    const filtered = (currentSearchHistory || []).filter(item => {
+        if (!trimmed) return true;
+        return item.toLowerCase().includes(trimmed);
+    });
+
+    if (filtered.length === 0) {
+        dropEl.classList.add('hidden');
+        return;
+    }
+
+    listEl.innerHTML = filtered.map(query => {
+        const safeText = escapeHtml(query);
+        const attrText = escapeHtml(query).replace(/"/g, '&quot;');
+        return `
+            <div class="history-item flex items-center justify-between px-3.5 lg:px-4 py-2.5 hover:bg-warm-50 cursor-pointer transition-colors group/item" onclick="selectHistoryQuery('${attrText}')">
+                <div class="flex items-center gap-2.5 min-w-0 flex-1">
+                    <svg class="w-3.5 h-3.5 text-warm-300 group-hover/item:text-brand-500 transition-colors shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <circle cx="12" cy="12" r="10"></circle>
+                        <polyline points="12 6 12 12 16 14"></polyline>
+                    </svg>
+                    <span class="text-xs lg:text-sm text-[#4A453E] truncate">${safeText}</span>
+                </div>
+                <button type="button" onclick="removeHistoryItem(event, '${attrText}')" class="p-1 text-warm-300 hover:text-rose-500 transition-colors rounded ml-2" title="Удалить из истории">
+                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"></path>
+                    </svg>
+                </button>
+            </div>
+        `;
+    }).join('');
+
+    dropEl.classList.remove('hidden');
+}
+
+function showHistoryDropdown() {
+    const input = document.getElementById('search-input');
+    renderSearchHistory(input ? input.value : '');
+}
+
+function hideHistoryDropdown() {
+    const dropEl = document.getElementById('search-history-drop');
+    if (dropEl) dropEl.classList.add('hidden');
+}
+
+function selectHistoryQuery(query) {
+    const input = document.getElementById('search-input');
+    const form = document.getElementById('search-form');
+    if (input) input.value = query;
+    hideHistoryDropdown();
+    if (form) form.submit();
+}
+
+async function removeHistoryItem(event, query) {
+    if (event) {
+        event.stopPropagation();
+        event.preventDefault();
+    }
+    try {
+        await fetch(`/api/search/history?q=${encodeURIComponent(query)}`, { method: 'DELETE' });
+        currentSearchHistory = currentSearchHistory.filter(q => q !== query);
+        const input = document.getElementById('search-input');
+        renderSearchHistory(input ? input.value : '');
+    } catch (e) {
+        console.error('Failed to remove history item', e);
+    }
+}
+
+async function clearSearchHistory(event) {
+    if (event) {
+        event.stopPropagation();
+        event.preventDefault();
+    }
+    try {
+        await fetch('/api/search/history', { method: 'DELETE' });
+        currentSearchHistory = [];
+        hideHistoryDropdown();
+    } catch (e) {
+        console.error('Failed to clear search history', e);
+    }
+}
+
+// Search input visual clear and history handlers
 const searchInput = document.getElementById('search-input');
 const clearSearchBtn = document.getElementById('clear-search');
 
-if (searchInput && clearSearchBtn) {
-    searchInput.addEventListener('input', () => {
-        clearSearchBtn.classList.toggle('hidden', !searchInput.value);
+if (searchInput) {
+    searchInput.addEventListener('focus', async () => {
+        await loadSearchHistory();
+        showHistoryDropdown();
     });
 
+    searchInput.addEventListener('input', () => {
+        if (clearSearchBtn) clearSearchBtn.classList.toggle('hidden', !searchInput.value);
+        renderSearchHistory(searchInput.value);
+    });
+
+    searchInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') {
+            hideHistoryDropdown();
+        }
+    });
+}
+
+if (clearSearchBtn && searchInput) {
     clearSearchBtn.addEventListener('click', () => {
         searchInput.value = '';
         clearSearchBtn.classList.add('hidden');
         searchInput.focus();
+        renderSearchHistory('');
     });
 }
+
+document.addEventListener('click', (e) => {
+    const form = document.getElementById('search-form');
+    const drop = document.getElementById('search-history-drop');
+    if (form && !form.contains(e.target) && drop && !drop.contains(e.target)) {
+        hideHistoryDropdown();
+    }
+});
 
 // Set date limits
 (function() {
@@ -478,4 +616,9 @@ window.flagChunk = flagChunk;
 window.showToast = showToast;
 window.formatPlaybackTime = formatPlaybackTime;
 window.copyCurrentPlaybackTime = copyCurrentPlaybackTime;
+window.selectHistoryQuery = selectHistoryQuery;
+window.removeHistoryItem = removeHistoryItem;
+window.clearSearchHistory = clearSearchHistory;
+window.showHistoryDropdown = showHistoryDropdown;
+window.hideHistoryDropdown = hideHistoryDropdown;
 

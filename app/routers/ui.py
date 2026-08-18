@@ -7,12 +7,13 @@ from datetime import date
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from fastapi.responses import HTMLResponse, RedirectResponse
 
-from app.auth import require_access_token, require_subeditor
+from app.auth import get_authenticated_user_id, require_access_token, require_subeditor
 from app.config import get_app_settings
 from app.core import templates
-from app.dependencies import get_chunk_repo, get_search_service, get_settings
+from app.dependencies import get_chunk_repo, get_search_history_repo, get_search_service, get_settings
 from app.limiter import limiter
 from app.repos.chunk_repo import ChunkRepository
+from app.repos.search_history_repo import SearchHistoryRepository
 from app.services.search import SearchResult, SearchService
 from app.settings import Settings
 
@@ -36,6 +37,7 @@ async def index_page(
     date_to: str | None = None,
     video_type: str = "all",
     search_service: SearchService = Depends(get_search_service),
+    search_history_repo: SearchHistoryRepository = Depends(get_search_history_repo),
     settings: Settings = Depends(get_settings),
 ) -> Response:
     """Renders the main video indexing search engine home page."""
@@ -51,6 +53,20 @@ async def index_page(
         current_token = await require_access_token(request)
     except HTTPException:
         return RedirectResponse(url="/login")
+
+    user_id = get_authenticated_user_id(request, current_token)
+    search_history: list[str] = []
+    if user_id:
+        if q and q.strip():
+            try:
+                await search_history_repo.add_query(user_id, q.strip())
+            except Exception as e:
+                logger.warning(f"Failed to record search history: {e}")
+
+        try:
+            search_history = await search_history_repo.get_history(user_id, limit=10)
+        except Exception as e:
+            logger.warning(f"Failed to fetch search history: {e}")
 
     results: list[SearchResult] = []
     # Fetch results if there is a query OR if filters are applied
@@ -87,8 +103,41 @@ async def index_page(
             "default_start": default_start,
             "video_type": video_type,
             "token": current_token,
+            "search_history": search_history,
         },
     )
+
+
+@router.get("/api/search/history")
+async def api_get_search_history(
+    request: Request,
+    limit: int = 10,
+    search_history_repo: SearchHistoryRepository = Depends(get_search_history_repo),
+    token: str = Depends(require_access_token),
+) -> dict[str, list[str]]:
+    """Returns list of recent search queries for personal user accounts only."""
+    user_id = get_authenticated_user_id(request, token)
+    if not user_id:
+        return {"history": []}
+    history = await search_history_repo.get_history(user_id, limit=limit)
+    return {"history": history}
+
+
+@router.delete("/api/search/history")
+async def api_delete_search_history(
+    request: Request,
+    q: str | None = None,
+    search_history_repo: SearchHistoryRepository = Depends(get_search_history_repo),
+    token: str = Depends(require_access_token),
+) -> dict[str, str]:
+    """Deletes a specific query or clears entire search history for personal user accounts only."""
+    user_id = get_authenticated_user_id(request, token)
+    if user_id:
+        if q:
+            await search_history_repo.delete_query(user_id, q)
+        else:
+            await search_history_repo.clear_history(user_id)
+    return {"status": "ok"}
 
 
 @router.get("/import", response_class=HTMLResponse)

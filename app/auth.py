@@ -250,20 +250,36 @@ async def require_access_token(request: Request) -> str:
     request.state.subeditor_role_name = settings.subeditor_role_name
     if token == settings.access_token:
         request.state.user_id = "admin"
+        request.state.is_key_auth = True
         request.state.roles = ["admin", settings.admin_role_name]
     else:
         try:
             payload = jwt.decode(token, options={"verify_signature": False})
             request.state.user_id = payload.get("sub")
+            request.state.is_key_auth = False
             roles = payload.get("roles", [])
             if not isinstance(roles, list):
                 roles = [roles] if roles else []
             request.state.roles = roles
         except jwt.PyJWTError:
             request.state.user_id = None
+            request.state.is_key_auth = True
             request.state.roles = []
 
     return str(token)
+
+
+def get_authenticated_user_id(request: Request, token: str | None = None) -> str | None:
+    """Returns unique user ID only for personal user sessions (excludes static access token/key auth)."""
+    settings = get_app_settings()
+    if token and token == settings.access_token:
+        return None
+    if getattr(request.state, "is_key_auth", False):
+        return None
+    user_id = getattr(request.state, "user_id", None)
+    if not user_id or user_id == "admin":
+        return None
+    return str(user_id)
 
 
 async def require_admin(request: Request) -> str:

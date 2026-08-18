@@ -109,6 +109,17 @@ CREATE TABLE revoked_users (
 );
 ```
 
+### 1.7. `search_history` (История поисковых запросов пользователей)
+```sql
+CREATE TABLE search_history (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id TEXT NOT NULL,
+    query TEXT NOT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(user_id, query)
+);
+```
+
 ---
 
 ## 2. Индексы
@@ -120,6 +131,7 @@ CREATE TABLE revoked_users (
 * `idx_videos_status` на `videos(status)` — выборка по статусу обработки.
 * `idx_folders_parent_name` на `folders(parent_id, name)` — сортировка папок при выводе.
 * `idx_tasks_queue` на `tasks(status, priority DESC, created_at ASC)` — приоритетная выборка задач воркером.
+* `idx_search_history_user` на `search_history(user_id, created_at DESC)` — быстрая выборка недавних запросов пользователя.
 * `uidx_videos_md5_original` (уникальный частичный) на `videos(md5_checksum) WHERE original_id IS NULL AND md5_checksum IS NOT NULL AND md5_checksum != ''` — гарантирует, что на один MD5 может существовать только один оригинал.
 
 ---

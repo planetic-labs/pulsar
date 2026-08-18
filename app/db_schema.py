@@ -142,6 +142,16 @@ SCHEMA_STATEMENTS = [
         UNIQUE(chunk_id)
     );
     """,
+    # 9. Search history table
+    """
+    CREATE TABLE IF NOT EXISTS search_history (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id TEXT NOT NULL,
+        query TEXT NOT NULL,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(user_id, query)
+    );
+    """,
     # Indexes
     "CREATE INDEX IF NOT EXISTS idx_videos_parent_folder ON videos(parent_folder_id);",
     "CREATE INDEX IF NOT EXISTS idx_videos_md5 ON videos(md5_checksum);",
@@ -150,6 +160,7 @@ SCHEMA_STATEMENTS = [
     "CREATE INDEX IF NOT EXISTS idx_videos_status ON videos(status);",
     "CREATE INDEX IF NOT EXISTS idx_folders_parent_name ON folders(parent_id, name);",
     "CREATE INDEX IF NOT EXISTS idx_tasks_queue ON tasks(status, priority DESC, created_at ASC);",
+    "CREATE INDEX IF NOT EXISTS idx_search_history_user ON search_history(user_id, created_at DESC);",
     """
     CREATE UNIQUE INDEX IF NOT EXISTS uidx_videos_md5_original
     ON videos(md5_checksum)
