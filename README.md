@@ -18,7 +18,7 @@ Enterprise-grade RAG (Retrieval-Augmented Generation) system for deep semantic s
 
 ## 🛠 Tech Stack
 
-- **Backend**: FastAPI (Python 3.12+)
+- **Backend**: FastAPI (Python 3.14+)
 - **Storage**: SQLite (Metadata & Cache) + Manticore Search (Vector Search)
 - **AI Integrations**: Infinity Remote (Embeddings), Deepgram API (ASR)
 - **Infrastructure**: Docker & Docker Compose

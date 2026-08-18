@@ -366,10 +366,7 @@ class SparseVector:
         self.values = values
 
 
-class ModelsNamespace:
+class models:  # noqa: N801
     SparseVector = SparseVector
     ScoredPoint = ScoredPoint
     Record = Record
-
-
-models = ModelsNamespace()

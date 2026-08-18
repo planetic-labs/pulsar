@@ -17,7 +17,7 @@ class EmbeddingProviderError(Exception):
 
 
 @contextlib.contextmanager
-def handle_api_errors() -> Generator[None, None, None]:
+def handle_api_errors() -> Generator[None]:
     try:
         yield
     except httpx.HTTPStatusError as e:

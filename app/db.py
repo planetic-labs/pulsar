@@ -11,7 +11,7 @@ logger = logging.getLogger(__name__)
 
 
 @contextmanager
-def db_connection(settings: SQLiteSettings) -> Generator[sqlite3.Connection, None, None]:
+def db_connection(settings: SQLiteSettings) -> Generator[sqlite3.Connection]:
     """Provide a transactional scope around a series of operations."""
     Path(settings.db_path).parent.mkdir(parents=True, exist_ok=True)
 

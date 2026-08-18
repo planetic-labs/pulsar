@@ -94,7 +94,7 @@ class DeepgramAdapter(TranscriptionPort):
             "Content-Type": content_type,
         }
 
-        async def async_file_iterator(file_path: Path, chunk_size: int = 65536) -> AsyncGenerator[bytes, None]:
+        async def async_file_iterator(file_path: Path, chunk_size: int = 65536) -> AsyncGenerator[bytes]:
             uploaded = 0
             with open(file_path, "rb") as f:
                 while True:

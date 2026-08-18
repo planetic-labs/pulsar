@@ -61,7 +61,7 @@ def _get_float(p_load: dict[str, Any], key: str, default: float = 0.0) -> float:
         return default
     try:
         return float(val)
-    except (ValueError, TypeError):
+    except ValueError, TypeError:
         return default
 
 
@@ -71,7 +71,7 @@ def _get_int(p_load: dict[str, Any], key: str, default: int = 0) -> int:
         return default
     try:
         return int(val)
-    except (ValueError, TypeError):
+    except ValueError, TypeError:
         return default
 
 
@@ -185,7 +185,7 @@ class SearchService:
                 if vid is not None:
                     try:
                         valid_vids.add(int(str(vid)))
-                    except (ValueError, TypeError):
+                    except ValueError, TypeError:
                         pass
             video_metadata = await self.video_repo.get_metadata_batch(valid_vids)
 
@@ -234,7 +234,7 @@ class SearchService:
             if point_v_id is not None:
                 try:
                     v_id_int = int(str(point_v_id))
-                except (ValueError, TypeError):
+                except ValueError, TypeError:
                     pass
             v_meta = video_metadata.get(v_id_int, {}) if v_id_int is not None else {}
 
@@ -255,7 +255,7 @@ class SearchService:
             if rec_date_raw is not None:
                 try:
                     rec_date_int = int(str(rec_date_raw))
-                except (ValueError, TypeError):
+                except ValueError, TypeError:
                     pass
             recorded_date_str = int_to_date(rec_date_int)
 

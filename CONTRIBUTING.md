@@ -33,7 +33,7 @@ Pulsar uses [uv](https://github.com/astral-sh/uv) for dependency management and 
 
 ### Prerequisites
 
-- Python 3.12 or higher.
+- Python 3.14 or higher.
 - `uv` installed (`pip install uv`).
 - Docker and Docker Compose (for integration testing).
 

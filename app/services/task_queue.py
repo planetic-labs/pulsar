@@ -206,7 +206,7 @@ class TaskQueueService:
                     p = json.loads(r["payload"]).get("audio_path")
                     if p:
                         active_audio_paths.add(Path(p).resolve())
-                except (json.JSONDecodeError, TypeError, ValueError):
+                except json.JSONDecodeError, TypeError, ValueError:
                     continue
 
         # 3. Очистка временных файлов видео в downloads

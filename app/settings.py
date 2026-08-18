@@ -249,4 +249,4 @@ class Settings(BaseSettings):
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:
     """Единая точка загрузки конфигурации. Вызывается один раз, затем кэшируется."""
-    return Settings()  # type: ignore # pyre-ignore
+    return Settings()

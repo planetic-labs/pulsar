@@ -21,7 +21,7 @@ from app.services.video import VideoService
 from app.settings import Settings, get_settings
 
 
-async def get_database(settings: Settings = Depends(get_settings)) -> AsyncGenerator[Database, None]:
+async def get_database(settings: Settings = Depends(get_settings)) -> AsyncGenerator[Database]:
     """Асинхронный генератор для предоставления экземпляра Database с управлением его жизненным циклом."""
     db = Database(settings.resolved_db_path)
     await db.connect()
@@ -31,7 +31,7 @@ async def get_database(settings: Settings = Depends(get_settings)) -> AsyncGener
         await db.close()
 
 
-async def get_manticore(settings: Settings = Depends(get_settings)) -> AsyncGenerator[VectorStorePort, None]:
+async def get_manticore(settings: Settings = Depends(get_settings)) -> AsyncGenerator[VectorStorePort]:
     adapter = ManticoreAdapter(settings.manticore_url)
     try:
         yield adapter
@@ -47,7 +47,7 @@ def get_deepgram() -> TranscriptionPort:
     return DeepgramAdapter(get_deepgram_settings())
 
 
-async def get_embedder() -> AsyncGenerator[EmbeddingPort, None]:
+async def get_embedder() -> AsyncGenerator[EmbeddingPort]:
     adapter = EmbeddingAdapter(get_embedding_settings())
     try:
         yield adapter

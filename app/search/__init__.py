@@ -50,7 +50,7 @@ def _get_float(p_load: dict[str, Any], key: str, default: float = 0.0) -> float:
         return default
     try:
         return float(val)
-    except (ValueError, TypeError):
+    except ValueError, TypeError:
         return default
 
 
@@ -60,7 +60,7 @@ def _get_int(p_load: dict[str, Any], key: str, default: int = 0) -> int:
         return default
     try:
         return int(val)
-    except (ValueError, TypeError):
+    except ValueError, TypeError:
         return default
 
 
@@ -390,7 +390,7 @@ async def hybrid_search(
         if rec_date_raw is not None:
             try:
                 rec_date_int = int(rec_date_raw)
-            except (ValueError, TypeError):
+            except ValueError, TypeError:
                 pass
         recorded_date_str = int_to_date(rec_date_int)
 

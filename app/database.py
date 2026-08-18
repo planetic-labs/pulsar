@@ -33,7 +33,7 @@ class Database:
             await self._conn.execute(pragma)
 
     @asynccontextmanager
-    async def transaction(self) -> AsyncGenerator[aiosqlite.Connection, None]:
+    async def transaction(self) -> AsyncGenerator[aiosqlite.Connection]:
         """Предоставляет транзакционный контекст."""
         if self._conn is None:
             raise RuntimeError("Database not connected. Call connect() first.")
