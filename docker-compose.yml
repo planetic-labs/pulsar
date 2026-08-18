@@ -1,12 +1,15 @@
+name: pulsar-dev
+
 services:
   manticore:
     image: manticoresearch/manticore:latest
     restart: always
+    stop_grace_period: 30s
     ports:
       - "127.0.0.1:9308:9308"
       - "127.0.0.1:9306:9306"
     networks:
-      - planetic-net
+      - default
     volumes:
       - manticore_data:/var/lib/manticore
     healthcheck:
@@ -15,9 +18,13 @@ services:
       timeout: 5s
       retries: 3
       start_period: 10s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "20m"
+        max-file: "5"
 
   pulsar:
-    container_name: pulsar
     image: pulsar
     build:
       context: .
@@ -26,13 +33,14 @@ services:
         - GROUP_ID=${GID:-1000}
     user: "${UID:-1000}:${GID:-1000}"
     restart: always
-    command: ["uv", "run", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8351", "--proxy-headers", "--forwarded-allow-ips=*"]
+    stop_grace_period: 30s
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8351", "--proxy-headers", "--forwarded-allow-ips=*"]
     ports:
       - "127.0.0.1:8351:8351"
     networks:
+      - default
       - planetic-net
     environment:
-      - HF_HOME=/app/models_cache
       - APP_PORT=8351
     env_file: .env
     depends_on:
@@ -43,13 +51,17 @@ services:
       interval: 30s
       timeout: 10s
       retries: 3
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "20m"
+        max-file: "5"
     volumes:
       - ./app:/app/app
       - ./logs:/app/logs
       - ./config:/app/config
       - ./data:/app/data
       - ./storage:/app/storage
-      - ./models_cache:/app/models_cache
       - ./scripts:/app/scripts
       - ./templates:/app/templates
       - ./static:/app/static
@@ -57,10 +69,11 @@ services:
 
 volumes:
   manticore_data:
-    name: pulsar_manticore_data
-    external: true
+    name: pulsar-dev-manticore-data
 
 networks:
+  default:
   planetic-net:
     external: true
+
 
