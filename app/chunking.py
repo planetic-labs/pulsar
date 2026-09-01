@@ -5,10 +5,12 @@ import re
 from hashlib import sha256
 from typing import Any
 
+from app.settings import get_settings
+
 logger = logging.getLogger(__name__)
 
 # Дефолтные настройки для экспериментов из переменных окружения
-DEFAULT_PAUSE_THRESHOLD = float(os.getenv("CHUNKING_PAUSE_THRESHOLD", "3.0"))
+DEFAULT_PAUSE_THRESHOLD = get_settings().chunking_pause_threshold
 DEFAULT_MIN_CHARS = int(os.getenv("CHUNKING_MIN_CHARS", "400"))
 DEFAULT_MAX_CHARS = int(os.getenv("CHUNKING_MAX_CHARS", "2000"))
 DEFAULT_ABSOLUTE_MAX_CHARS = int(os.getenv("CHUNKING_ABSOLUTE_MAX_CHARS", "3000"))
