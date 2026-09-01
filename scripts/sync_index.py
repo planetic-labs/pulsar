@@ -16,6 +16,7 @@ if str(ROOT_DIR) not in sys.path:
 from app.config import get_app_settings, get_google_drive_settings, get_sqlite_settings
 from app.db import db_connection, init_db
 from app.google_drive import GoogleDriveClient
+from app.indexing_state import enqueue_index_task
 from app.repository import extract_date_from_title, upsert_folder
 
 LOGS_DIR = ROOT_DIR / "logs"
@@ -383,16 +384,7 @@ async def main():
                         lv["processing_status"] in ("indexed_chunks_ready", "transcribed", "indexing")
                         and lv["id"] not in active_indexing_ids
                     ):
-                        conn.execute(
-                            "INSERT INTO tasks (video_id, task_type, payload, status, priority) VALUES (?, ?, ?, ?, ?)",
-                            (
-                                lv["id"],
-                                "stage_3_index",
-                                json.dumps({"video_id": lv["id"], "title": name}, ensure_ascii=False),
-                                "pending",
-                                5,
-                            ),
-                        )
+                        enqueue_index_task(conn, video_id=lv["id"], title=name, priority=5)
                         logger.info(f"Queued re-indexing task to sync Qdrant metadata for video: {name}")
             else:
                 # New file found, check if it is already in active download tasks to avoid duplicates

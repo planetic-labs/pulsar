@@ -17,20 +17,39 @@ class TaskRepository:
         payload: dict[str, str | int | bool | None],
         priority: int = 0,
         video_id: int | None = None,
+        dedupe_key: str | None = None,
+        generation_id: int | None = None,
     ) -> int:
-        """Создает задачу в очереди."""
+        """Создает идемпотентную задачу в очереди."""
         sql = """
-            INSERT INTO tasks (task_type, payload, priority, video_id, status)
-            VALUES (?, ?, ?, ?, 'pending')
+            INSERT INTO tasks (task_type, payload, priority, video_id, status, dedupe_key, generation_id)
+            VALUES (?, ?, ?, ?, 'pending', ?, ?)
+            ON CONFLICT DO NOTHING
             RETURNING id
         """
         async with (
             self.db.transaction() as conn,
-            conn.execute(sql, (task_type, json.dumps(payload, ensure_ascii=False), priority, video_id)) as cursor,
+            conn.execute(
+                sql,
+                (
+                    task_type,
+                    json.dumps(payload, ensure_ascii=False),
+                    priority,
+                    video_id,
+                    dedupe_key,
+                    generation_id,
+                ),
+            ) as cursor,
         ):
             row = await cursor.fetchone()
-            assert row is not None
-            return int(row["id"])
+            if row:
+                return int(row["id"])
+            if dedupe_key is None:
+                raise RuntimeError("Task insert was unexpectedly ignored")
+            async with conn.execute("SELECT id FROM tasks WHERE dedupe_key = ?", (dedupe_key,)) as existing_cursor:
+                existing = await existing_cursor.fetchone()
+            assert existing is not None
+            return int(existing["id"])
 
     async def get_by_id(self, task_id: int) -> dict[str, str | int | None] | None:
         """Возвращает задачу по идентификатору."""

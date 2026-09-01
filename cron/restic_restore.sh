@@ -38,6 +38,11 @@ if ! command -v restic &> /dev/null; then
     exit 1
 fi
 
+if ! command -v sqlite3 &> /dev/null; then
+    echo "❌ Error: sqlite3 is required for post-restore validation." >&2
+    exit 1
+fi
+
 echo "📋 List of available snapshots in repository:"
 restic snapshots
 
@@ -47,6 +52,10 @@ read -p "Snapshot ID: " SNAPSHOT_ID
 SNAPSHOT_ID=${SNAPSHOT_ID:-latest}
 
 RESTORE_DIR="$PROJECT_ROOT/tmp/restore_$SNAPSHOT_ID"
+if [ -e "$RESTORE_DIR" ]; then
+    echo "❌ Error: restore directory already exists: $RESTORE_DIR" >&2
+    exit 1
+fi
 mkdir -p "$RESTORE_DIR"
 
 echo "🔄 Restoring snapshot '$SNAPSHOT_ID' to temporary directory '$RESTORE_DIR'..."
@@ -57,53 +66,98 @@ echo "✅ Restore completed to $RESTORE_DIR"
 echo "========================================="
 echo ""
 
+DB_RESTORED_PATH="$RESTORE_DIR$PROJECT_ROOT/tmp/backup_db/pulsar.db"
+MANIFEST_RESTORED_PATH="$RESTORE_DIR$PROJECT_ROOT/tmp/backup_db/manifest.json"
+MANTICORE_RESTORED_DIR="$RESTORE_DIR$PROJECT_ROOT/tmp/backup_manticore"
+TARGET_ENVIRONMENT="${PULSAR_ENV:-dev}"
+if [[ "${COMPOSE_FILE:-}" == *"prod"* ]]; then
+    TARGET_ENVIRONMENT="prod"
+fi
+
+if [ ! -f "$DB_RESTORED_PATH" ] || [ ! -f "$MANIFEST_RESTORED_PATH" ] || [ ! -d "$MANTICORE_RESTORED_DIR" ]; then
+    echo "❌ Error: snapshot is incomplete; SQLite, Manticore, and manifest are all required." >&2
+    echo "   Database: $DB_RESTORED_PATH" >&2
+    echo "   Manifest: $MANIFEST_RESTORED_PATH" >&2
+    echo "   Manticore: $MANTICORE_RESTORED_DIR" >&2
+    exit 1
+fi
+
+echo "🔍 Validating checksum, schema, integrity, row counts, and target environment..."
+python3 "$PROJECT_ROOT/scripts/backup_manifest.py" validate \
+    --db "$DB_RESTORED_PATH" \
+    --manifest "$MANIFEST_RESTORED_PATH" \
+    --manticore-backup "$MANTICORE_RESTORED_DIR" \
+    --environment "$TARGET_ENVIRONMENT" > /dev/null
+echo "✅ Snapshot preflight passed. No active files have been changed."
+
 read -p "⚠️  Do you want to apply these restored files to your active Pulsar system now? (y/N): " CONFIRM
 if [[ "$CONFIRM" =~ ^[Yy]$ ]]; then
     # Detect docker compose version / command
-    COMPOSE_CMD="docker compose"
-    if ! command -v docker-compose &> /dev/null && command -v docker &> /dev/null; then
-        if ! docker compose version &> /dev/null; then
-            COMPOSE_CMD="docker-compose"
-        fi
+    if docker compose version &> /dev/null; then
+        COMPOSE_CMD=(docker compose)
+    elif command -v docker-compose &> /dev/null; then
+        COMPOSE_CMD=(docker-compose)
+    else
+        echo "❌ Docker Compose is required for Manticore restore." >&2
+        exit 1
     fi
 
     echo "🛑 Stopping pulsar containers..."
-    if $COMPOSE_CMD down &> /dev/null; then
+    if "${COMPOSE_CMD[@]}" down &> /dev/null; then
         echo "✅ Containers stopped."
     else
-        echo "⚠️  Could not stop containers via docker compose, proceeding with file copy..."
+        echo "❌ Could not stop containers; refusing to change active files." >&2
+        exit 1
     fi
+
+    MANTICORE_BACKUP_NAME="$(find "$MANTICORE_RESTORED_DIR" -mindepth 1 -maxdepth 1 -type d -name 'backup-*' -printf '%f\n')"
+    if [ -z "$MANTICORE_BACKUP_NAME" ] || [ "$(printf '%s\n' "$MANTICORE_BACKUP_NAME" | wc -l)" -ne 1 ]; then
+        echo "❌ Expected exactly one Manticore backup directory." >&2
+        exit 1
+    fi
+
+    echo "🔄 Restoring the physical Manticore backup '$MANTICORE_BACKUP_NAME'..."
+    "${COMPOSE_CMD[@]}" run --rm --no-deps \
+        -v "$MANTICORE_RESTORED_DIR:/backup:ro" \
+        --entrypoint sh manticore \
+        -c "find /var/lib/manticore -mindepth 1 -delete && manticore-backup --backup-dir=/backup --restore=$MANTICORE_BACKUP_NAME --disable-telemetry"
+    echo "✅ Manticore database restored."
 
     echo "🔄 Copying storage files..."
     if [ -d "$RESTORE_DIR$PROJECT_ROOT/storage" ]; then
         cp -r "$RESTORE_DIR$PROJECT_ROOT/storage/"* "$PROJECT_ROOT/storage/"
     fi
 
-    echo "🔄 Copying configuration files..."
+    echo "🔄 Copying non-secret configuration files..."
     if [ -d "$RESTORE_DIR$PROJECT_ROOT/config" ]; then
         cp -r "$RESTORE_DIR$PROJECT_ROOT/config/"* "$PROJECT_ROOT/config/"
     fi
     if [ -f "$RESTORE_DIR$PROJECT_ROOT/.env" ]; then
-        cp "$RESTORE_DIR$PROJECT_ROOT/.env" "$PROJECT_ROOT/.env"
+        cp "$RESTORE_DIR$PROJECT_ROOT/.env" "$PROJECT_ROOT/.env.restored"
+        echo "ℹ️ Restored .env saved as .env.restored for review; active .env was not overwritten."
     fi
 
     echo "🔄 Restoring SQLite database..."
-    DB_RESTORED_PATH="$RESTORE_DIR$PROJECT_ROOT/tmp/backup_db/pulsar.db"
-
-    if [ -f "$DB_RESTORED_PATH" ]; then
-        mkdir -p "$PROJECT_ROOT/data"
-        cp "$DB_RESTORED_PATH" "$PROJECT_ROOT/data/pulsar.db"
-        echo "✅ Database restored."
-    else
-        echo "❌ Error: SQLite backup file not found in snapshot at $PROJECT_ROOT/tmp/backup_db/pulsar.db."
-    fi
+    mkdir -p "$PROJECT_ROOT/data"
+    cp "$DB_RESTORED_PATH" "$PROJECT_ROOT/data/pulsar.db.restore-new"
+    mv "$PROJECT_ROOT/data/pulsar.db.restore-new" "$PROJECT_ROOT/data/pulsar.db"
+    cp "$MANIFEST_RESTORED_PATH" "$PROJECT_ROOT/data/restore-manifest.json"
+    rm -f "$PROJECT_ROOT/data/REINDEX_REQUIRED"
+    echo "✅ SQLite restored atomically; it is paired with the restored Manticore snapshot."
 
     echo "🧹 Cleaning up temporary restore directory..."
     rm -rf "$RESTORE_DIR"
 
     echo "⚡ Starting pulsar containers..."
-    if $COMPOSE_CMD up -d; then
-        echo "✅ Containers started successfully. RESTORE COMPLETE! 🎉"
+    if "${COMPOSE_CMD[@]}" up -d; then
+        RESTORED_SQLITE_COUNT="$(sqlite3 "$PROJECT_ROOT/data/pulsar.db" "SELECT COUNT(*) FROM chunks;")"
+        RESTORED_MANTICORE_OUTPUT="$("${COMPOSE_CMD[@]}" exec -T manticore mysql -h127.0.0.1 -P9306 -e 'SELECT COUNT(*) FROM chunks')"
+        RESTORED_MANTICORE_COUNT="$(printf '%s\n' "$RESTORED_MANTICORE_OUTPUT" | grep -Eo '[0-9]+' | tail -n 1)"
+        if [ -z "$RESTORED_MANTICORE_COUNT" ] || [ "$RESTORED_SQLITE_COUNT" -ne "$RESTORED_MANTICORE_COUNT" ]; then
+            echo "❌ Restore count validation failed: SQLite=$RESTORED_SQLITE_COUNT, Manticore=${RESTORED_MANTICORE_COUNT:-unknown}." >&2
+            exit 1
+        fi
+        echo "✅ Containers started; SQLite/Manticore counts match ($RESTORED_SQLITE_COUNT). RESTORE COMPLETE! 🎉"
     else
         echo "❌ Error: Failed to start containers. Please run 'docker compose up -d' manually."
     fi

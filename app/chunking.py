@@ -1,6 +1,8 @@
+import json
 import logging
 import os
 import re
+from hashlib import sha256
 from typing import Any
 
 logger = logging.getLogger(__name__)
@@ -11,6 +13,25 @@ DEFAULT_MIN_CHARS = int(os.getenv("CHUNKING_MIN_CHARS", "400"))
 DEFAULT_MAX_CHARS = int(os.getenv("CHUNKING_MAX_CHARS", "2000"))
 DEFAULT_ABSOLUTE_MAX_CHARS = int(os.getenv("CHUNKING_ABSOLUTE_MAX_CHARS", "3000"))
 DEFAULT_OVERLAP_SENTENCES = int(os.getenv("CHUNKING_OVERLAP_SENTENCES", "1"))
+CHUNKING_ALGORITHM_VERSION = "pause-boundaries-v2"
+
+
+def get_chunking_manifest() -> dict[str, str | int | float]:
+    """Return the persisted identity of the chunking algorithm and its inputs."""
+    return {
+        "algorithm_version": CHUNKING_ALGORITHM_VERSION,
+        "pause_threshold": DEFAULT_PAUSE_THRESHOLD,
+        "min_chars": DEFAULT_MIN_CHARS,
+        "max_chars": DEFAULT_MAX_CHARS,
+        "absolute_max_chars": DEFAULT_ABSOLUTE_MAX_CHARS,
+        "overlap_sentences": DEFAULT_OVERLAP_SENTENCES,
+    }
+
+
+def get_chunking_config_hash() -> str:
+    """Return a deterministic hash used to guard rebuilds and restores."""
+    payload = json.dumps(get_chunking_manifest(), sort_keys=True, separators=(",", ":"))
+    return sha256(payload.encode("utf-8")).hexdigest()
 
 
 def chunk_from_utterances(

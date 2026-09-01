@@ -5,6 +5,13 @@ import re
 import sqlite3
 from typing import Any
 
+from app.chunking import CHUNKING_ALGORITHM_VERSION
+from app.indexing_state import (
+    add_outbox_event,
+    chunk_content_hash,
+    ensure_active_generation,
+    stable_chunk_logical_id,
+)
 from app.manticore import models
 
 
@@ -170,25 +177,86 @@ def replace_chunks(
     video_id: int,
     chunks: list[dict[str, Any]],
 ) -> None:
-    connection.execute("DELETE FROM chunks WHERE video_id = ?", (video_id,))
+    """Upsert a chunk set atomically while preserving stable row IDs."""
+    video = connection.execute("SELECT source_file_id FROM videos WHERE id = ?", (video_id,)).fetchone()
+    if not video:
+        raise ValueError(f"Video {video_id} does not exist")
 
-    connection.executemany(
-        """
-        INSERT INTO chunks (
-            video_id, chunk_index,
-            start_sec, end_sec, text
-        ) VALUES (?, ?, ?, ?, ?)
-        """,
-        [
+    generation_id = ensure_active_generation(connection)
+    existing = {
+        int(row["chunk_index"]): {"content_hash": row["content_hash"], "id": int(row["id"])}
+        for row in connection.execute(
+            "SELECT id, chunk_index, content_hash FROM chunks WHERE video_id = ?",
+            (video_id,),
+        ).fetchall()
+    }
+    retained_indices: set[int] = set()
+
+    for chunk in chunks:
+        chunk_index = int(chunk["chunk_index"])
+        retained_indices.add(chunk_index)
+        start_sec = float(chunk["start_sec"])
+        end_sec = float(chunk["end_sec"])
+        text = str(chunk["text"])
+        logical_id = stable_chunk_logical_id(str(video["source_file_id"]), chunk_index)
+        content_hash = chunk_content_hash(text=text, start_sec=start_sec, end_sec=end_sec)
+        cursor = connection.execute(
+            """
+            INSERT INTO chunks (
+                video_id, chunk_index, start_sec, end_sec, text,
+                logical_id, content_hash, chunking_version, generation_id
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(video_id, chunk_index) DO UPDATE SET
+                start_sec = excluded.start_sec,
+                end_sec = excluded.end_sec,
+                text = excluded.text,
+                logical_id = excluded.logical_id,
+                content_hash = excluded.content_hash,
+                chunking_version = excluded.chunking_version,
+                generation_id = excluded.generation_id
+            RETURNING id
+            """,
             (
                 video_id,
-                int(c["chunk_index"]),
-                float(c["start_sec"]),
-                float(c["end_sec"]),
-                c["text"],
-            )
-            for c in chunks
-        ],
+                chunk_index,
+                start_sec,
+                end_sec,
+                text,
+                logical_id,
+                content_hash,
+                CHUNKING_ALGORITHM_VERSION,
+                generation_id,
+            ),
+        )
+        row = cursor.fetchone()
+        assert row is not None
+        add_outbox_event(
+            connection,
+            event_type="upsert",
+            video_id=video_id,
+            chunk_id=int(row["id"]),
+            generation_id=generation_id,
+            event_version=content_hash,
+        )
+
+    for chunk_index, old in existing.items():
+        if chunk_index in retained_indices:
+            continue
+        old_id = int(old["id"])
+        event_version = str(old["content_hash"] or "legacy")
+        add_outbox_event(
+            connection,
+            event_type="delete",
+            video_id=video_id,
+            chunk_id=old_id,
+            generation_id=generation_id,
+            event_version=event_version,
+        )
+        connection.execute("DELETE FROM chunks WHERE id = ?", (old_id,))
+
+    connection.execute(
+        "UPDATE index_generations SET expected_chunks = (SELECT COUNT(*) FROM chunks) WHERE id = ?",
+        (generation_id,),
     )
 
 

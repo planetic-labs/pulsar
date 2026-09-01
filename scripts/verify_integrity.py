@@ -14,6 +14,7 @@ if str(ROOT_DIR) not in sys.path:
 from app.chunking import chunk_from_utterances
 from app.config import get_app_settings, get_embedding_settings, get_manticore_settings, get_sqlite_settings
 from app.db import db_connection
+from app.indexing_state import enqueue_index_task
 from app.integrity_reporter import format_integrity_issues_for_telegram
 from app.manticore import get_manticore_client
 from app.repository import replace_chunks
@@ -148,35 +149,9 @@ class IntegrityChecker:
                             print(f"⚠️  {msg} Восстанавливаем чанки...")
 
                             # Auto-heal
-                            old_chunk_ids = [
-                                r["id"]
-                                for r in conn.execute(
-                                    "SELECT id FROM chunks WHERE video_id = ?", (v["video_id"],)
-                                ).fetchall()
-                            ]
-                            if old_chunk_ids:
-                                try:
-                                    self.manticore.delete(
-                                        collection_name=self.q_settings.table_name,
-                                        ids=old_chunk_ids,
-                                    )
-                                    self.deleted_manticore_points_count += len(old_chunk_ids)
-                                except Exception as q_err:
-                                    print(f"❌ Failed to delete chunks from Manticore: {q_err}")
-
                             replace_chunks(conn, video_id=v["video_id"], chunks=expected_chunks)
 
-                            # Queue re-indexing task
-                            reindex_payload = {"video_id": v["video_id"], "title": v["title"]}
-                            conn.execute(
-                                "INSERT INTO tasks (task_type, payload, status, priority) VALUES (?, ?, ?, ?)",
-                                (
-                                    "stage_3_index",
-                                    json.dumps(reindex_payload, ensure_ascii=False),
-                                    "pending",
-                                    5,
-                                ),
-                            )
+                            enqueue_index_task(conn, video_id=v["video_id"], title=v["title"], priority=5)
                             self.reindexed_videos_count += 1
                             print(f"✅ Пересоздано чанков: {expected_count}, видео поставлено в очередь на индексацию.")
                     except Exception as e:
@@ -340,15 +315,8 @@ class IntegrityChecker:
                         print(f"  - Видео '{title}' (ID:{video_id}) уже в очереди на индексацию. Пропускаем.")
                         continue
 
-                    payload = {"video_id": video_id, "title": title}
                     try:
-                        conn.execute(
-                            """
-                            INSERT INTO tasks (task_type, payload, status, priority)
-                            VALUES (?, ?, ?, ?)
-                        """,
-                            ("stage_3_index", json.dumps(payload, ensure_ascii=False), "pending", 5),
-                        )
+                        enqueue_index_task(conn, video_id=video_id, title=title, priority=5)
                         self.reindexed_videos_count += 1
                         print(f"  - Добавлена задача индексации для видео '{title}' (ID:{video_id})")
                     except Exception as e:
@@ -755,12 +723,24 @@ class IntegrityChecker:
         }
 
 
-def verify_integrity() -> dict[str, Any]:
-    """Точка входа для вызова из других модулей."""
+def verify_integrity(*, apply: bool = False) -> dict[str, Any]:
+    """Run legacy repairs only after an explicit operator opt-in."""
+    if not apply:
+        raise RuntimeError(
+            "This legacy script changes SQLite, Manticore, files, and tasks. "
+            "Use verify_integrity_readonly.py for audits or pass --apply explicitly."
+        )
     checker = IntegrityChecker()
     return checker.run_all()
 
 
 if __name__ == "__main__":
-    res = verify_integrity()
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Legacy integrity repair tool (mutating).")
+    parser.add_argument("--apply", action="store_true", help="Actually apply repairs and destructive cleanup.")
+    args = parser.parse_args()
+    if not args.apply:
+        parser.error("refusing to modify data without --apply; use verify_integrity_readonly.py for checks")
+    res = verify_integrity(apply=True)
     print("INTEGRITY_ISSUES:" + json.dumps(res))

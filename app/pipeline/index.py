@@ -12,6 +12,13 @@ from app.config import (
 )
 from app.db import db_connection
 from app.embeddings import UnifiedEmbeddingClient
+from app.indexing_state import (
+    chunk_set_hash,
+    ensure_active_generation,
+    get_pending_deleted_chunk_ids,
+    get_pending_video_outbox_event_ids,
+    mark_outbox_events_completed,
+)
 from app.manticore import date_to_int, get_manticore_client
 from app.pipeline.base import PipelineStage, StageResult
 from app.repository import update_video_status
@@ -44,6 +51,16 @@ class IndexStage(PipelineStage):
         manticore = get_manticore_client()
 
         with db_connection(settings) as conn:
+            generation_id = ensure_active_generation(conn)
+            payload_generation = payload.get("generation_id")
+            if payload_generation is not None and int(payload_generation) != generation_id:
+                generation_error = (
+                    f"Index task generation {payload_generation} is stale; active generation is {generation_id}"
+                )
+                return StageResult(
+                    success=False,
+                    error=generation_error,
+                )
             update_video_status(conn, video_id=video_id, status="indexing")
             sql_v = "SELECT title, source_file_id, source_url, recorded_date, is_short, is_4k FROM videos WHERE id = ?"
             v_row = conn.execute(sql_v, (video_id,)).fetchone()
@@ -52,10 +69,27 @@ class IndexStage(PipelineStage):
                 WHERE video_id = ? ORDER BY chunk_index ASC
             """
             chunks = conn.execute(sql_c, (video_id,)).fetchall()
+            snapshot_hash = chunk_set_hash(conn, video_id)
+            outbox_event_ids = get_pending_video_outbox_event_ids(conn, video_id, generation_id)
+            deleted_chunk_ids = get_pending_deleted_chunk_ids(conn, video_id, generation_id)
 
         if not chunks:
             with db_connection(settings) as conn:
-                update_video_status(conn, video_id=video_id, status="indexed_chunks_ready")
+                if chunk_set_hash(conn, video_id) != snapshot_hash:
+                    update_video_status(conn, video_id=video_id, status="transcribed")
+                    return StageResult(success=True)
+            if deleted_chunk_ids:
+                await asyncio.to_thread(
+                    manticore.delete,
+                    q_settings.table_name,
+                    deleted_chunk_ids,
+                )
+            with db_connection(settings) as conn:
+                mark_outbox_events_completed(conn, outbox_event_ids)
+                current_status = (
+                    "indexed_chunks_ready" if chunk_set_hash(conn, video_id) == snapshot_hash else "transcribed"
+                )
+                update_video_status(conn, video_id=video_id, status=current_status)
             return StageResult(success=True)
 
         texts = [c["text"] for c in chunks]
@@ -67,6 +101,12 @@ class IndexStage(PipelineStage):
 
         # 1. Вычисление эмбеддингов
         embeddings_data = await embed_client.embed_batch_async(texts, progress_callback=embedding_progress)
+
+        with db_connection(settings) as conn:
+            if chunk_set_hash(conn, video_id) != snapshot_hash:
+                logger.info("Chunk set for video %s changed during embedding; skipping stale index write", video_id)
+                update_video_status(conn, video_id=video_id, status="transcribed")
+                return StageResult(success=True)
 
         if progress_callback:
             progress_callback({"progress": 75, "status_text": "Загрузка в Manticore"})
@@ -111,9 +151,35 @@ class IndexStage(PipelineStage):
                 None, lambda p=points: manticore.upsert(collection_name=q_settings.table_name, points=p)
             )
 
+        # Old documents are removed only after every replacement has been accepted.
+        # If this stage fails before this point, the searchable index remains intact.
+        if deleted_chunk_ids:
+            await loop.run_in_executor(
+                None,
+                lambda ids=deleted_chunk_ids: manticore.delete(
+                    collection_name=q_settings.table_name,
+                    ids=ids,
+                ),
+            )
+
         # 4. Обновление статуса в БД
         with db_connection(settings) as conn:
-            update_video_status(conn, video_id=video_id, status="indexed_chunks_ready")
+            mark_outbox_events_completed(conn, outbox_event_ids)
+            conn.execute(
+                """
+                UPDATE index_generations
+                SET indexed_chunks = (
+                    SELECT COUNT(DISTINCT chunk_id) FROM index_outbox
+                    WHERE generation_id = ? AND event_type = 'upsert' AND status = 'completed'
+                )
+                WHERE id = ?
+                """,
+                (generation_id, generation_id),
+            )
+            current_status = (
+                "indexed_chunks_ready" if chunk_set_hash(conn, video_id) == snapshot_hash else "transcribed"
+            )
+            update_video_status(conn, video_id=video_id, status=current_status)
 
         logger.info(f"{v_row['title']} доступен для поиска.")
         return StageResult(success=True)

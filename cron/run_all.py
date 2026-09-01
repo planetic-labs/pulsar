@@ -23,7 +23,8 @@ logger = setup_logging("cron_run")
 
 
 def clean_manticore_json() -> None:
-    logger.info("Step Manticore: Checking Manticore configuration integrity (manticore.json)...")
+    """Audit dynamic table configuration without deleting generation/rollback tables."""
+    logger.info("Step Manticore: Auditing Manticore configuration (read-only)...")
     try:
         compose_cmd = get_docker_compose_cmd()
         # Read manticore.json from manticore container
@@ -31,30 +32,14 @@ def clean_manticore_json() -> None:
         res = subprocess.run(cmd, capture_output=True, text=True, check=True, timeout=60)
         config = json.loads(res.stdout)
 
-        # We only want 'chunks' index in configuration. If other indexes exist, clean them up.
         indexes = config.get("indexes", {})
-        dirty = False
-        allowed_indexes = {"chunks"}
-
-        for idx_name in list(indexes.keys()):
-            if idx_name not in allowed_indexes:
-                logger.warning(f"Found orphaned index '{idx_name}' in manticore.json. Removing it...")
-                indexes.pop(idx_name)
-                dirty = True
-
-        if dirty:
-            # Write cleaned configuration back using cat to prevent shell injection
-            cleaned_json = json.dumps(config, separators=(",", ":"))
-            write_cmd = [*compose_cmd, "exec", "-T", "manticore", "sh", "-c", "cat > /var/lib/manticore/manticore.json"]
-            subprocess.run(write_cmd, input=cleaned_json, text=True, check=True, timeout=60)
-            logger.info("Successfully cleaned manticore.json. Restarting Manticore container to apply changes...")
-
-            # Restart manticore to apply changes
-            restart_cmd = [*compose_cmd, "restart", "manticore"]
-            subprocess.run(restart_cmd, check=True, timeout=120)
-            logger.info("Manticore container restarted and configuration applied.")
+        generation_tables = sorted(
+            name for name in indexes if name != "chunks" and not name.startswith(("chunks_build_", "chunks_retired_"))
+        )
+        if generation_tables:
+            logger.warning("Unexpected Manticore tables found (not modified): %s", generation_tables)
         else:
-            logger.info("Manticore configuration is clean.")
+            logger.info("Manticore configuration is valid; generation and rollback tables are preserved.")
     except Exception as e:
         logger.error(f"Failed to check/clean manticore.json: {e}")
         raise
@@ -79,72 +64,42 @@ def run_cleanup() -> None:
 
 
 def run_integrity(always_notify: bool = False) -> None:
-    logger.info("Step Integrity: Running database and index integrity checks in container...")
+    logger.info("Step Integrity: Running read-only database and index audit in container...")
     try:
-        res = run_in_container("scripts/verify_integrity.py", timeout=900)
+        res = run_in_container(
+            "scripts/verify_integrity_readonly.py",
+            "--json",
+            "--max-details",
+            "20",
+            timeout=900,
+            check=False,
+        )
+        if res.returncode not in {0, 1}:
+            raise subprocess.CalledProcessError(res.returncode, res.args, output=res.stdout, stderr=res.stderr)
 
-        # Log stdout/stderr lines except the JSON wrapper line
-        logger.info("Integrity check stdout:")
-        for line in res.stdout.splitlines():
-            if not line.startswith("INTEGRITY_ISSUES:"):
+        if res.stderr:
+            for line in res.stderr.splitlines():
                 logger.info(f"  [INTEGRITY] {line}")
-
-        # Parse result
-        result: dict[str, Any] = {}
-        for line in res.stdout.splitlines():
-            if line.startswith("INTEGRITY_ISSUES:"):
-                json_str = line[len("INTEGRITY_ISSUES:") :]
-                result = json.loads(json_str)
-                break
-
-        status = result.get("status")
-        if status == "worker_running":
-            tasks_count = result.get("active_tasks_count", 0)
-            msg = (
-                "<b>ℹ️ Проверка целостности Pulsar отложена:</b> "
-                f"воркер сейчас занят обработкой задач (в очереди: {tasks_count})."
-            )
-            logger.info(f"Worker is active ({tasks_count} tasks in queue). Postponing integrity check.")
-            send_telegram_notification(msg)
-            return
-
+        result: dict[str, Any] = json.loads(res.stdout)
         issues = result.get("issues", [])
-        deleted_raw = result.get("deleted_raw_count", 0)
-        deleted_norm = result.get("deleted_norm_count", 0)
-        reindexed_videos = result.get("reindexed_videos_count", 0)
-        reindexed_chunks = result.get("reindexed_chunks_count", 0)
-        deleted_manticore_points = result.get("deleted_manticore_points_count", 0)
-
-        # Build notification text
-        notification_lines = []
+        notification_lines: list[str] = []
 
         if issues:
-            logger.warning(f"❌ Integrity check completed with {len(issues)} issues found!")
-            notification_lines.append(result.get("summary") or "")
-            notification_lines.append("")
-        else:
-            logger.info("✅ Integrity check completed. No critical issues found.")
-
-        auto_corrected = []
-        if deleted_raw > 0:
-            auto_corrected.append(f"• Удалено сиротских RAW-файлов: {deleted_raw}")
-        if deleted_norm > 0:
-            auto_corrected.append(f"• Удалено сиротских NORMALIZED-файлов: {deleted_norm}")
-        if reindexed_videos > 0:
-            auto_corrected.append(
-                f"• Отправлено на повторную индексацию: {reindexed_videos} видео ({reindexed_chunks} чанков)"
+            logger.warning("❌ Read-only audit found %s issues", len(issues))
+            severity = result.get("severity_counts", {})
+            categories = result.get("category_counts", {})
+            notification_lines.extend(
+                [
+                    "<b>❌ Read-only аудит Pulsar обнаружил несоответствия.</b>",
+                    f"Всего: {len(issues)}; по серьёзности: <code>{json.dumps(severity, ensure_ascii=False)}</code>",
+                    f"Категории: <code>{json.dumps(categories, ensure_ascii=False)}</code>",
+                    "Данные не изменялись. Подробности находятся в cron-логе.",
+                ]
             )
-        if deleted_manticore_points > 0:
-            auto_corrected.append(f"• Удалено сиротских векторов из Manticore: {deleted_manticore_points}")
-
-        if auto_corrected:
-            if not issues:
-                notification_lines.append("<b>✅ Проверка целостности Pulsar завершена.</b>\n")
-            notification_lines.append("<b>🔄 Автоматически исправлено:</b>")
-            notification_lines.extend(auto_corrected)
-        elif not issues and always_notify:
-            notification_lines.append("<b>✅ Проверка целостности Pulsar завершена.</b>\n")
-            notification_lines.append("Ошибок не обнаружено!")
+        else:
+            logger.info("✅ Read-only audit completed. No issues found.")
+            if always_notify:
+                notification_lines.append("<b>✅ Read-only аудит Pulsar: ошибок не обнаружено.</b>")
 
         if notification_lines:
             send_telegram_notification("\n".join(notification_lines))

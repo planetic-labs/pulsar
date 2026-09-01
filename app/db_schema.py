@@ -74,6 +74,10 @@ SCHEMA_STATEMENTS = [
         start_sec DOUBLE PRECISION NOT NULL,
         end_sec DOUBLE PRECISION NOT NULL,
         text TEXT NOT NULL,
+        logical_id TEXT,
+        content_hash TEXT,
+        chunking_version TEXT NOT NULL DEFAULT 'legacy',
+        generation_id INTEGER,
         UNIQUE(video_id, chunk_index),
         CHECK(chunk_index >= 0),
         CHECK(start_sec >= 0),
@@ -93,6 +97,10 @@ SCHEMA_STATEMENTS = [
         retries INTEGER DEFAULT 0,
         max_retries INTEGER DEFAULT 3,
         error_message TEXT,
+        dedupe_key TEXT,
+        next_attempt_at DATETIME,
+        failure_kind TEXT,
+        generation_id INTEGER,
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
         updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
@@ -152,6 +160,51 @@ SCHEMA_STATEMENTS = [
         UNIQUE(user_id, query)
     );
     """,
+    # 10. Versioned search index builds. Only validated generations may become active.
+    """
+    CREATE TABLE IF NOT EXISTS index_generations (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL UNIQUE,
+        status TEXT NOT NULL CHECK(status IN ('building', 'ready', 'active', 'failed', 'retired')),
+        chunking_version TEXT NOT NULL,
+        config_hash TEXT NOT NULL,
+        embedding_model TEXT NOT NULL,
+        embedding_dimension INTEGER NOT NULL,
+        manticore_table TEXT NOT NULL,
+        expected_chunks INTEGER NOT NULL DEFAULT 0,
+        indexed_chunks INTEGER NOT NULL DEFAULT 0,
+        error_count INTEGER NOT NULL DEFAULT 0,
+        activated_at DATETIME,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+    """,
+    # 11. Transactional outbox connecting SQLite mutations to Manticore updates.
+    """
+    CREATE TABLE IF NOT EXISTS index_outbox (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        event_key TEXT NOT NULL UNIQUE,
+        event_type TEXT NOT NULL CHECK(event_type IN ('upsert', 'delete')),
+        video_id INTEGER NOT NULL,
+        chunk_id INTEGER,
+        generation_id INTEGER,
+        payload TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending', 'processing', 'completed', 'failed')),
+        attempts INTEGER NOT NULL DEFAULT 0,
+        next_attempt_at DATETIME,
+        error_message TEXT,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+    """,
+    # 12. Small durable state store for circuit breakers and restore/index fingerprints.
+    """
+    CREATE TABLE IF NOT EXISTS system_state (
+        key TEXT PRIMARY KEY,
+        value TEXT NOT NULL,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+    """,
     # Indexes
     "CREATE INDEX IF NOT EXISTS idx_videos_parent_folder ON videos(parent_folder_id);",
     "CREATE INDEX IF NOT EXISTS idx_videos_md5 ON videos(md5_checksum);",
@@ -161,6 +214,9 @@ SCHEMA_STATEMENTS = [
     "CREATE INDEX IF NOT EXISTS idx_folders_parent_name ON folders(parent_id, name);",
     "CREATE INDEX IF NOT EXISTS idx_tasks_queue ON tasks(status, priority DESC, created_at ASC);",
     "CREATE INDEX IF NOT EXISTS idx_search_history_user ON search_history(user_id, created_at DESC);",
+    "CREATE INDEX IF NOT EXISTS idx_index_outbox_pending ON index_outbox(status, next_attempt_at, id);",
+    "CREATE INDEX IF NOT EXISTS idx_index_outbox_video ON index_outbox(video_id, status);",
+    "CREATE INDEX IF NOT EXISTS idx_index_generations_status ON index_generations(status, created_at);",
     """
     CREATE UNIQUE INDEX IF NOT EXISTS uidx_videos_md5_original
     ON videos(md5_checksum)
@@ -179,6 +235,20 @@ SCHEMA_STATEMENTS = [
     AFTER UPDATE ON tasks
     BEGIN
         UPDATE tasks SET updated_at = CURRENT_TIMESTAMP WHERE id = NEW.id;
+    END;
+    """,
+    """
+    CREATE TRIGGER IF NOT EXISTS trg_index_generations_updated_at
+    AFTER UPDATE ON index_generations
+    BEGIN
+        UPDATE index_generations SET updated_at = CURRENT_TIMESTAMP WHERE id = NEW.id;
+    END;
+    """,
+    """
+    CREATE TRIGGER IF NOT EXISTS trg_index_outbox_updated_at
+    AFTER UPDATE ON index_outbox
+    BEGIN
+        UPDATE index_outbox SET updated_at = CURRENT_TIMESTAMP WHERE id = NEW.id;
     END;
     """,
     """
@@ -234,4 +304,23 @@ DB_MIGRATIONS = [
     ("videos", "is_silent", "ALTER TABLE videos ADD COLUMN is_silent BOOLEAN DEFAULT FALSE"),
     ("subtitle_flags", "locked_by", "ALTER TABLE subtitle_flags ADD COLUMN locked_by TEXT"),
     ("subtitle_flags", "locked_at", "ALTER TABLE subtitle_flags ADD COLUMN locked_at DATETIME"),
+    ("chunks", "logical_id", "ALTER TABLE chunks ADD COLUMN logical_id TEXT"),
+    ("chunks", "content_hash", "ALTER TABLE chunks ADD COLUMN content_hash TEXT"),
+    ("chunks", "chunking_version", "ALTER TABLE chunks ADD COLUMN chunking_version TEXT NOT NULL DEFAULT 'legacy'"),
+    ("chunks", "generation_id", "ALTER TABLE chunks ADD COLUMN generation_id INTEGER"),
+    ("tasks", "dedupe_key", "ALTER TABLE tasks ADD COLUMN dedupe_key TEXT"),
+    ("tasks", "next_attempt_at", "ALTER TABLE tasks ADD COLUMN next_attempt_at DATETIME"),
+    ("tasks", "failure_kind", "ALTER TABLE tasks ADD COLUMN failure_kind TEXT"),
+    ("tasks", "generation_id", "ALTER TABLE tasks ADD COLUMN generation_id INTEGER"),
+]
+
+
+POST_MIGRATION_STATEMENTS = [
+    "CREATE UNIQUE INDEX IF NOT EXISTS uidx_chunks_logical_id ON chunks(logical_id) WHERE logical_id IS NOT NULL",
+    "DROP INDEX IF EXISTS uidx_tasks_dedupe_key",
+    """
+    CREATE UNIQUE INDEX uidx_tasks_dedupe_key ON tasks(dedupe_key)
+    WHERE dedupe_key IS NOT NULL AND status IN ('pending', 'running')
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_tasks_retry ON tasks(status, next_attempt_at, priority DESC, created_at)",
 ]

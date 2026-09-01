@@ -12,9 +12,11 @@ from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from starlette.middleware.sessions import SessionMiddleware
 
-from app.config import get_app_settings
+from app.config import get_app_settings, get_sqlite_settings
 from app.core import ROOT_DIR, get_global_stats, templates
 from app.database import Database
+from app.db import db_connection
+from app.indexing_state import backfill_chunk_metadata, ensure_active_generation
 from app.limiter import limiter
 from app.manticore import init_manticore
 from app.routers import auth, indexed, system, ui, videos, worker
@@ -34,6 +36,19 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     await db.connect()
     await db.init_schema()
     await db.close()
+
+    def initialize_index_state() -> None:
+        with db_connection(get_sqlite_settings()) as conn:
+            generation_id = ensure_active_generation(conn)
+            backfilled = backfill_chunk_metadata(conn, generation_id)
+            conn.execute(
+                "UPDATE index_generations SET expected_chunks = (SELECT COUNT(*) FROM chunks) WHERE id = ?",
+                (generation_id,),
+            )
+            if backfilled:
+                logger.info("Backfilled reliability metadata for %s chunks", backfilled)
+
+    await asyncio.to_thread(initialize_index_state)
 
     init_manticore()
 

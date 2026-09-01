@@ -66,16 +66,38 @@ if ! restic snapshots &> /dev/null; then
 fi
 
 # Setup paths
+if docker compose version &> /dev/null; then
+    COMPOSE_CMD=(docker compose)
+elif command -v docker-compose &> /dev/null; then
+    COMPOSE_CMD=(docker-compose)
+else
+    echo "❌ Error: Docker Compose is required for a consistent Manticore backup." >&2
+    exit 1
+fi
+
 TEMP_DB_DIR="$PROJECT_ROOT/tmp/backup_db"
 TEMP_DB_PATH="$TEMP_DB_DIR/pulsar.db"
+TEMP_MANIFEST_PATH="$TEMP_DB_DIR/manifest.json"
+TEMP_MANTICORE_DIR="$PROJECT_ROOT/tmp/backup_manticore"
+MANTICORE_CONTAINER_BACKUP_DIR="/tmp/pulsar-restic-backup"
 DB_SOURCE_PATH="$PROJECT_ROOT/data/pulsar.db"
+PULSAR_STOPPED=0
 
 cleanup_temp_db() {
-    rm -f "$TEMP_DB_PATH"
+    rm -f "$TEMP_DB_PATH" "$TEMP_MANIFEST_PATH"
     rmdir "$TEMP_DB_DIR" 2> /dev/null || true
 }
 
-trap cleanup_temp_db EXIT
+cleanup_backup() {
+    cleanup_temp_db
+    rm -rf "$TEMP_MANTICORE_DIR"
+    "${COMPOSE_CMD[@]}" exec -T manticore rm -rf "$MANTICORE_CONTAINER_BACKUP_DIR" 2> /dev/null || true
+    if [ "$PULSAR_STOPPED" -eq 1 ]; then
+        "${COMPOSE_CMD[@]}" start pulsar > /dev/null || true
+    fi
+}
+
+trap cleanup_backup EXIT
 
 # Create a safe consistent SQLite hot copy
 echo "📦 Creating consistent copy of SQLite database..."
@@ -85,7 +107,13 @@ if [ ! -f "$DB_SOURCE_PATH" ]; then
 fi
 
 cleanup_temp_db
+rm -rf "$TEMP_MANTICORE_DIR"
 mkdir -p "$TEMP_DB_DIR"
+
+echo "⏸️ Stopping the application briefly so SQLite and Manticore represent one logical point in time..."
+"${COMPOSE_CMD[@]}" stop pulsar > /dev/null
+PULSAR_STOPPED=1
+
 if ! sqlite3 "$DB_SOURCE_PATH" ".backup '$TEMP_DB_PATH'"; then
     echo "❌ Error: Failed to create SQLite backup copy." >&2
     exit 1
@@ -104,6 +132,49 @@ fi
 
 echo "✅ SQLite backup copy created and verified at $TEMP_DB_PATH"
 
+SQLITE_CHUNK_COUNT="$(sqlite3 "$TEMP_DB_PATH" "SELECT COUNT(*) FROM chunks;")"
+MANTICORE_COUNT_OUTPUT="$("${COMPOSE_CMD[@]}" exec -T manticore mysql -h127.0.0.1 -P9306 -e 'SELECT COUNT(*) FROM chunks')"
+MANTICORE_CHUNK_COUNT="$(printf '%s\n' "$MANTICORE_COUNT_OUTPUT" | grep -Eo '[0-9]+' | tail -n 1)"
+if [ -z "$MANTICORE_CHUNK_COUNT" ] || [ "$SQLITE_CHUNK_COUNT" -ne "$MANTICORE_CHUNK_COUNT" ]; then
+    echo "❌ Error: refusing inconsistent backup: SQLite chunks=$SQLITE_CHUNK_COUNT, Manticore chunks=${MANTICORE_CHUNK_COUNT:-unknown}." >&2
+    exit 1
+fi
+
+echo "📦 Creating a consistent physical Manticore backup with FREEZE/UNFREEZE..."
+"${COMPOSE_CMD[@]}" exec -T manticore rm -rf "$MANTICORE_CONTAINER_BACKUP_DIR"
+"${COMPOSE_CMD[@]}" exec -T manticore mkdir -p "$MANTICORE_CONTAINER_BACKUP_DIR"
+"${COMPOSE_CMD[@]}" exec -T manticore manticore-backup \
+    --backup-dir="$MANTICORE_CONTAINER_BACKUP_DIR" \
+    --compress \
+    --disable-telemetry
+MANTICORE_CONTAINER_ID="$("${COMPOSE_CMD[@]}" ps -q manticore)"
+if [ -z "$MANTICORE_CONTAINER_ID" ]; then
+    echo "❌ Error: could not resolve the Manticore container ID." >&2
+    exit 1
+fi
+mkdir -p "$TEMP_MANTICORE_DIR"
+docker cp "$MANTICORE_CONTAINER_ID:$MANTICORE_CONTAINER_BACKUP_DIR/." "$TEMP_MANTICORE_DIR/"
+if [ "$(find "$TEMP_MANTICORE_DIR" -mindepth 1 -maxdepth 1 -type d -name 'backup-*' | wc -l)" -ne 1 ]; then
+    echo "❌ Error: expected exactly one Manticore backup directory." >&2
+    exit 1
+fi
+
+BACKUP_ENVIRONMENT="${PULSAR_ENV:-dev}"
+if [[ "${COMPOSE_FILE:-}" == *"prod"* ]]; then
+    BACKUP_ENVIRONMENT="prod"
+fi
+echo "🧾 Creating backup manifest for environment '$BACKUP_ENVIRONMENT'..."
+python3 "$PROJECT_ROOT/scripts/backup_manifest.py" create \
+    --db "$TEMP_DB_PATH" \
+    --manticore-backup "$TEMP_MANTICORE_DIR" \
+    --manticore-count "$MANTICORE_CHUNK_COUNT" \
+    --output "$TEMP_MANIFEST_PATH" \
+    --environment "$BACKUP_ENVIRONMENT" > /dev/null
+
+# The immutable pair is complete; resume service before the potentially long Restic upload.
+"${COMPOSE_CMD[@]}" start pulsar > /dev/null
+PULSAR_STOPPED=0
+
 # Prepare backup targets
 BACKUP_TARGETS=()
 BACKUP_TARGETS+=("$PROJECT_ROOT/.env")
@@ -118,6 +189,8 @@ fi
 
 if [ -f "$TEMP_DB_PATH" ]; then
     BACKUP_TARGETS+=("$TEMP_DB_PATH")
+    BACKUP_TARGETS+=("$TEMP_MANIFEST_PATH")
+    BACKUP_TARGETS+=("$TEMP_MANTICORE_DIR")
 fi
 
 # Run restic backup
@@ -132,9 +205,9 @@ else
     exit 1
 fi
 
-# Clean up temporary DB copy
-echo "🧹 Cleaning up temporary DB files..."
-cleanup_temp_db
+# Clean up temporary snapshots after Restic has committed both components.
+echo "🧹 Cleaning up temporary SQLite and Manticore snapshots..."
+cleanup_backup
 
 # Run forget & prune policy (Retention)
 echo "🔄 Applying retention policy (forget & prune)..."
