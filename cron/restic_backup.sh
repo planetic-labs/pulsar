@@ -70,15 +70,39 @@ TEMP_DB_DIR="$PROJECT_ROOT/tmp/backup_db"
 TEMP_DB_PATH="$TEMP_DB_DIR/pulsar.db"
 DB_SOURCE_PATH="$PROJECT_ROOT/data/pulsar.db"
 
+cleanup_temp_db() {
+    rm -f "$TEMP_DB_PATH"
+    rmdir "$TEMP_DB_DIR" 2> /dev/null || true
+}
+
+trap cleanup_temp_db EXIT
+
 # Create a safe consistent SQLite hot copy
 echo "📦 Creating consistent copy of SQLite database..."
-mkdir -p "$TEMP_DB_DIR"
-if [ -f "$DB_SOURCE_PATH" ]; then
-    sqlite3 "$DB_SOURCE_PATH" ".backup '$TEMP_DB_PATH'"
-    echo "✅ SQLite backup copy created at $TEMP_DB_PATH"
-else
-    echo "⚠️ Warning: Database file not found at $DB_SOURCE_PATH"
+if [ ! -f "$DB_SOURCE_PATH" ]; then
+    echo "❌ Error: Database file not found at $DB_SOURCE_PATH" >&2
+    exit 1
 fi
+
+cleanup_temp_db
+mkdir -p "$TEMP_DB_DIR"
+if ! sqlite3 "$DB_SOURCE_PATH" ".backup '$TEMP_DB_PATH'"; then
+    echo "❌ Error: Failed to create SQLite backup copy." >&2
+    exit 1
+fi
+
+if ! INTEGRITY_RESULT="$(sqlite3 "$TEMP_DB_PATH" "PRAGMA integrity_check;")"; then
+    echo "❌ Error: Failed to validate SQLite backup copy." >&2
+    exit 1
+fi
+
+if [ "$INTEGRITY_RESULT" != "ok" ]; then
+    echo "❌ Error: SQLite backup copy failed integrity check:" >&2
+    printf '%s\n' "$INTEGRITY_RESULT" >&2
+    exit 1
+fi
+
+echo "✅ SQLite backup copy created and verified at $TEMP_DB_PATH"
 
 # Prepare backup targets
 BACKUP_TARGETS=()
@@ -105,13 +129,12 @@ if restic backup \
     echo "✅ Restic backup finished successfully."
 else
     echo "❌ Error: Restic backup failed." >&2
-    rm -rf "$TEMP_DB_DIR"
     exit 1
 fi
 
 # Clean up temporary DB copy
 echo "🧹 Cleaning up temporary DB files..."
-rm -rf "$TEMP_DB_DIR"
+cleanup_temp_db
 
 # Run forget & prune policy (Retention)
 echo "🔄 Applying retention policy (forget & prune)..."
