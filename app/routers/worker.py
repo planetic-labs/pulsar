@@ -17,6 +17,7 @@ from app.dependencies import (
     get_manticore,
     get_settings,
 )
+from app.indexing_state import enqueue_index_task_async
 from app.ports import FileStoragePort, TranscriptionPort, VectorStorePort
 from app.settings import Settings
 from app.worker import get_worker
@@ -405,12 +406,7 @@ async def api_worker_duplicates_swap(
         )
 
         # 4. Queue a re-indexing task for the new original to rebuild vectors in Manticore with new metadata
-        new_payload = {"video_id": duplicate_id, "title": dup_row["title"]}
-        await conn.execute(
-            "INSERT INTO tasks (video_id, task_type, payload, status, priority) "
-            "VALUES (?, 'stage_3_index', ?, 'pending', 5)",
-            (duplicate_id, json.dumps(new_payload, ensure_ascii=False)),
-        )
+        await enqueue_index_task_async(conn, video_id=duplicate_id, title=dup_row["title"], priority=5)
 
     # 5. Delete old points of original_id from Manticore
     try:
@@ -525,20 +521,14 @@ async def api_restart_no_space_tasks(
 async def api_reindex_all(
     clear_manticore: bool = False,
     db: Database = Depends(get_database),
-    settings: Settings = Depends(get_settings),
     _: str = Depends(require_admin),
 ) -> dict[str, Any]:
     """Requeues all fully processed videos to rebuild vector index search points in Manticore."""
     if clear_manticore:
-        from app.manticore import get_manticore_client, init_manticore
-
-        manticore_client = get_manticore_client()
-        logger.info(f"Clearing Manticore table {settings.manticore_table} for full reindex")
-        try:
-            await asyncio.to_thread(manticore_client.delete_collection, settings.manticore_table)
-            await asyncio.to_thread(init_manticore)
-        except Exception as e:
-            logger.error(f"Failed to clear Manticore: {e}")
+        raise HTTPException(
+            status_code=409,
+            detail="Destructive clear is disabled. Run scripts/reindex_search.py --full for staging validation.",
+        )
 
     async with db.transaction() as conn:
         # Find all videos that have at least one chunk
@@ -553,23 +543,8 @@ async def api_reindex_all(
         for r in rows:
             vid = r["video_id"]
             title = r["title"]
-            payload = json.dumps({"video_id": vid, "title": title})
-
-            # Check if task already exists to avoid duplicates
-            sql_check = """
-                SELECT 1 FROM tasks
-                WHERE task_type = 'stage_3_index' AND status IN ('pending', 'running')
-                AND video_id = ?
-            """
-            async with conn.execute(sql_check, (vid,)) as cursor:
-                exists = await cursor.fetchone()
-
-            if not exists:
-                await conn.execute(
-                    "INSERT INTO tasks (video_id, task_type, payload, status, priority) VALUES (?, ?, ?, ?, ?)",
-                    (vid, "stage_3_index", payload, "pending", 10),
-                )
-                count += 1
+            task_id = await enqueue_index_task_async(conn, video_id=vid, title=title, priority=10)
+            count += int(task_id is not None)
 
     # Auto-start worker
     worker = get_worker()

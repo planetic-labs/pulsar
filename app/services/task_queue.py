@@ -3,11 +3,19 @@ import contextlib
 import json
 import logging
 from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
 from app.config import get_app_settings, get_sqlite_settings
 from app.db import db_connection
+from app.indexing_state import (
+    embedding_circuit_is_open,
+    ensure_active_generation,
+    index_task_dedupe_key,
+    is_permanent_provider_error,
+    open_embedding_circuit,
+)
 
 logger = logging.getLogger("app.services.task_queue")
 
@@ -37,6 +45,7 @@ class TaskQueueService:
             WHERE id = (
                 SELECT id FROM tasks
                 WHERE status = 'pending' AND task_type IN ({placeholders})
+                  AND (next_attempt_at IS NULL OR next_attempt_at <= CURRENT_TIMESTAMP)
                 ORDER BY priority DESC, created_at ASC
                 LIMIT 1
             )
@@ -45,7 +54,14 @@ class TaskQueueService:
 
         def _sync_claim() -> Any:
             with db_connection(self.db_settings) as conn:
-                return conn.execute(sql, stage_types).fetchone()
+                eligible_types = list(stage_types)
+                if "stage_3_index" in eligible_types and embedding_circuit_is_open(conn):
+                    eligible_types.remove("stage_3_index")
+                if not eligible_types:
+                    return None
+                eligible_placeholders = ",".join(["?"] * len(eligible_types))
+                eligible_sql = sql.replace(placeholders, eligible_placeholders)
+                return conn.execute(eligible_sql, eligible_types).fetchone()
 
         try:
             row = await asyncio.to_thread(_sync_claim)
@@ -87,16 +103,52 @@ class TaskQueueService:
         self, task_id: int, next_stage: str, payload: dict[str, Any], video_id: int | None = None
     ) -> None:
         """Переводит задачу на следующую стадию конвейера."""
-        sql = """
-            UPDATE tasks
-            SET task_type = ?, payload = ?, status = 'pending', video_id = ?,
-                updated_at = CURRENT_TIMESTAMP
-            WHERE id = ?
-        """
 
         def _sync() -> None:
             with db_connection(self.db_settings) as conn:
-                conn.execute(sql, (next_stage, json.dumps(payload, ensure_ascii=False), video_id, task_id))
+                generation_id = None
+                dedupe_key = None
+                resolved_payload = payload
+                if next_stage == "stage_3_index" and video_id is not None:
+                    generation_id = ensure_active_generation(conn)
+                    dedupe_key = index_task_dedupe_key(conn, video_id, generation_id)
+                    duplicate = conn.execute(
+                        """
+                        SELECT id FROM tasks
+                        WHERE dedupe_key = ? AND id != ? AND status IN ('pending', 'running')
+                        """,
+                        (dedupe_key, task_id),
+                    ).fetchone()
+                    if duplicate:
+                        conn.execute(
+                            """
+                            UPDATE tasks
+                            SET status = 'superseded', error_message = ?, updated_at = CURRENT_TIMESTAMP
+                            WHERE id = ?
+                            """,
+                            (f"Superseded by idempotent task {duplicate['id']}", task_id),
+                        )
+                        return
+                    resolved_payload = {**payload, "generation_id": generation_id}
+
+                conn.execute(
+                    """
+                    UPDATE tasks
+                    SET task_type = ?, payload = ?, status = 'pending', video_id = ?,
+                        generation_id = ?, dedupe_key = ?, retries = 0,
+                        failure_kind = NULL, error_message = NULL, next_attempt_at = NULL,
+                        updated_at = CURRENT_TIMESTAMP
+                    WHERE id = ?
+                    """,
+                    (
+                        next_stage,
+                        json.dumps(resolved_payload, ensure_ascii=False, sort_keys=True),
+                        video_id,
+                        generation_id,
+                        dedupe_key,
+                        task_id,
+                    ),
+                )
 
         await asyncio.to_thread(_sync)
 
@@ -111,14 +163,16 @@ class TaskQueueService:
         if payload is not None:
             sql = """
                 UPDATE tasks
-                SET status = ?, video_id = ?, payload = ?, updated_at = CURRENT_TIMESTAMP
+                SET status = ?, video_id = ?, payload = ?, error_message = NULL,
+                    failure_kind = NULL, next_attempt_at = NULL, updated_at = CURRENT_TIMESTAMP
                 WHERE id = ?
             """
             params = (status, video_id, json.dumps(payload, ensure_ascii=False), task_id)
         else:
             sql = """
                 UPDATE tasks
-                SET status = ?, video_id = ?, updated_at = CURRENT_TIMESTAMP
+                SET status = ?, video_id = ?, error_message = NULL,
+                    failure_kind = NULL, next_attempt_at = NULL, updated_at = CURRENT_TIMESTAMP
                 WHERE id = ?
             """
             params = (status, video_id, task_id)
@@ -129,8 +183,8 @@ class TaskQueueService:
 
         await asyncio.to_thread(_sync)
 
-    async def fail_task(self, task_id: int, error_trace: str) -> None:
-        """Обрабатывает сбой задачи с учетом лимита повторных попыток."""
+    async def fail_task(self, task_id: int, error_trace: str, *, permanent: bool | None = None) -> None:
+        """Classify a failure and retry transient errors with bounded exponential backoff."""
 
         def _sync() -> None:
             with db_connection(self.db_settings) as conn:
@@ -144,20 +198,54 @@ class TaskQueueService:
                 max_retries = row["max_retries"] or 3
                 task_type = row["task_type"]
 
+                resolved_permanent = permanent
+                if resolved_permanent is None:
+                    resolved_permanent = is_permanent_provider_error(error_trace)
+
                 new_retries = retries + 1
-                if new_retries < max_retries:
+                if resolved_permanent:
+                    logger.error(
+                        "Задача %s (%s) завершилась постоянной ошибкой и не будет повторена.",
+                        task_id,
+                        task_type,
+                    )
+                    conn.execute(
+                        """
+                        UPDATE tasks
+                        SET status = 'failed', retries = ?, error_message = ?,
+                            failure_kind = 'permanent', next_attempt_at = NULL,
+                            updated_at = CURRENT_TIMESTAMP
+                        WHERE id = ?
+                        """,
+                        (new_retries, error_trace, task_id),
+                    )
+                    if task_type == "stage_3_index":
+                        open_embedding_circuit(conn, error_trace, permanent=True)
+                elif new_retries < max_retries:
+                    delay_seconds = min(15 * (2 ** (new_retries - 1)), 15 * 60)
+                    next_attempt = datetime.now(UTC) + timedelta(seconds=delay_seconds)
                     logger.warning(
-                        f"Задача {task_id} ({task_type}) завершилась с ошибкой. Попытка {new_retries}/{max_retries}. "
-                        f"Запланирован повторный запуск."
+                        "Задача %s (%s) завершилась с ошибкой. Попытка %s/%s; повтор через %s с.",
+                        task_id,
+                        task_type,
+                        new_retries,
+                        max_retries,
+                        delay_seconds,
                     )
                     conn.execute(
                         """
                         UPDATE tasks
                         SET status = 'pending', retries = ?, error_message = ?,
-                            created_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+                            failure_kind = 'transient', next_attempt_at = ?,
+                            updated_at = CURRENT_TIMESTAMP
                         WHERE id = ?
                         """,
-                        (new_retries, f"Попытка {new_retries} не удалась:\n{error_trace}", task_id),
+                        (
+                            new_retries,
+                            f"Попытка {new_retries} не удалась:\n{error_trace}",
+                            next_attempt.strftime("%Y-%m-%d %H:%M:%S"),
+                            task_id,
+                        ),
                     )
                 else:
                     logger.error(
@@ -167,7 +255,9 @@ class TaskQueueService:
                     conn.execute(
                         """
                         UPDATE tasks
-                        SET status = 'failed', retries = ?, error_message = ?, updated_at = CURRENT_TIMESTAMP
+                        SET status = 'failed', retries = ?, error_message = ?,
+                            failure_kind = 'retry_exhausted', next_attempt_at = NULL,
+                            updated_at = CURRENT_TIMESTAMP
                         WHERE id = ?
                         """,
                         (new_retries, error_trace, task_id),

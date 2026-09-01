@@ -59,7 +59,7 @@ class Database:
             for stmt in SCHEMA_STATEMENTS:
                 await conn.execute(stmt)
 
-            from app.db_schema import DB_MIGRATIONS
+            from app.db_schema import DB_MIGRATIONS, POST_MIGRATION_STATEMENTS
 
             table_columns = {}
             for table_name, column_name, alter_sql in DB_MIGRATIONS:
@@ -74,5 +74,8 @@ class Database:
                         table_columns[table_name].append(column_name)
                     except aiosqlite.Error as e:
                         logger.error(f"Migration failed: '{alter_sql}': {e}")
+
+            for stmt in POST_MIGRATION_STATEMENTS:
+                await conn.execute(stmt)
 
         logger.info("SQLite Database schema initialized via aiosqlite.")

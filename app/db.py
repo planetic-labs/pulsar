@@ -40,7 +40,7 @@ def init_db(connection: sqlite3.Connection) -> None:
     for stmt in SCHEMA_STATEMENTS:
         connection.execute(stmt)
 
-    from app.db_schema import DB_MIGRATIONS
+    from app.db_schema import DB_MIGRATIONS, POST_MIGRATION_STATEMENTS
 
     cursor = connection.cursor()
     table_columns = {}
@@ -57,6 +57,9 @@ def init_db(connection: sqlite3.Connection) -> None:
                 table_columns[table_name].append(column_name)
             except Exception as e:
                 logger.error(f"Migration failed: '{alter_sql}': {e}")
+
+    for stmt in POST_MIGRATION_STATEMENTS:
+        connection.execute(stmt)
 
     connection.commit()
     logger.info("SQLite database schema initialized.")

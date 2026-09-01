@@ -2,6 +2,8 @@ import hashlib
 import logging
 import os
 import socket
+from collections.abc import Sequence
+from typing import Any
 
 import httpx
 
@@ -73,7 +75,7 @@ class ManticoreClient:
         # Переиспользуем один клиент для экономии сетевых ресурсов
         self.http_client = httpx.Client(timeout=30.0)
 
-    def _execute_sql(self, sql: str) -> dict:
+    def _execute_sql(self, sql: str) -> list[dict[str, Any]]:
         """Выполняет SELECT-запросы через HTTP-эндпоинт /sql."""
         r = self.http_client.post(f"{self.url}/sql?mode=raw", content=sql)
         r.raise_for_status()
@@ -159,7 +161,12 @@ class ManticoreClient:
             logger.error(f"Manticore bulk upsert errors: {resp_data}")
             raise RuntimeError(f"Manticore bulk upsert failed: {resp_data.get('error', 'check logs')}")
 
-    def delete(self, collection_name: str, ids: list[str | int] | None = None, where_clause: str | None = None) -> None:
+    def delete(
+        self,
+        collection_name: str,
+        ids: Sequence[str | int] | None = None,
+        where_clause: str | None = None,
+    ) -> None:
         if ids:
             m_ids = [str_to_manticore_id(x) for x in ids]
             ids_str = ",".join(str(x) for x in m_ids)
@@ -312,10 +319,10 @@ def get_manticore_client() -> ManticoreClient:
     return _client
 
 
-def init_manticore() -> None:
+def init_manticore(table_name: str | None = None) -> None:
     client = get_manticore_client()
     settings = get_manticore_settings()
-    table_name = settings.table_name
+    resolved_table_name = table_name or settings.table_name
 
     from app.config import get_embedding_settings
 
@@ -323,7 +330,7 @@ def init_manticore() -> None:
     vector_size = emb_settings.dimension or 1024
 
     sql_chunks = f"""
-    CREATE TABLE IF NOT EXISTS `{table_name}` (
+    CREATE TABLE IF NOT EXISTS `{resolved_table_name}` (
         `text` text,
         `title` text,
         `chunk_id` bigint,
@@ -341,7 +348,7 @@ def init_manticore() -> None:
     ) type='rt' rt_mem_limit='512M' morphology='stem_ru'
     """
 
-    logger.info(f"Sending DDL for {table_name} via /cli...")
+    logger.info(f"Sending DDL for {resolved_table_name} via /cli...")
     client._execute_ddl(sql_chunks)
 
     # Заставляем Manticore принудительно обновить таблицы в памяти

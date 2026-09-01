@@ -51,8 +51,8 @@ Detailed documentation is available in the `docs/` directory:
 
 Administrative utilities accessible via Docker:
 - **Clean Queue**: `docker compose exec app uv run python scripts/clear_queue.py`
-- **Integrity Check**: `docker compose exec app uv run scripts/verify_integrity.py`
-- **Full Reindex**: `docker compose exec app uv run scripts/reindex_search.py`
+- **Integrity Check**: `docker compose exec -T pulsar python scripts/verify_integrity_readonly.py`
+- **Full Reindex**: `docker compose exec -T pulsar python scripts/reindex_search.py --full`
 - **Backup**: `./cron/restic_backup.sh`
 
 ## 🛡 Security
