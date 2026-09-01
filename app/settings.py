@@ -82,6 +82,7 @@ class Settings(BaseSettings):
     ingest_download_concurrency: int = Field(default=1, ge=1, validation_alias="INGEST_DOWNLOAD_CONCURRENCY")
     ingest_process_concurrency: int = Field(default=1, ge=1, validation_alias="INGEST_PROCESS_CONCURRENCY")
     disk_space_buffer_gb: int = Field(default=3, ge=1, validation_alias="DISK_SPACE_BUFFER_GB")
+    chunking_pause_threshold: float = Field(gt=0, validation_alias="CHUNKING_PAUSE_THRESHOLD")
     max_audio_size_mb: int = Field(default=20, ge=1, validation_alias="MAX_AUDIO_SIZE_MB")
     ark_jwks_url: str | None = Field(default=None, validation_alias="ARK_JWKS_URL")
     ark_webhook_secret: str | None = Field(default=None, validation_alias="ARK_WEBHOOK_SECRET")

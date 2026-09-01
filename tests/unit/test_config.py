@@ -17,6 +17,19 @@ def test_settings_load_from_env() -> None:
     assert "ГАЛЕРЕЯ" in settings.exclude_keywords
     assert "Gallery" in settings.exclude_keywords
     assert settings.resolved_db_path.name == "pulsar.db"
+    assert settings.chunking_pause_threshold == 5.0
+
+
+def test_chunking_pause_threshold_is_required(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Service configuration must fail without an explicit chunking pause threshold."""
+    monkeypatch.delenv("CHUNKING_PAUSE_THRESHOLD", raising=False)
+
+    with pytest.raises(ValidationError, match="CHUNKING_PAUSE_THRESHOLD"):
+        Settings(
+            _env_file=None,
+            app_access_token="master-token-must-be-very-long-and-secure-32-chars",
+            session_secret_key="session-secret-key-must-be-at-least-32-characters",
+        )
 
 
 def test_settings_validation_errors() -> None:
