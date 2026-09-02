@@ -1,6 +1,6 @@
 [project]
 name = "Pulsar"
-version = "2026.09.02.3"
+version = "2026.09.02.4"
 description = "Enterprise RAG for indexing Google Drive videos and searching transcripts"
 readme = "README.md"
 license = "MIT"
