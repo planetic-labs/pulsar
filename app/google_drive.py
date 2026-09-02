@@ -154,6 +154,11 @@ class GoogleDriveClient:
                 continue
 
             raw_response = part.get_payload(decode=True) or b""
+            if not isinstance(raw_response, bytes):
+                logger.warning(
+                    "Google Drive batch response contains a non-bytes payload for %s", request_ids[request_index]
+                )
+                continue
             header_bytes, separator, body = raw_response.partition(b"\r\n\r\n")
             if not separator:
                 header_bytes, separator, body = raw_response.partition(b"\n\n")
