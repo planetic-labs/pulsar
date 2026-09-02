@@ -50,6 +50,7 @@ jobs:
           MANTICORE_URL: "http://localhost:9308"
           APP_ACCESS_TOKEN: "master-token-must-be-very-long-and-secure-32-chars"
           APP_RESULTS_LIMIT: "50"
+          CHUNKING_PAUSE_THRESHOLD: "5.0"
           EXCLUDE_KEYWORDS: "ГАЛЕРЕЯ,Gallery"
           SESSION_SECRET_KEY: "session-secret-must-be-very-long-and-secure-32-chars"
 
