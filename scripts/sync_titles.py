@@ -48,10 +48,14 @@ async def sync_indexed_metadata():
         # 1. Sync Folders (names and parent hierarchy)
         folder_rows = conn.execute("SELECT id, name FROM folders").fetchall()
         logger.info(f"Checking {len(folder_rows)} folders...")
+        folders_by_id = await drive_client.get_files_batch([str(row["id"]) for row in folder_rows])
         for f_row in folder_rows:
             try:
                 f_id = f_row["id"]
-                drive_f = await drive_client.get_file(f_id)
+                drive_f = folders_by_id.get(f_id)
+                if drive_f is None:
+                    logger.error(f"Failed to fetch metadata for folder {f_id}")
+                    continue
                 if drive_f.name != f_row["name"]:
                     conn.execute("UPDATE folders SET name = ? WHERE id = ?", (drive_f.name, f_id))
                     logger.info(f"Folder renamed: {f_id} -> {drive_f.name}")
@@ -70,6 +74,7 @@ async def sync_indexed_metadata():
             return 0
 
         logger.info(f"Syncing metadata for {len(rows)} videos...")
+        files_by_id = await drive_client.get_files_batch([str(row["source_file_id"]) for row in rows])
 
         updated_count = 0
         for row in rows:
@@ -80,7 +85,10 @@ async def sync_indexed_metadata():
 
             try:
                 # Get fresh metadata
-                drive_file = await drive_client.get_file(file_id)
+                drive_file = files_by_id.get(file_id)
+                if drive_file is None:
+                    logger.error(f"Failed to fetch metadata for video {file_id}")
+                    continue
                 new_title = drive_file.name
                 new_parent = drive_file.parents[0] if drive_file.parents else None
 

@@ -3,12 +3,16 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
+from email import policy
+from email.parser import BytesParser
 from pathlib import Path
 from typing import Any, ClassVar
-from urllib.parse import urlencode
+from urllib.parse import quote, urlencode
+from uuid import uuid4
 
 import httpx
 from google.auth.transport.requests import Request
@@ -34,6 +38,8 @@ class DriveFile:
 class GoogleDriveClient:
     _cache: ClassVar[dict[str, tuple[float, list[dict[str, Any]]]]] = {}
     _CACHE_TTL = 300  # 5 minutes
+    _BATCH_SIZE = 100
+    _FILE_FIELDS = "id,name,mimeType,size,md5Checksum,createdTime,modifiedTime,parents,owners,sharingUser"
 
     def __init__(self, settings: GoogleDriveSettings) -> None:
         self.settings = settings
@@ -119,12 +125,100 @@ class GoogleDriveClient:
     async def get_file(self, file_id: str) -> DriveFile:
         query = urlencode(
             {
-                "fields": "id,name,mimeType,size,md5Checksum,createdTime,modifiedTime,parents,owners,sharingUser",
+                "fields": self._FILE_FIELDS,
                 "supportsAllDrives": "true",
             }
         )
         response = await self._authorized_get_json(f"https://www.googleapis.com/drive/v3/files/{file_id}?{query}")
         return self._to_drive_files([response])[0]
+
+    @staticmethod
+    def _parse_batch_response(content_type: str, content: bytes, request_ids: list[str]) -> dict[str, dict[str, Any]]:
+        """Parse Google Drive's multipart batch response, retaining successful file metadata only."""
+        message = BytesParser(policy=policy.default).parsebytes(
+            f"Content-Type: {content_type}\r\nMIME-Version: 1.0\r\n\r\n".encode() + content
+        )
+        if not message.is_multipart():
+            raise ValueError("Google Drive batch response is not multipart")
+
+        files: dict[str, dict[str, Any]] = {}
+        for part in message.iter_parts():
+            content_id = part.get("Content-ID", "")
+            match = re.search(r"(\d+)>?$", content_id)
+            if not match:
+                logger.warning("Google Drive batch response has no usable Content-ID: %s", content_id)
+                continue
+            request_index = int(match.group(1))
+            if request_index >= len(request_ids):
+                logger.warning("Google Drive batch response has unknown Content-ID: %s", content_id)
+                continue
+
+            raw_response = part.get_payload(decode=True) or b""
+            header_bytes, separator, body = raw_response.partition(b"\r\n\r\n")
+            if not separator:
+                header_bytes, separator, body = raw_response.partition(b"\n\n")
+            status_match = re.match(rb"HTTP/\d(?:\.\d)?\s+(\d{3})", header_bytes)
+            if not status_match or int(status_match.group(1)) != 200:
+                status_line = header_bytes.decode(errors="replace").splitlines()
+                logger.warning(
+                    "Google Drive batch metadata request failed for %s: %s",
+                    request_ids[request_index],
+                    status_line[0] if status_line else "empty response",
+                )
+                continue
+            try:
+                payload = json.loads(body)
+            except json.JSONDecodeError:
+                logger.warning("Google Drive batch response contains invalid JSON for %s", request_ids[request_index])
+                continue
+            if isinstance(payload, dict):
+                files[request_ids[request_index]] = payload
+        return files
+
+    async def _get_files_batch_page(self, file_ids: list[str]) -> dict[str, dict[str, Any]]:
+        boundary = f"batch_{uuid4().hex}"
+        query = urlencode({"fields": self._FILE_FIELDS, "supportsAllDrives": "true"})
+        parts: list[str] = []
+        for index, file_id in enumerate(file_ids):
+            parts.extend(
+                (
+                    f"--{boundary}",
+                    "Content-Type: application/http",
+                    f"Content-ID: <request-{index}>",
+                    "Content-Transfer-Encoding: binary",
+                    "",
+                    f"GET /drive/v3/files/{quote(file_id, safe='')}?{query} HTTP/1.1",
+                    "",
+                )
+            )
+        body = "\r\n".join([*parts, f"--{boundary}--", ""]).encode()
+        access_token = await self._get_access_token()
+        headers = {
+            "Authorization": f"Bearer {access_token}",
+            "Content-Type": f"multipart/mixed; boundary={boundary}",
+        }
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.post("https://www.googleapis.com/batch/drive/v3", headers=headers, content=body)
+        response.raise_for_status()
+        return self._parse_batch_response(response.headers.get("content-type", ""), response.content, file_ids)
+
+    async def get_files_batch(self, file_ids: list[str]) -> dict[str, DriveFile]:
+        """Retrieve file metadata in Drive API batches of at most 100 requests."""
+        unique_file_ids = list(dict.fromkeys(file_id for file_id in file_ids if file_id))
+        files: dict[str, DriveFile] = {}
+        for start in range(0, len(unique_file_ids), self._BATCH_SIZE):
+            batch_ids = unique_file_ids[start : start + self._BATCH_SIZE]
+            try:
+                payloads = await self._get_files_batch_page(batch_ids)
+            except httpx.HTTPError as exc:
+                logger.error("Google Drive batch metadata request failed for %d files: %s", len(batch_ids), exc)
+                continue
+            for file_id, payload in payloads.items():
+                try:
+                    files[file_id] = self._to_drive_files([payload])[0]
+                except (KeyError, TypeError) as exc:
+                    logger.warning("Google Drive batch metadata is incomplete for %s: %s", file_id, exc)
+        return files
 
     async def list_folder_files(
         self,
