@@ -26,6 +26,7 @@ dependencies = [
     "pydantic-settings>=2.15.0",
     "aiosqlite>=0.22.1",
     "slowapi>=0.1.10",
+    "websockets>=15.0.1",
 ]
 
 [project.urls]
