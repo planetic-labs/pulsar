@@ -37,7 +37,7 @@ Issues = "https://github.com/planetic-labs/pulsar/issues"
 [dependency-groups]
 dev = [
     "pre-commit>=4.6.2",
-    "ruff>=0.16.4",
+    "ruff>=0.16.5",
     "ty>=0.0.77",
     "pytest>=9.1.1",
     "pytest-asyncio>=1.4.0",
