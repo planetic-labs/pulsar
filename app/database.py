@@ -56,7 +56,12 @@ class Database:
             raise RuntimeError("Database not connected. Call connect() first.")
 
         async with self.transaction() as conn:
-            for stmt in SCHEMA_STATEMENTS:
+            table_statements = [stmt for stmt in SCHEMA_STATEMENTS if stmt.lstrip().upper().startswith("CREATE TABLE")]
+            schema_objects = [stmt for stmt in SCHEMA_STATEMENTS if stmt not in table_statements]
+
+            # Existing tables must be migrated before indexes and triggers that
+            # reference columns introduced after the initial schema was created.
+            for stmt in table_statements:
                 await conn.execute(stmt)
 
             from app.db_schema import DB_MIGRATIONS, POST_MIGRATION_STATEMENTS
@@ -75,7 +80,7 @@ class Database:
                     except aiosqlite.Error as e:
                         logger.error(f"Migration failed: '{alter_sql}': {e}")
 
-            for stmt in POST_MIGRATION_STATEMENTS:
+            for stmt in (*schema_objects, *POST_MIGRATION_STATEMENTS):
                 await conn.execute(stmt)
 
         logger.info("SQLite Database schema initialized via aiosqlite.")
