@@ -27,10 +27,10 @@ async def websocket_logs(websocket: WebSocket) -> None:
 
     settings = get_app_settings()
     token = websocket.session.get("access_token") or websocket.session.get("token")
-    if not is_valid_token(token) or token != settings.access_token:
+    if not await is_valid_token(token) or token != settings.access_token:
         # Check cookie as fallback
         token = websocket.cookies.get("access_token")
-        if not is_valid_token(token) or token != settings.access_token:
+        if not await is_valid_token(token) or token != settings.access_token:
             await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
             return
 
