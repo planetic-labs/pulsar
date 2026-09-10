@@ -27,6 +27,7 @@ jobs:
 
       - name: Validate Compose configuration
         run: |
+          touch .env
           docker compose -f docker-compose.yml config --quiet
           docker compose -f docker-compose.prod.yml config --quiet
 
