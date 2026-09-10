@@ -16,6 +16,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Установка uv (рекомендованный способ Astral)
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
 
+# Обновляем bootstrap-пакеты базового образа до версий без известных HIGH-уязвимостей.
+RUN uv pip install --system "msgpack>=1.2.1" "setuptools>=78.1.1"
+
 # Настройка виртуального окружения в PATH
 ENV PATH="/app/.venv/bin:$PATH"
 
@@ -50,4 +53,3 @@ EXPOSE 8350
 
 # Запуск приложения
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8350"]
-
