@@ -81,6 +81,13 @@
                             <span class="text-sm">Поиск</span>
                         </a>
 
+                        {% if request.state.user_id and request.state.user_id != 'admin' %}
+                        <a href="/settings" class="flex items-center gap-3 px-4 py-3 rounded-xl transition-all group {% if request.url.path == '/settings' %} sidebar-active {% else %} muted-text hover:bg-white/50 hover:text-slate-900 {% endif %}">
+                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15.5a3.5 3.5 0 100-7 3.5 3.5 0 000 7zM19.4 15a1.7 1.7 0 00.34 1.88l.06.06-2.83 2.83-.06-.06a1.7 1.7 0 00-1.88-.34 1.7 1.7 0 00-1.03 1.56V21h-4v-.09A1.7 1.7 0 009 19.35a1.7 1.7 0 00-1.88.34l-.06.06-2.83-2.83.06-.06A1.7 1.7 0 004.63 15 1.7 1.7 0 003.07 14H3v-4h.09A1.7 1.7 0 004.65 9a1.7 1.7 0 00-.34-1.88l-.06-.06 2.83-2.83.06.06A1.7 1.7 0 009 4.63 1.7 1.7 0 0010 3.07V3h4v.09A1.7 1.7 0 0015 4.65a1.7 1.7 0 001.88-.34l.06-.06 2.83 2.83-.06.06A1.7 1.7 0 0019.37 9 1.7 1.7 0 0020.93 10H21v4h-.09A1.7 1.7 0 0019.4 15z"></path></svg>
+                            <span class="text-sm">Настройки</span>
+                        </a>
+                        {% endif %}
+
                         {% if request.state.roles and (request.state.admin_role_name in request.state.roles or request.state.subeditor_role_name in request.state.roles) %}
                         <a href="/moderation" class="flex items-center gap-3 px-4 py-3 rounded-xl transition-all group {% if request.url.path == '/moderation' %} sidebar-active {% else %} muted-text hover:bg-white/50 hover:text-slate-900 {% endif %}">
                             <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4"></path></svg>

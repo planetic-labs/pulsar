@@ -6,6 +6,7 @@ import pytest
 
 from app.database import Database
 from app.repos.search_history_repo import SearchHistoryRepository
+from app.repos.user_settings_repo import UserSettingsRepository
 
 
 @pytest.mark.asyncio
@@ -16,6 +17,13 @@ async def test_search_history_lifecycle(tmp_path: Path):
     await db.init_schema()
 
     repo = SearchHistoryRepository(db)
+    settings_repo = UserSettingsRepository(db)
+
+    # Privacy-sensitive history is disabled by default and isolated per user.
+    assert await settings_repo.is_search_history_enabled("user1") is False
+    await settings_repo.set_search_history_enabled("user1", True)
+    assert await settings_repo.is_search_history_enabled("user1") is True
+    assert await settings_repo.is_search_history_enabled("user2") is False
 
     # 1. Initially empty
     assert await repo.get_history("user1") == []
@@ -62,7 +70,12 @@ async def test_search_history_api(tmp_path: Path):
     from starlette.requests import Request
 
     from app.config import get_app_settings
-    from app.routers.ui import api_delete_search_history, api_get_search_history
+    from app.routers.ui import (
+        UserSettingsUpdate,
+        api_delete_search_history,
+        api_get_search_history,
+        api_update_settings,
+    )
 
     db_path = tmp_path / "test_api_history.db"
     db = Database(db_path)
@@ -70,6 +83,8 @@ async def test_search_history_api(tmp_path: Path):
     await db.init_schema()
 
     repo = SearchHistoryRepository(db)
+    settings_repo = UserSettingsRepository(db)
+    await settings_repo.set_search_history_enabled("test_user", True)
     await repo.add_query("test_user", "запрос 1")
     await repo.add_query("test_user", "запрос 2")
 
@@ -78,7 +93,13 @@ async def test_search_history_api(tmp_path: Path):
     req_user.state.user_id = "test_user"
     req_user.state.is_key_auth = False
 
-    res = await api_get_search_history(req_user, limit=5, search_history_repo=repo, token="jwt-token")
+    res = await api_get_search_history(
+        req_user,
+        limit=5,
+        search_history_repo=repo,
+        user_settings_repo=settings_repo,
+        token="jwt-token",
+    )
     assert res == {"history": ["запрос 2", "запрос 1"]}
 
     # 2. Key-based authentication (shared access token) -> history must be empty!
@@ -87,19 +108,49 @@ async def test_search_history_api(tmp_path: Path):
     req_key.state.user_id = "admin"
     req_key.state.is_key_auth = True
 
-    res_key = await api_get_search_history(req_key, limit=5, search_history_repo=repo, token=settings.access_token)
+    res_key = await api_get_search_history(
+        req_key,
+        limit=5,
+        search_history_repo=repo,
+        user_settings_repo=settings_repo,
+        token=settings.access_token,
+    )
     assert res_key == {"history": []}
 
     # 3. DELETE single for personal user
     del_res = await api_delete_search_history(req_user, q="запрос 1", search_history_repo=repo, token="jwt-token")
     assert del_res == {"status": "ok"}
-    res2 = await api_get_search_history(req_user, limit=5, search_history_repo=repo, token="jwt-token")
+    res2 = await api_get_search_history(
+        req_user,
+        limit=5,
+        search_history_repo=repo,
+        user_settings_repo=settings_repo,
+        token="jwt-token",
+    )
     assert res2 == {"history": ["запрос 2"]}
 
     # 4. DELETE all for personal user
     del_all = await api_delete_search_history(req_user, q=None, search_history_repo=repo, token="jwt-token")
     assert del_all == {"status": "ok"}
-    res3 = await api_get_search_history(req_user, limit=5, search_history_repo=repo, token="jwt-token")
+    res3 = await api_get_search_history(
+        req_user,
+        limit=5,
+        search_history_repo=repo,
+        user_settings_repo=settings_repo,
+        token="jwt-token",
+    )
     assert res3 == {"history": []}
+
+    await repo.add_query("test_user", "будет удалён")
+    updated = await api_update_settings(
+        UserSettingsUpdate(search_history_enabled=False),
+        req_user,
+        user_settings_repo=settings_repo,
+        search_history_repo=repo,
+        token="jwt-token",
+    )
+    assert updated == {"search_history_enabled": False}
+    assert await settings_repo.is_search_history_enabled("test_user") is False
+    assert await repo.get_history("test_user") == []
 
     await db.close()

@@ -43,6 +43,11 @@ if ! command -v sqlite3 &> /dev/null; then
     exit 1
 fi
 
+if ! command -v uv &> /dev/null; then
+    echo "❌ Error: uv is required to run the backup manifest with Pulsar's project dependencies." >&2
+    exit 1
+fi
+
 echo "📋 List of available snapshots in repository:"
 restic snapshots
 
@@ -83,7 +88,7 @@ if [ ! -f "$DB_RESTORED_PATH" ] || [ ! -f "$MANIFEST_RESTORED_PATH" ] || [ ! -d 
 fi
 
 echo "🔍 Validating checksum, schema, integrity, row counts, and target environment..."
-python3 "$PROJECT_ROOT/scripts/backup_manifest.py" validate \
+uv run --project "$PROJECT_ROOT" python "$PROJECT_ROOT/scripts/backup_manifest.py" validate \
     --db "$DB_RESTORED_PATH" \
     --manifest "$MANIFEST_RESTORED_PATH" \
     --manticore-backup "$MANTICORE_RESTORED_DIR" \

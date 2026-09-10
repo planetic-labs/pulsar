@@ -1,0 +1,63 @@
+{% extends "base.html" %}
+
+{% block title %}Настройки — Pulsar AI{% endblock %}
+
+{% block content %}
+<div class="flex-1 overflow-y-auto bg-[#FAF9F6]">
+    <header class="lg:hidden h-14 bg-white/85 backdrop-blur-md border-b border-[#E5E1D8] flex items-center px-4 sticky top-0 z-20">
+        <a href="/" class="p-2 -ml-2 mr-2 text-warm-500" aria-label="Назад">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7"></path></svg>
+        </a>
+        <span class="text-sm font-black text-[#3A3630]">Настройки</span>
+    </header>
+
+    <div class="max-w-3xl mx-auto px-4 py-8 lg:px-10 lg:py-14">
+        <h1 class="text-2xl lg:text-3xl font-bold text-[#3A3630]">Настройки</h1>
+        <p class="mt-2 text-sm text-warm-500">Персональные параметры вашей учётной записи.</p>
+
+        <section class="soft-card mt-8 p-5 lg:p-7">
+            <div class="flex items-start justify-between gap-6">
+                <div class="min-w-0">
+                    <h2 id="history-label" class="font-bold text-[#3A3630]">Персональная история поиска</h2>
+                    <p id="history-description" class="mt-2 text-sm leading-6 text-warm-500">Сохранять последние запросы, чтобы быстро использовать их повторно. При выключении сохранённая история удаляется.</p>
+                </div>
+                <button id="history-toggle" type="button" role="switch" aria-labelledby="history-label" aria-describedby="history-description" aria-checked="{{ 'true' if search_history_enabled else 'false' }}" class="relative shrink-0 w-12 h-7 rounded-full transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-brand-500 disabled:opacity-60 {{ 'bg-brand-500' if search_history_enabled else 'bg-warm-300' }}">
+                    <span aria-hidden="true" class="absolute left-0 top-1 w-5 h-5 rounded-full bg-white shadow transition-transform {{ 'translate-x-6' if search_history_enabled else 'translate-x-1' }}"></span>
+                </button>
+            </div>
+            <p id="settings-status" class="hidden mt-4 text-xs text-rose-500" aria-live="polite"></p>
+        </section>
+    </div>
+</div>
+
+<script>
+    const historyToggle = document.getElementById('history-toggle');
+    const settingsStatus = document.getElementById('settings-status');
+
+    historyToggle.addEventListener('click', async () => {
+        const enabled = historyToggle.getAttribute('aria-checked') !== 'true';
+        historyToggle.disabled = true;
+        try {
+            const response = await fetch('/api/settings', {
+                method: 'PUT',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({search_history_enabled: enabled}),
+            });
+            if (!response.ok) throw new Error('Failed to update settings');
+
+            historyToggle.setAttribute('aria-checked', String(enabled));
+            historyToggle.classList.toggle('bg-brand-500', enabled);
+            historyToggle.classList.toggle('bg-warm-300', !enabled);
+            historyToggle.firstElementChild.classList.toggle('translate-x-6', enabled);
+            historyToggle.firstElementChild.classList.toggle('translate-x-1', !enabled);
+            settingsStatus.textContent = '';
+            settingsStatus.classList.add('hidden');
+        } catch (error) {
+            settingsStatus.textContent = 'Не удалось сохранить настройку. Попробуйте ещё раз.';
+            settingsStatus.classList.remove('hidden');
+        } finally {
+            historyToggle.disabled = false;
+        }
+    });
+</script>
+{% endblock %}

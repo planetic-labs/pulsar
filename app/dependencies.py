@@ -16,6 +16,7 @@ from app.repos.chunk_repo import ChunkRepository
 from app.repos.folder_repo import FolderRepository
 from app.repos.search_history_repo import SearchHistoryRepository
 from app.repos.task_repo import TaskRepository
+from app.repos.user_settings_repo import UserSettingsRepository
 from app.repos.video_repo import VideoRepository
 from app.services.search import SearchService
 from app.services.video import VideoService
@@ -78,6 +79,10 @@ def get_cache_repo(db: Database = Depends(get_database)) -> CacheRepository:
 
 def get_search_history_repo(db: Database = Depends(get_database)) -> SearchHistoryRepository:
     return SearchHistoryRepository(db)
+
+
+def get_user_settings_repo(db: Database = Depends(get_database)) -> UserSettingsRepository:
+    return UserSettingsRepository(db)
 
 
 def get_video_service(

@@ -58,6 +58,11 @@ if ! command -v sqlite3 &> /dev/null; then
     exit 1
 fi
 
+if ! command -v uv &> /dev/null; then
+    echo "❌ Error: uv is required to run the backup manifest with Pulsar's project dependencies." >&2
+    exit 1
+fi
+
 # Proactively initialize restic repository if it doesn't exist
 if ! restic snapshots &> /dev/null; then
     echo "📦 Repository is not initialized. Initializing now..."
@@ -164,7 +169,7 @@ if [[ "${COMPOSE_FILE:-}" == *"prod"* ]]; then
     BACKUP_ENVIRONMENT="prod"
 fi
 echo "🧾 Creating backup manifest for environment '$BACKUP_ENVIRONMENT'..."
-python3 "$PROJECT_ROOT/scripts/backup_manifest.py" create \
+uv run --project "$PROJECT_ROOT" python "$PROJECT_ROOT/scripts/backup_manifest.py" create \
     --db "$TEMP_DB_PATH" \
     --manticore-backup "$TEMP_MANTICORE_DIR" \
     --manticore-count "$MANTICORE_CHUNK_COUNT" \

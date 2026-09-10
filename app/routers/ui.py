@@ -6,20 +6,32 @@ from datetime import date
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from fastapi.responses import HTMLResponse, RedirectResponse
+from pydantic import BaseModel
 
 from app.auth import get_authenticated_user_id, require_access_token, require_subeditor
 from app.config import get_app_settings
 from app.core import templates
-from app.dependencies import get_chunk_repo, get_search_history_repo, get_search_service, get_settings
+from app.dependencies import (
+    get_chunk_repo,
+    get_search_history_repo,
+    get_search_service,
+    get_settings,
+    get_user_settings_repo,
+)
 from app.limiter import limiter
 from app.repos.chunk_repo import ChunkRepository
 from app.repos.search_history_repo import SearchHistoryRepository
+from app.repos.user_settings_repo import UserSettingsRepository
 from app.services.search import SearchResult, SearchService
 from app.settings import Settings
 
 logger = logging.getLogger("app.routers.ui")
 
 router = APIRouter(tags=["UI Pages"])
+
+
+class UserSettingsUpdate(BaseModel):
+    search_history_enabled: bool
 
 
 def is_mobile_request(request: Request) -> bool:
@@ -38,6 +50,7 @@ async def index_page(
     video_type: str = "all",
     search_service: SearchService = Depends(get_search_service),
     search_history_repo: SearchHistoryRepository = Depends(get_search_history_repo),
+    user_settings_repo: UserSettingsRepository = Depends(get_user_settings_repo),
     settings: Settings = Depends(get_settings),
 ) -> Response:
     """Renders the main video indexing search engine home page."""
@@ -56,7 +69,8 @@ async def index_page(
 
     user_id = get_authenticated_user_id(request, current_token)
     search_history: list[str] = []
-    if user_id:
+    history_enabled = user_id is not None and await user_settings_repo.is_search_history_enabled(user_id)
+    if user_id and history_enabled:
         if q and q.strip():
             try:
                 await search_history_repo.add_query(user_id, q.strip())
@@ -104,6 +118,7 @@ async def index_page(
             "video_type": video_type,
             "token": current_token,
             "search_history": search_history,
+            "search_history_enabled": history_enabled,
         },
     )
 
@@ -113,11 +128,12 @@ async def api_get_search_history(
     request: Request,
     limit: int = 10,
     search_history_repo: SearchHistoryRepository = Depends(get_search_history_repo),
+    user_settings_repo: UserSettingsRepository = Depends(get_user_settings_repo),
     token: str = Depends(require_access_token),
 ) -> dict[str, list[str]]:
     """Returns list of recent search queries for personal user accounts only."""
     user_id = get_authenticated_user_id(request, token)
-    if not user_id:
+    if not user_id or not await user_settings_repo.is_search_history_enabled(user_id):
         return {"history": []}
     history = await search_history_repo.get_history(user_id, limit=limit)
     return {"history": history}
@@ -138,6 +154,48 @@ async def api_delete_search_history(
         else:
             await search_history_repo.clear_history(user_id)
     return {"status": "ok"}
+
+
+@router.get("/settings", response_class=HTMLResponse)
+async def settings_page(
+    request: Request,
+    user_settings_repo: UserSettingsRepository = Depends(get_user_settings_repo),
+) -> Response:
+    """Renders preferences for the currently authenticated personal account."""
+    try:
+        current_token = await require_access_token(request)
+    except HTTPException:
+        return RedirectResponse(url="/login")
+
+    user_id = get_authenticated_user_id(request, current_token)
+    if not user_id:
+        return RedirectResponse(url="/")
+
+    history_enabled = await user_settings_repo.is_search_history_enabled(user_id)
+    return templates.TemplateResponse(
+        request,
+        "settings.html",
+        {"search_history_enabled": history_enabled},
+    )
+
+
+@router.put("/api/settings")
+async def api_update_settings(
+    payload: UserSettingsUpdate,
+    request: Request,
+    user_settings_repo: UserSettingsRepository = Depends(get_user_settings_repo),
+    search_history_repo: SearchHistoryRepository = Depends(get_search_history_repo),
+    token: str = Depends(require_access_token),
+) -> dict[str, bool]:
+    """Updates preferences for the currently authenticated personal account."""
+    user_id = get_authenticated_user_id(request, token)
+    if not user_id:
+        raise HTTPException(status_code=403, detail="Personal account required")
+
+    await user_settings_repo.set_search_history_enabled(user_id, payload.search_history_enabled)
+    if not payload.search_history_enabled:
+        await search_history_repo.clear_history(user_id)
+    return {"search_history_enabled": payload.search_history_enabled}
 
 
 @router.get("/import", response_class=HTMLResponse)
