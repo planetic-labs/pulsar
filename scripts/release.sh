@@ -1,117 +1,149 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
-# Скрипт для автоматического создания релиза в GitHub
-# Формат версии: YYYY.MM.DD.REV (где REV - номер ревизии за день)
+set -Eeuo pipefail
 
-# 1. Генерируем версию на основе даты
-DATE_TAG=$(date +'%Y.%m.%d')
-# Подтягиваем актуальные теги из удаленного репозитория
-git fetch --tags --force >/dev/null 2>&1
-# Проверяем, были ли уже теги сегодня
-LAST_TAG_TODAY=$(git tag -l "v${DATE_TAG}*" | sort -V | tail -n 1)
+# Creates a date-based release through the protected main branch:
+# release branch -> PR -> required checks -> merge -> GitHub Release -> Docker publish.
 
-if [ -z "$LAST_TAG_TODAY" ]; then
-    VERSION="v${DATE_TAG}"
-else
-    # Если тег уже есть, проверяем есть ли уже патчи
-    if [[ "$LAST_TAG_TODAY" == *"-patch"* ]]; then
-        PATCH_NUM=$(echo $LAST_TAG_TODAY | awk -F"-patch" '{print $2}')
-        NEXT_PATCH=$((PATCH_NUM + 1))
-        VERSION="v${DATE_TAG}-patch${NEXT_PATCH}"
-    else
-        VERSION="v${DATE_TAG}-patch1"
-    fi
-fi
-
-VERSION_NUM="${VERSION#v}"
-# Заменяем "-patch" на "." для соответствия спецификации PEP 440 (валидная версия Python)
-VERSION_NUM="${VERSION_NUM//-patch/.}"
-
-# 1.1. Обновляем версию в pyproject.toml
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 PYPROJECT_PATH="$PROJECT_ROOT/pyproject.toml"
+REPOSITORY="${REPOSITORY:-planetic-labs/pulsar}"
+WORKFLOW="docker-publish.yml"
 
-if [ -f "$PYPROJECT_PATH" ]; then
-    sed -i 's/^version = "[^"]*"/version = "'"$VERSION_NUM"'"/' "$PYPROJECT_PATH"
-    echo "Updated version in pyproject.toml to $VERSION_NUM"
-else
-    echo "❌ pyproject.toml not found!"
+cd "$PROJECT_ROOT"
+
+for COMMAND in git gh uv; do
+    if ! command -v "$COMMAND" >/dev/null 2>&1; then
+        echo "Required command is not installed: $COMMAND" >&2
+        exit 1
+    fi
+done
+
+if [ ! -f "$PYPROJECT_PATH" ]; then
+    echo "pyproject.toml not found: $PYPROJECT_PATH" >&2
     exit 1
 fi
 
-# 1.2. Обновляем uv.lock и делаем коммит изменений версии
-if command -v uv &> /dev/null; then
-    (cd "$PROJECT_ROOT" && uv lock)
+if [ -n "$(git status --porcelain)" ]; then
+    echo "The working tree is not clean. Commit or stash the changes before creating a release." >&2
+    exit 1
 fi
 
-git add "$PYPROJECT_PATH"
-if [ -f "$PROJECT_ROOT/uv.lock" ]; then
-    git add "$PROJECT_ROOT/uv.lock"
+if [ "$(git branch --show-current)" != "main" ]; then
+    echo "Switch to the main branch before creating a release." >&2
+    exit 1
 fi
 
-if ! git diff --cached --quiet; then
-    git commit -m "chore: bump version to $VERSION_NUM"
-    echo "Pushed version bump to remote..."
-    git push
+gh auth status >/dev/null
+git fetch origin main --tags --force
+git pull --ff-only origin main
+
+DATE_TAG="$(date -u +'%Y.%m.%d')"
+LAST_TAG_TODAY="$(git tag -l "v${DATE_TAG}" "v${DATE_TAG}-patch*" | sort -V | tail -n 1)"
+
+if [ -z "$LAST_TAG_TODAY" ]; then
+    VERSION="v${DATE_TAG}"
+elif [[ "$LAST_TAG_TODAY" =~ ^v${DATE_TAG}-patch([0-9]+)$ ]]; then
+    VERSION="v${DATE_TAG}-patch$((BASH_REMATCH[1] + 1))"
 else
-    echo "No version changes to commit."
+    VERSION="v${DATE_TAG}-patch1"
 fi
 
-echo "🚀 Preparing release $VERSION..."
+VERSION_NUM="${VERSION#v}"
+VERSION_NUM="${VERSION_NUM//-patch/.}"
+RELEASE_BRANCH="release/${VERSION}"
 
-# 2. Генерируем описание изменений (Changelog)
-# Берем коммиты с момента последнего тега
-LAST_TAG=$(git describe --tags --abbrev=0 2>/dev/null)
-
-if [ -z "$LAST_TAG" ]; then
-    echo "First release detected."
-    CHANGELOG=$(git log --pretty=format:"* %s (%h)")
-else
-    echo "Changes since $LAST_TAG:"
-    CHANGELOG=$(git log ${LAST_TAG}..HEAD --pretty=format:"* %s (%h)")
+if git show-ref --verify --quiet "refs/heads/${RELEASE_BRANCH}" || \
+    git show-ref --verify --quiet "refs/remotes/origin/${RELEASE_BRANCH}"; then
+    echo "Release branch already exists: $RELEASE_BRANCH" >&2
+    exit 1
 fi
 
-if [ -z "$CHANGELOG" ]; then
-    CHANGELOG="Maintenance update and minor fixes."
+echo "Preparing $VERSION using branch $RELEASE_BRANCH"
+git switch -c "$RELEASE_BRANCH"
+
+sed -i 's/^version = "[^"]*"/version = "'"$VERSION_NUM"'"/' "$PYPROJECT_PATH"
+uv lock
+
+git add "$PYPROJECT_PATH" "$PROJECT_ROOT/uv.lock"
+if git diff --cached --quiet; then
+    echo "The project version is already $VERSION_NUM; nothing to release." >&2
+    exit 1
 fi
 
-echo -e "📝 Changelog:\n$CHANGELOG"
+git commit -m "chore: bump version to $VERSION_NUM"
+git push --set-upstream origin "$RELEASE_BRANCH"
 
-# 3. Создаем релиз через GitHub CLI
-# Передаем сгенерированный список коммитов напрямую в описание
-gh release create "$VERSION" \
-    --title "$VERSION" \
-    --notes "$CHANGELOG"
+PR_URL="$(gh pr create \
+    --repo "$REPOSITORY" \
+    --base main \
+    --head "$RELEASE_BRANCH" \
+    --title "chore: bump version to $VERSION_NUM" \
+    --body "Prepare release $VERSION.")"
+PR_NUMBER="${PR_URL##*/}"
 
-if [ $? -eq 0 ]; then
-    echo "✅ Release $VERSION successfully created!"
-    
-    # 4. Очистка старых релизов (держим только последние 10)
-    MAX_RELEASES=10
-    echo "🧹 Cleaning up old releases (keeping top $MAX_RELEASES)..."
-    
-    # Получаем список всех релизов, кроме последних 10
-    OLD_RELEASES=$(gh release list --limit 100 | awk -v max=$MAX_RELEASES 'NR > max {print $1}')
-    
-    for OLD_TAG in $OLD_RELEASES; do
-        echo "Deleting old release: $OLD_TAG"
-        gh release delete "$OLD_TAG" --yes --cleanup-tag
-    done
-    # 5. Clean up old workflow runs (keep only runs created today)
-    TODAY_DATE=$(date -u +'%Y-%m-%d')
-    echo "🧹 Cleaning up workflow runs created before $TODAY_DATE..."
-    OLD_RUNS=$(gh run list --limit 1000 --created "<$TODAY_DATE" --json databaseId --jq '.[].databaseId')
-    if [ -n "$OLD_RUNS" ]; then
-        RUN_COUNT=$(echo "$OLD_RUNS" | wc -l)
-        echo "Found $RUN_COUNT older workflow runs. Deleting in parallel..."
-        echo "$OLD_RUNS" | xargs -r -P 10 -I {} gh run delete {}
-        echo "✅ Old workflow runs cleanup completed."
-    else
-        echo "No older workflow runs to clean up."
+echo "Created PR #$PR_NUMBER: $PR_URL"
+gh pr merge "$PR_NUMBER" --repo "$REPOSITORY" --auto --squash --delete-branch
+
+CHECK_COUNT=0
+for _ in {1..12}; do
+    CHECK_COUNT="$(gh pr view "$PR_NUMBER" --repo "$REPOSITORY" --json statusCheckRollup --jq '.statusCheckRollup | length')"
+    if [ "$CHECK_COUNT" -gt 0 ]; then
+        break
     fi
+    sleep 5
+done
 
-    echo "🔍 Track build progress: gh run watch"
-else
-    echo "❌ Failed to create release. Make sure you are logged in: gh auth login"
+if [ "$CHECK_COUNT" -eq 0 ]; then
+    echo "No checks were registered for release PR #$PR_NUMBER." >&2
+    exit 1
 fi
+
+gh pr checks "$PR_NUMBER" --repo "$REPOSITORY" --watch --required
+
+while [ "$(gh pr view "$PR_NUMBER" --repo "$REPOSITORY" --json state --jq .state)" = "OPEN" ]; do
+    echo "Waiting for automatic merge of PR #$PR_NUMBER..."
+    sleep 5
+done
+
+PR_STATE="$(gh pr view "$PR_NUMBER" --repo "$REPOSITORY" --json state --jq .state)"
+if [ "$PR_STATE" != "MERGED" ]; then
+    echo "Release PR #$PR_NUMBER finished with state $PR_STATE instead of MERGED." >&2
+    exit 1
+fi
+
+git switch main
+git pull --ff-only origin main
+
+RELEASE_URL="$(gh release create "$VERSION" \
+    --repo "$REPOSITORY" \
+    --target main \
+    --title "$VERSION" \
+    --generate-notes)"
+
+echo "Created release: $RELEASE_URL"
+
+RUN_ID=""
+for _ in {1..12}; do
+    RUN_ID="$(gh run list \
+        --repo "$REPOSITORY" \
+        --workflow "$WORKFLOW" \
+        --event release \
+        --limit 10 \
+        --json databaseId,displayTitle \
+        --jq '.[] | select(.displayTitle == "'"$VERSION"'") | .databaseId' | head -n 1)"
+    if [ -n "$RUN_ID" ]; then
+        break
+    fi
+    sleep 5
+done
+
+if [ -z "$RUN_ID" ]; then
+    echo "Release created, but the Docker publication run was not found." >&2
+    exit 1
+fi
+
+echo "Watching Docker publication run $RUN_ID..."
+gh run watch "$RUN_ID" --repo "$REPOSITORY" --exit-status
+echo "Release $VERSION and its Docker image were published successfully."
