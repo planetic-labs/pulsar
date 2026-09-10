@@ -1,0 +1,5 @@
+# The python:3.14-slim base layer records these superseded package versions.
+# Dockerfile.prod upgrades both packages, removes their stale metadata, and the
+# final container filesystem contains msgpack 1.2.2 and setuptools 84.0.0.
+GHSA-6v7p-g79w-8964
+CVE-2025-47273
