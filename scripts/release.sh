@@ -59,81 +59,93 @@ fi
 VERSION_NUM="${VERSION#v}"
 VERSION_NUM="${VERSION_NUM//-patch/.}"
 RELEASE_BRANCH="release/${VERSION}"
+CURRENT_VERSION="$(sed -n 's/^version = "\([^"]*\)"/\1/p' "$PYPROJECT_PATH" | head -n 1)"
 
-if git show-ref --verify --quiet "refs/heads/${RELEASE_BRANCH}" || \
-    git show-ref --verify --quiet "refs/remotes/origin/${RELEASE_BRANCH}"; then
-    echo "Release branch already exists: $RELEASE_BRANCH" >&2
-    exit 1
-fi
-
-echo "Preparing $VERSION using branch $RELEASE_BRANCH"
-git switch -c "$RELEASE_BRANCH"
-
-sed -i 's/^version = "[^"]*"/version = "'"$VERSION_NUM"'"/' "$PYPROJECT_PATH"
-uv lock
-
-git add "$PYPROJECT_PATH" "$PROJECT_ROOT/uv.lock"
-if git diff --cached --quiet; then
-    echo "The project version is already $VERSION_NUM; nothing to release." >&2
-    exit 1
-fi
-
-git commit -m "chore: bump version to $VERSION_NUM"
-git push --set-upstream origin "$RELEASE_BRANCH"
-
-PR_URL="$(gh pr create \
-    --repo "$REPOSITORY" \
-    --base main \
-    --head "$RELEASE_BRANCH" \
-    --title "chore: bump version to $VERSION_NUM" \
-    --body "Prepare release $VERSION.")"
-PR_NUMBER="${PR_URL##*/}"
-
-echo "Created PR #$PR_NUMBER: $PR_URL"
-gh pr merge "$PR_NUMBER" --repo "$REPOSITORY" --auto --squash --delete-branch
-
-CHECK_COUNT=0
-for _ in {1..12}; do
-    CHECK_COUNT="$(gh pr view "$PR_NUMBER" --repo "$REPOSITORY" --json statusCheckRollup --jq '.statusCheckRollup | length')"
-    if [ "$CHECK_COUNT" -gt 0 ]; then
-        break
+if [ "$CURRENT_VERSION" = "$VERSION_NUM" ]; then
+    echo "Version $VERSION_NUM is already in main; creating the missing release."
+else
+    if git show-ref --verify --quiet "refs/heads/${RELEASE_BRANCH}" || \
+        git show-ref --verify --quiet "refs/remotes/origin/${RELEASE_BRANCH}"; then
+        echo "Release branch already exists: $RELEASE_BRANCH" >&2
+        exit 1
     fi
-    sleep 5
-done
 
-if [ "$CHECK_COUNT" -eq 0 ]; then
-    echo "No checks were registered for release PR #$PR_NUMBER." >&2
-    exit 1
+    echo "Preparing $VERSION using branch $RELEASE_BRANCH"
+    git switch -c "$RELEASE_BRANCH"
+
+    sed -i 's/^version = "[^"]*"/version = "'"$VERSION_NUM"'"/' "$PYPROJECT_PATH"
+    uv lock
+
+    git add "$PYPROJECT_PATH" "$PROJECT_ROOT/uv.lock"
+    if git diff --cached --quiet; then
+        git switch main
+        git branch -D "$RELEASE_BRANCH"
+        echo "Version update produced no changes." >&2
+        exit 1
+    fi
+
+    git commit -m "chore: bump version to $VERSION_NUM"
+    git push --set-upstream origin "$RELEASE_BRANCH"
+
+    PR_URL="$(gh pr create \
+        --repo "$REPOSITORY" \
+        --base main \
+        --head "$RELEASE_BRANCH" \
+        --title "chore: bump version to $VERSION_NUM" \
+        --body "Prepare release $VERSION.")"
+    PR_NUMBER="${PR_URL##*/}"
+
+    echo "Created PR #$PR_NUMBER: $PR_URL"
+    gh pr merge "$PR_NUMBER" --repo "$REPOSITORY" --auto --squash --delete-branch
+
+    CHECK_COUNT=0
+    for _ in {1..12}; do
+        CHECK_COUNT="$(gh pr view "$PR_NUMBER" --repo "$REPOSITORY" --json statusCheckRollup --jq '.statusCheckRollup | length')"
+        if [ "$CHECK_COUNT" -gt 0 ]; then
+            break
+        fi
+        sleep 5
+    done
+
+    if [ "$CHECK_COUNT" -eq 0 ]; then
+        echo "No checks were registered for release PR #$PR_NUMBER." >&2
+        exit 1
+    fi
+
+    echo "Waiting for PR checks..."
+    if ! gh pr checks "$PR_NUMBER" --repo "$REPOSITORY" --watch >/dev/null; then
+        echo "PR checks failed. See $PR_URL/checks" >&2
+        exit 1
+    fi
+    echo "PR checks passed."
+
+    while [ "$(gh pr view "$PR_NUMBER" --repo "$REPOSITORY" --json state --jq .state)" = "OPEN" ]; do
+        echo "Waiting for automatic merge of PR #$PR_NUMBER..."
+        sleep 5
+    done
+
+    PR_STATE="$(gh pr view "$PR_NUMBER" --repo "$REPOSITORY" --json state --jq .state)"
+    if [ "$PR_STATE" != "MERGED" ]; then
+        echo "Release PR #$PR_NUMBER finished with state $PR_STATE instead of MERGED." >&2
+        exit 1
+    fi
+
+    git switch main
+    git pull --ff-only origin main
 fi
 
-echo "Waiting for PR checks..."
-if ! gh pr checks "$PR_NUMBER" --repo "$REPOSITORY" --watch >/dev/null; then
-    echo "PR checks failed. See $PR_URL/checks" >&2
-    exit 1
+if gh release view "$VERSION" --repo "$REPOSITORY" >/dev/null 2>&1; then
+    RELEASE_URL="$(gh release view "$VERSION" --repo "$REPOSITORY" --json url --jq .url)"
+    echo "Release already exists: $RELEASE_URL"
+else
+    RELEASE_URL="$(gh release create "$VERSION" \
+        --repo "$REPOSITORY" \
+        --target main \
+        --title "$VERSION" \
+        --generate-notes)"
+
+    echo "Created release: $RELEASE_URL"
 fi
-echo "PR checks passed."
-
-while [ "$(gh pr view "$PR_NUMBER" --repo "$REPOSITORY" --json state --jq .state)" = "OPEN" ]; do
-    echo "Waiting for automatic merge of PR #$PR_NUMBER..."
-    sleep 5
-done
-
-PR_STATE="$(gh pr view "$PR_NUMBER" --repo "$REPOSITORY" --json state --jq .state)"
-if [ "$PR_STATE" != "MERGED" ]; then
-    echo "Release PR #$PR_NUMBER finished with state $PR_STATE instead of MERGED." >&2
-    exit 1
-fi
-
-git switch main
-git pull --ff-only origin main
-
-RELEASE_URL="$(gh release create "$VERSION" \
-    --repo "$REPOSITORY" \
-    --target main \
-    --title "$VERSION" \
-    --generate-notes)"
-
-echo "Created release: $RELEASE_URL"
 
 RUN_ID=""
 for _ in {1..12}; do
