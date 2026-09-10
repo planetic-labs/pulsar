@@ -20,6 +20,11 @@
                 {{ stats.total_videos }} видео
             </span>
             {% endif %}
+            {% if request.state.user_id and request.state.user_id != 'admin' %}
+            <a href="/settings" class="p-2 text-warm-400 hover:text-brand-600 active:scale-90 transition-all rounded-lg" title="Настройки">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"></circle><path stroke-linecap="round" stroke-linejoin="round" d="M19.4 15a1.7 1.7 0 00.34 1.88l.06.06-2.83 2.83-.06-.06a1.7 1.7 0 00-1.88-.34 1.7 1.7 0 00-1.03 1.56V21h-4v-.09A1.7 1.7 0 009 19.35a1.7 1.7 0 00-1.88.34l-.06.06-2.83-2.83.06-.06A1.7 1.7 0 004.63 15 1.7 1.7 0 003.07 14H3v-4h.09A1.7 1.7 0 004.65 9a1.7 1.7 0 00-.34-1.88l-.06-.06 2.83-2.83.06.06A1.7 1.7 0 009 4.63 1.7 1.7 0 0010 3.07V3h4v.09A1.7 1.7 0 0015 4.65a1.7 1.7 0 001.88-.34l.06-.06 2.83 2.83-.06.06A1.7 1.7 0 0019.37 9 1.7 1.7 0 0020.93 10H21v4h-.09A1.7 1.7 0 0019.4 15z"></path></svg>
+            </a>
+            {% endif %}
             <a href="/logout" class="p-2 text-warm-400 hover:text-rose-500 active:scale-90 transition-all rounded-lg" title="Выйти">
                 <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />

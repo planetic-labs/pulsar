@@ -160,7 +160,15 @@ SCHEMA_STATEMENTS = [
         UNIQUE(user_id, query)
     );
     """,
-    # 10. Versioned search index builds. Only validated generations may become active.
+    # 10. Per-user preferences. Privacy-sensitive features are opt-in.
+    """
+    CREATE TABLE IF NOT EXISTS user_settings (
+        user_id TEXT PRIMARY KEY,
+        search_history_enabled BOOLEAN NOT NULL DEFAULT FALSE,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+    """,
+    # 11. Versioned search index builds. Only validated generations may become active.
     """
     CREATE TABLE IF NOT EXISTS index_generations (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -223,6 +231,13 @@ SCHEMA_STATEMENTS = [
     WHERE original_id IS NULL AND md5_checksum IS NOT NULL AND md5_checksum != '';
     """,
     # Triggers
+    """
+    CREATE TRIGGER IF NOT EXISTS trg_user_settings_updated_at
+    AFTER UPDATE ON user_settings
+    BEGIN
+        UPDATE user_settings SET updated_at = CURRENT_TIMESTAMP WHERE user_id = NEW.user_id;
+    END;
+    """,
     """
     CREATE TRIGGER IF NOT EXISTS trg_videos_updated_at
     AFTER UPDATE ON videos
