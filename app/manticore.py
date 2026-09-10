@@ -82,7 +82,7 @@ class ManticoreClient:
         return r.json()
 
     def _execute_ddl(self, sql: str) -> str:
-        """Выполняет CREATE/DROP запросы через обязательный эндпоинт /cli."""
+        """Выполняет изменяющие SQL-запросы через штатный HTTP-эндпоинт."""
         cleaned_sql = sql.strip()
 
         import time
@@ -91,22 +91,12 @@ class ManticoreClient:
         for attempt in range(max_retries):
             try:
                 r = self.http_client.post(
-                    f"{self.url}/cli", content=cleaned_sql, headers={"Content-Type": "text/plain"}, timeout=15.0
+                    f"{self.url}/sql?mode=raw",
+                    content=cleaned_sql,
+                    headers={"Content-Type": "text/plain"},
+                    timeout=15.0,
                 )
-                if r.status_code == 501:
-                    logger.warning(
-                        f"Manticore Buddy is not ready yet (501 Not Implemented). "
-                        f"Retrying in 1s... (attempt {attempt + 1}/{max_retries})"
-                    )
-                    time.sleep(1.0)
-                    continue
                 r.raise_for_status()
-
-                # ВЫВОДИМ ВООБЩЕ ВСЁ В КОНСОЛЬ ДЛЯ ОTЛАДКИ
-                logger.info("=" * 50)
-                logger.info(f"Запрос к /cli: {cleaned_sql[:50]}...")
-                logger.info(f"Ответ от /cli: {r.text.strip()}")
-                logger.info("=" * 50)
 
                 return r.text
             except (httpx.HTTPStatusError, httpx.RequestError) as e:
@@ -300,7 +290,7 @@ class ManticoreClient:
         return records
 
     def delete_collection(self, collection_name: str) -> None:
-        """Удаляет таблицу через проверенный эндпоинт /cli."""
+        """Удаляет таблицу через SQL HTTP API."""
         self._execute_ddl(f"DROP TABLE IF EXISTS {collection_name}")
 
 
@@ -348,7 +338,7 @@ def init_manticore(table_name: str | None = None) -> None:
     ) type='rt' rt_mem_limit='512M' morphology='stem_ru'
     """
 
-    logger.info(f"Sending DDL for {resolved_table_name} via /cli...")
+    logger.info(f"Sending DDL for {resolved_table_name} via /sql...")
     client._execute_ddl(sql_chunks)
 
     # Заставляем Manticore принудительно обновить таблицы в памяти
