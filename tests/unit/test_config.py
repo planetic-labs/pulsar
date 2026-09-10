@@ -35,19 +35,11 @@ def test_chunking_pause_threshold_is_required(monkeypatch: pytest.MonkeyPatch) -
 def test_settings_validation_errors() -> None:
     """Проверяет возникновение ошибок валидации при неверных параметрах."""
     with pytest.raises(ValidationError):
-        # Слишком короткий access token
-        Settings(
-            app_access_token="too-short",
-            session_secret_key="generate-a-long-random-string-here-32-chars-long",
-        )
-
-    with pytest.raises(ValidationError):
         # Недопустимое дефолтное значение токена
         Settings(
             app_access_token="change-me-to-a-secure-token",
             session_secret_key="generate-a-long-random-string-here-32-chars-long",
         )
-
     with pytest.raises(ValidationError):
         # Слишком короткий session_secret_key
         Settings(
@@ -69,6 +61,15 @@ def test_settings_validation_errors() -> None:
             session_secret_key="generate-a-long-random-string-here-32-chars-long",
             app_results_limit=500,
         )
+
+
+def test_short_access_token_is_allowed() -> None:
+    settings = Settings(
+        app_access_token="1234",
+        session_secret_key="generate-a-long-random-string-here-32-chars-long",
+    )
+
+    assert settings.app_access_token == "1234"
 
 
 def test_config_backwards_compatibility() -> None:
