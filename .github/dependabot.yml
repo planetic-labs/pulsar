@@ -9,6 +9,11 @@ updates:
     labels:
       - "dependencies"
       - "python"
+    groups:
+      safe-updates:
+        update-types:
+          - "minor"
+          - "patch"
 
   # Docker dependencies
   - package-ecosystem: "docker"
@@ -19,6 +24,11 @@ updates:
     labels:
       - "dependencies"
       - "docker"
+    groups:
+      safe-updates:
+        update-types:
+          - "minor"
+          - "patch"
 
   # GitHub Actions updates
   - package-ecosystem: "github-actions"
@@ -28,3 +38,8 @@ updates:
     labels:
       - "dependencies"
       - "github-actions"
+    groups:
+      safe-updates:
+        update-types:
+          - "minor"
+          - "patch"
