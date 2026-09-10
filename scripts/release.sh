@@ -106,12 +106,12 @@ if [ "$CHECK_COUNT" -eq 0 ]; then
     exit 1
 fi
 
-echo "Waiting for required checks..."
-if ! gh pr checks "$PR_NUMBER" --repo "$REPOSITORY" --watch --required >/dev/null; then
-    echo "Required checks failed. See $PR_URL/checks" >&2
+echo "Waiting for PR checks..."
+if ! gh pr checks "$PR_NUMBER" --repo "$REPOSITORY" --watch >/dev/null; then
+    echo "PR checks failed. See $PR_URL/checks" >&2
     exit 1
 fi
-echo "Required checks passed."
+echo "PR checks passed."
 
 while [ "$(gh pr view "$PR_NUMBER" --repo "$REPOSITORY" --json state --jq .state)" = "OPEN" ]; do
     echo "Waiting for automatic merge of PR #$PR_NUMBER..."
