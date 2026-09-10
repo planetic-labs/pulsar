@@ -19,7 +19,7 @@ dependencies = [
     "pymorphy3-dicts-ru",
     "httpx>=0.28.1",
     "pydantic>=2.13.5",
-    "google-auth>=2.57.0",
+    "google-auth>=2.57.1",
     "requests>=2.34.2",
     "itsdangerous>=2.2.0",
     "pyjwt[crypto]>=2.8.0",
@@ -37,7 +37,7 @@ Issues = "https://github.com/planetic-labs/pulsar/issues"
 [dependency-groups]
 dev = [
     "pre-commit>=4.6.2",
-    "ruff>=0.16.5",
+    "ruff>=0.16.6",
     "ty>=0.0.78",
     "pytest>=9.1.1",
     "pytest-asyncio>=1.4.0",

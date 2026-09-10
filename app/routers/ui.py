@@ -255,7 +255,7 @@ async def speakers_page(request: Request) -> Response:
         # Run scroll synchronously in thread pool
         res = await asyncio.to_thread(m_client.scroll, "speaker_registry", limit=100)
         speakers = []
-        if res and res[0]:
+        if res[0]:
             for p in res[0]:
                 if p.payload:
                     speakers.append(
