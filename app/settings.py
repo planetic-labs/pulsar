@@ -68,7 +68,7 @@ class Settings(BaseSettings):
     app_data_dir: Annotated[Path, BeforeValidator(validate_path)] = Field(
         default=Path("/app/data"), validation_alias="APP_DATA_DIR"
     )
-    app_access_token: str = Field(min_length=32, validation_alias="APP_ACCESS_TOKEN")
+    app_access_token: str = Field(validation_alias="APP_ACCESS_TOKEN")
     session_secret_key: str = Field(
         min_length=32,
         validation_alias="SESSION_SECRET_KEY",
