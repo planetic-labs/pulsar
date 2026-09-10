@@ -13,13 +13,13 @@ services:
     volumes:
       - manticore_data:/var/lib/manticore
     healthcheck:
-      # Pulsar initializes tables through /cli, which also requires Buddy to be ready.
+      # Pulsar starts only after both SQL protocols used by the application are ready.
       test:
         - CMD-SHELL
         - >-
           mysql -h 127.0.0.1 -P 9306 -e 'SELECT 1' &&
-          curl --fail --silent --show-error --max-time 3
-          --data 'SELECT 1' http://127.0.0.1:9308/cli > /dev/null
+          wget --quiet --output-document=/dev/null --timeout=3
+          --post-data='SELECT 1' 'http://127.0.0.1:9308/sql?mode=raw'
       interval: 10s
       timeout: 5s
       retries: 6
@@ -81,4 +81,3 @@ networks:
   default:
   planetic-net:
     external: true
-

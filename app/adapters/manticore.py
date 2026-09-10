@@ -36,18 +36,11 @@ class ManticoreAdapter(VectorStorePort):
         for attempt in range(max_retries):
             try:
                 response = await self._client.post(
-                    f"{self.url}/cli",
+                    f"{self.url}/sql?mode=raw",
                     content=cleaned_sql,
                     headers={"Content-Type": "text/plain"},
                     timeout=15.0,
                 )
-                if response.status_code == 501:
-                    logger.warning(
-                        f"Manticore Buddy is not ready yet (501 Not Implemented). "
-                        f"Retrying in 1s... (attempt {attempt + 1}/{max_retries})"
-                    )
-                    await asyncio.sleep(1.0)
-                    continue
                 response.raise_for_status()
                 return response.text
             except (httpx.HTTPStatusError, httpx.RequestError) as e:
