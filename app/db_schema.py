@@ -317,6 +317,11 @@ DB_MIGRATIONS = [
     ("tasks", "retries", "ALTER TABLE tasks ADD COLUMN retries INTEGER DEFAULT 0"),
     ("tasks", "max_retries", "ALTER TABLE tasks ADD COLUMN max_retries INTEGER DEFAULT 3"),
     ("videos", "is_silent", "ALTER TABLE videos ADD COLUMN is_silent BOOLEAN DEFAULT FALSE"),
+    (
+        "videos",
+        "original_id",
+        "ALTER TABLE videos ADD COLUMN original_id INTEGER REFERENCES videos(id) ON DELETE SET NULL",
+    ),
     ("subtitle_flags", "locked_by", "ALTER TABLE subtitle_flags ADD COLUMN locked_by TEXT"),
     ("subtitle_flags", "locked_at", "ALTER TABLE subtitle_flags ADD COLUMN locked_at DATETIME"),
     ("chunks", "logical_id", "ALTER TABLE chunks ADD COLUMN logical_id TEXT"),
