@@ -10,6 +10,7 @@ PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 PYPROJECT_PATH="$PROJECT_ROOT/pyproject.toml"
 REPOSITORY="${REPOSITORY:-planetic-labs/pulsar}"
 WORKFLOW="docker-publish.yml"
+MAX_RELEASES="${MAX_RELEASES:-10}"
 
 cd "$PROJECT_ROOT"
 
@@ -19,6 +20,11 @@ for COMMAND in git gh uv; do
         exit 1
     fi
 done
+
+if [[ ! "$MAX_RELEASES" =~ ^[1-9][0-9]*$ ]]; then
+    echo "MAX_RELEASES must be a positive integer." >&2
+    exit 1
+fi
 
 if [ ! -f "$PYPROJECT_PATH" ]; then
     echo "pyproject.toml not found: $PYPROJECT_PATH" >&2
@@ -147,3 +153,35 @@ fi
 echo "Watching Docker publication run $RUN_ID..."
 gh run watch "$RUN_ID" --repo "$REPOSITORY" --exit-status
 echo "Release $VERSION and its Docker image were published successfully."
+
+echo "Cleaning up old releases; keeping the newest $MAX_RELEASES..."
+mapfile -t OLD_RELEASES < <(
+    gh release list \
+        --repo "$REPOSITORY" \
+        --limit 100 \
+        --json tagName \
+        --jq ".[${MAX_RELEASES}:] | .[].tagName"
+)
+
+for OLD_TAG in "${OLD_RELEASES[@]}"; do
+    echo "Deleting old release and tag: $OLD_TAG"
+    gh release delete "$OLD_TAG" --repo "$REPOSITORY" --yes --cleanup-tag
+done
+
+TODAY_DATE="$(date -u +'%Y-%m-%d')"
+echo "Cleaning up workflow runs created before $TODAY_DATE..."
+mapfile -t OLD_RUNS < <(
+    gh run list \
+        --repo "$REPOSITORY" \
+        --limit 1000 \
+        --created "<$TODAY_DATE" \
+        --json databaseId \
+        --jq '.[].databaseId'
+)
+
+for OLD_RUN_ID in "${OLD_RUNS[@]}"; do
+    echo "Deleting old workflow run: $OLD_RUN_ID"
+    gh run delete "$OLD_RUN_ID" --repo "$REPOSITORY"
+done
+
+echo "Release cleanup completed."
