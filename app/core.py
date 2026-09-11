@@ -5,6 +5,7 @@ import time
 import tomllib
 from pathlib import Path
 from typing import Any
+from urllib.parse import quote
 
 from fastapi.templating import Jinja2Templates
 
@@ -28,6 +29,15 @@ def get_app_version() -> str:
 
 
 APP_VERSION: str = get_app_version()
+
+
+def static_asset_url(path: str) -> str:
+    """Return a release-versioned URL for a local static asset."""
+    normalized_path = path.lstrip("/")
+    return f"/static/{normalized_path}?v={quote(APP_VERSION, safe='')}"
+
+
+templates.env.globals["static_asset_url"] = static_asset_url
 
 # Cache for global stats (60s)
 _global_stats_cache: dict[str, Any] = {"data": None, "timestamp": 0.0}
