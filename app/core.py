@@ -4,7 +4,7 @@ import sqlite3
 import time
 import tomllib
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 from urllib.parse import quote
 
 from fastapi.templating import Jinja2Templates
@@ -37,7 +37,7 @@ def static_asset_url(path: str) -> str:
     return f"/static/{normalized_path}?v={quote(APP_VERSION, safe='')}"
 
 
-templates.env.globals["static_asset_url"] = static_asset_url
+cast(dict[str, Any], templates.env.globals)["static_asset_url"] = static_asset_url
 
 # Cache for global stats (60s)
 _global_stats_cache: dict[str, Any] = {"data": None, "timestamp": 0.0}
