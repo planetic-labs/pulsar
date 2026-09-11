@@ -76,6 +76,15 @@ def _get_int(p_load: dict[str, Any], key: str, default: int = 0) -> int:
         return default
 
 
+def build_result_highlight(full_text: str, query: str, match_type: str, manticore_highlight: object) -> str:
+    """Prefer Manticore highlighting for every full-text search mode."""
+    if manticore_highlight:
+        return str(manticore_highlight)
+    if match_type == "quote":
+        return quote_highlight(full_text, [query])
+    return simple_highlight(full_text, query)
+
+
 class SearchService:
     """Сервис для выполнения гибридного поиска по видеозаписям."""
 
@@ -223,12 +232,7 @@ class SearchService:
 
             full_text = str(payload.get("text") or "")
             raw_highlighted = payload.get("highlighted_text")
-            highlighted_text = str(raw_highlighted) if raw_highlighted else ""
-            if not highlighted_text:
-                if m_type == "quote":
-                    highlighted_text = quote_highlight(full_text, [clean_query])
-                else:
-                    highlighted_text = simple_highlight(full_text, clean_query)
+            highlighted_text = build_result_highlight(full_text, clean_query, m_type, raw_highlighted)
 
             point_v_id = payload.get("video_id")
             v_id_int = None

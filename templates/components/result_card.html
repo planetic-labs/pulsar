@@ -1,5 +1,12 @@
-<div onclick="playFragment('{{ item.video_id }}', {{ item.start_sec }}, '{{ item.title }}', '{{ item.start_ts }}', '{{ item.chunk_id }}')" 
+<div onclick="playSearchResult(this)"
      id="chunk-{{ item.chunk_id }}"
+     data-video-id="{{ item.video_id }}"
+     data-chunk-id="{{ item.chunk_id }}"
+     data-start-sec="{{ item.start_sec }}"
+     data-start-ts="{{ item.start_ts }}"
+     data-title="{{ item.title }}"
+     data-search-mode="{{ mode }}"
+     data-query="{{ query }}"
      class="result-card-ui group p-4 lg:p-6 bg-white border border-[#E5E1D8] rounded-[1.25rem] lg:rounded-[1.5rem] cursor-pointer hover:border-brand-300 hover:bg-[#FDFDFB] transition-all relative shadow-sm hover:shadow-md">
     <div class="flex justify-between items-start gap-4 mb-3 lg:mb-4">
         <div class="flex flex-col gap-2">

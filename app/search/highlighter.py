@@ -38,11 +38,8 @@ def simple_highlight(text: str, query: str) -> str:
     return "".join(result)
 
 
-def build_quote_regex(phrase: str) -> str:
-    """Строит морфологическое регулярное выражение для точного совпадения фразы."""
+def _build_quote_word_patterns(phrase: str) -> list[str]:
     words = re.findall(r"[а-яА-ЯёЁa-zA-Z0-9]+", phrase.lower())
-    if not words:
-        return ""
     regex_parts = []
     for w in words:
         if len(w) <= 3:
@@ -55,29 +52,65 @@ def build_quote_regex(phrase: str) -> str:
             drop_len = 2 if len(w) < 7 else 3
             root = w[:-drop_len]
             regex_parts.append(rf"\b{re.escape(root)}[а-яА-ЯёЁa-zA-Z0-9]*\b")
+    return regex_parts
+
+
+def build_quote_regex(phrase: str) -> str:
+    """Строит морфологическое регулярное выражение для точного совпадения фразы."""
+    regex_parts = _build_quote_word_patterns(phrase)
+    if not regex_parts:
+        return ""
 
     separator = r"(?:[^а-яА-ЯёЁa-zA-Z0-9]+[а-яА-ЯёЁa-zA-Z0-9]+){0,10}?[^а-яА-ЯёЁa-zA-Z0-9]+"
     return separator.join(regex_parts)
 
 
 def quote_highlight(text: str, exact_phrases: list[str]) -> str:
-    """Подсвечивает фразы в режиме цитаты."""
+    """Подсвечивает только совпавшие слова цитаты, не затрагивая слова между ними."""
     if not exact_phrases:
         return text
-    patterns = []
+
+    spans: list[tuple[int, int]] = []
     for phrase in exact_phrases:
-        pattern = build_quote_regex(phrase)
-        if pattern:
-            patterns.append(f"(?i)({pattern})")
-    if not patterns:
+        word_patterns = _build_quote_word_patterns(phrase)
+        if not word_patterns:
+            continue
+        quote_pattern = build_quote_regex(phrase)
+        try:
+            quote_matches = re.finditer(quote_pattern, text, flags=re.IGNORECASE | re.UNICODE)
+            for quote_match in quote_matches:
+                cursor = quote_match.start()
+                for word_pattern in word_patterns:
+                    word_match = re.search(
+                        word_pattern,
+                        text[cursor : quote_match.end()],
+                        flags=re.IGNORECASE | re.UNICODE,
+                    )
+                    if word_match is None:
+                        break
+                    start = cursor + word_match.start()
+                    end = cursor + word_match.end()
+                    spans.append((start, end))
+                    cursor = end
+        except re.error:
+            continue
+
+    if not spans:
         return text
-    combined_pattern = "|".join(patterns)
-    try:
-        return re.sub(
-            combined_pattern,
-            lambda m: f"<mark>{m.group(0)}</mark>",
-            text,
-            flags=re.UNICODE,
-        )
-    except re.error:
-        return text
+
+    # Render against the original text so overlapping phrases cannot create nested <mark> tags.
+    merged_spans: list[tuple[int, int]] = []
+    for start, end in sorted(set(spans)):
+        if merged_spans and start <= merged_spans[-1][1]:
+            previous_start, previous_end = merged_spans[-1]
+            merged_spans[-1] = (previous_start, max(previous_end, end))
+        else:
+            merged_spans.append((start, end))
+
+    result = []
+    cursor = 0
+    for start, end in merged_spans:
+        result.extend((text[cursor:start], "<mark>", text[start:end], "</mark>"))
+        cursor = end
+    result.append(text[cursor:])
+    return "".join(result)

@@ -119,6 +119,18 @@ class ChunkRepository:
             rows = await cursor.fetchall()
             return [dict(row) for row in rows]
 
+    async def get_with_video(self, chunk_id: int) -> dict[str, Any] | None:
+        """Return a chunk together with the source file needed for transcript lookup."""
+        sql = """
+            SELECT c.*, v.source_file_id
+            FROM chunks c
+            JOIN videos v ON v.id = c.video_id
+            WHERE c.id = ?
+        """
+        async with self.db.transaction() as conn, conn.execute(sql, (chunk_id,)) as cursor:
+            row = await cursor.fetchone()
+            return dict(row) if row else None
+
     async def delete_by_video_id(self, video_id: int) -> None:
         """Удаляет все чанки для указанного видео."""
         async with self.db.transaction() as conn:
