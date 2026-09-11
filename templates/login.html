@@ -207,7 +207,11 @@
                 } else {
                     // Handle identify error
                     let msg = "Пользователь не найден или заблокирован.";
-                    if (data.error && data.error !== 'not_found') {
+                    if (data.message) {
+                        msg = data.message;
+                    } else if (data.detail) {
+                        msg = data.detail;
+                    } else if (data.error && data.error !== 'not_found') {
                         msg = `Ошибка: ${data.error}`;
                     }
                     errorText.textContent = msg;

@@ -8,7 +8,7 @@ from dataclasses import dataclass
 
 import httpx
 from fastapi import APIRouter, Form, HTTPException, Request, Response, status
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 
 from app.auth import login_user, logout_user
 from app.config import get_app_settings
@@ -216,12 +216,21 @@ async def api_auth_identify(request: Request) -> Response:
         try:
             response = await client.post(identify_url, json={"email": email}, timeout=10.0)
             return Response(content=response.content, status_code=response.status_code, media_type="application/json")
-        except Exception as e:
-            logger.error(
-                f"Error calling Ark Messenger identify (URL: {identify_url}, email: {email}): {type(e).__name__}: {e}",
-                exc_info=True,
+        except httpx.RequestError as e:
+            logger.warning(
+                "Ark Messenger identify is unavailable (URL: %s, email: %s): %s: %s",
+                identify_url,
+                email,
+                type(e).__name__,
+                e,
             )
-            raise HTTPException(status_code=502, detail="Error communicating with authentication server") from e
+            return JSONResponse(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                content={
+                    "error": "authorization_service_unavailable",
+                    "message": "Сервис авторизации временно недоступен. Попробуйте ещё раз позже.",
+                },
+            )
 
 
 @router.get("/logout")
