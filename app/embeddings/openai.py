@@ -29,7 +29,11 @@ class OpenAIEmbeddingProvider(BaseEmbeddingProvider):
     def _build_payload(self, input_data: list[str]) -> dict:
         payload: dict[str, Any] = {"model": self.settings.model_id, "input": input_data}
         if self.settings.openrouter_providers:
-            payload["provider"] = {"only": self.settings.openrouter_providers, "allow_fallbacks": False}
+            payload["provider"] = {
+                "order": self.settings.openrouter_providers,
+                "only": self.settings.openrouter_providers,
+                "allow_fallbacks": True,
+            }
         return payload
 
     def _get_headers(self) -> dict[str, str]:
@@ -39,6 +43,8 @@ class OpenAIEmbeddingProvider(BaseEmbeddingProvider):
         }
         if self.settings.api_token:
             headers["Authorization"] = f"Bearer {self.settings.api_token}"
+        if self.settings.openrouter_api_key:
+            headers["X-OpenRouter-Key"] = self.settings.openrouter_api_key
         return headers
 
     async def embed_text_async(

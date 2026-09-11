@@ -29,6 +29,8 @@ logger = logging.getLogger("app.routers.ui")
 
 router = APIRouter(tags=["UI Pages"])
 
+MAX_SEARCH_RESULTS = 20
+
 
 class UserSettingsUpdate(BaseModel):
     search_history_enabled: bool
@@ -37,6 +39,11 @@ class UserSettingsUpdate(BaseModel):
 def is_mobile_request(request: Request) -> bool:
     ua = request.headers.get("user-agent", "").lower()
     return any(m in ua for m in ["mobile", "android", "iphone", "ipad"])
+
+
+def get_search_results_limit(configured_limit: int) -> int:
+    """Keep the rendered search result set within the UI limit."""
+    return min(configured_limit, MAX_SEARCH_RESULTS)
 
 
 @router.get("/", response_class=HTMLResponse)
@@ -88,7 +95,7 @@ async def index_page(
         try:
             results = await search_service.search(
                 query=q or "",
-                limit=settings.app_results_limit,
+                limit=get_search_results_limit(settings.app_results_limit),
                 search_mode=mode,
                 date_from=date_from,
                 date_to=date_to,
