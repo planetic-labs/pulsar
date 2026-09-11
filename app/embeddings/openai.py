@@ -41,10 +41,12 @@ class OpenAIEmbeddingProvider(BaseEmbeddingProvider):
             "HTTP-Referer": "https://pulsar.i28.ru",
             "X-Title": "Pulsar",
         }
-        if self.settings.api_token:
-            headers["Authorization"] = f"Bearer {self.settings.api_token}"
         if self.settings.openrouter_api_key:
-            headers["X-OpenRouter-Key"] = self.settings.openrouter_api_key
+            headers["Authorization"] = f"Bearer {self.settings.openrouter_api_key}"
+        elif self.settings.api_token:
+            headers["Authorization"] = f"Bearer {self.settings.api_token}"
+        if self.settings.proxy_token:
+            headers["X-Proxy-Token"] = self.settings.proxy_token
         return headers
 
     async def embed_text_async(

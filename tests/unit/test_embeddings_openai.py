@@ -7,19 +7,20 @@ from app.embeddings.openai import OpenAIEmbeddingProvider
 def test_proxy_credentials_are_sent_in_separate_headers() -> None:
     provider = OpenAIEmbeddingProvider(
         EmbeddingSettings(
-            api_url="https://openrouter-proxy.example.workers.dev/v1",
-            api_token="proxy-token",
+            api_url="https://orp.pre.m6z.ru/api/v1",
+            api_token="",
             openrouter_api_key="openrouter-key",
+            proxy_token="proxy-token",
         )
     )
 
     headers = provider._get_headers()
 
-    assert headers["Authorization"] == "Bearer proxy-token"
-    assert headers["X-OpenRouter-Key"] == "openrouter-key"
+    assert headers["Authorization"] == "Bearer openrouter-key"
+    assert headers["X-Proxy-Token"] == "proxy-token"
 
 
-def test_openrouter_header_is_omitted_when_not_configured() -> None:
+def test_proxy_header_is_omitted_when_not_configured() -> None:
     provider = OpenAIEmbeddingProvider(
         EmbeddingSettings(
             api_url="http://infinity:7997/v1",
@@ -27,7 +28,7 @@ def test_openrouter_header_is_omitted_when_not_configured() -> None:
         )
     )
 
-    assert "X-OpenRouter-Key" not in provider._get_headers()
+    assert "X-Proxy-Token" not in provider._get_headers()
 
 
 def test_openrouter_providers_are_ordered_with_fallbacks() -> None:
