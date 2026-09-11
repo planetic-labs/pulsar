@@ -123,8 +123,9 @@ def _reliability_report() -> dict[str, Any]:
                 "outbox_unfinished": outbox_pending,
             }
         )
-    except (OSError, sqlite3.Error, ValueError) as exc:
-        report["checks"]["sqlite"] = {"ok": False, "error": str(exc)}
+    except OSError, sqlite3.Error, ValueError:
+        logger.exception("SQLite reliability check failed")
+        report["checks"]["sqlite"] = {"ok": False, "error": "unavailable"}
         sqlite_chunks = -1
 
     marker = app_settings.data_dir / "REINDEX_REQUIRED"
@@ -137,8 +138,9 @@ def _reliability_report() -> dict[str, Any]:
             "sqlite": sqlite_chunks,
             "manticore": manticore_chunks,
         }
-    except Exception as exc:
-        report["checks"]["manticore"] = {"ok": False, "error": str(exc)}
+    except Exception:
+        logger.exception("Manticore reliability check failed")
+        report["checks"]["manticore"] = {"ok": False, "error": "unavailable"}
 
     report["status"] = "ready" if all(check.get("ok", False) for check in report["checks"].values()) else "not_ready"
     return report

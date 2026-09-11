@@ -2,6 +2,9 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from contextlib import contextmanager
+from types import SimpleNamespace
+from typing import Any
 
 import pytest
 
@@ -9,8 +12,34 @@ from app.config import SQLiteSettings
 from app.db import db_connection, init_db
 from app.indexing_state import enqueue_index_task
 from app.repository import replace_chunks, upsert_video
+from app.routers import system
 from app.services.task_queue import TaskQueueService
 from scripts.backup_manifest import create_manifest, validate_manifest
+
+
+def test_reliability_report_does_not_expose_backend_exceptions(monkeypatch, tmp_path) -> None:
+    sqlite_secret = "sqlite failure at /secret/data/pulsar.db"
+    manticore_secret = "manticore credentials rejected for secret-user"
+
+    @contextmanager
+    def failing_connection(*args: Any, **kwargs: Any):
+        del args, kwargs
+        raise sqlite3.OperationalError(sqlite_secret)
+        yield
+
+    monkeypatch.setattr(system, "get_app_settings", lambda: SimpleNamespace(data_dir=tmp_path))
+    monkeypatch.setattr(system, "get_embedding_settings", lambda: SimpleNamespace(model_id="model", dimension=1))
+    monkeypatch.setattr(system, "get_sqlite_settings", lambda: object())
+    monkeypatch.setattr(system, "db_connection", failing_connection)
+    monkeypatch.setattr(system, "_manticore_count", lambda: (_ for _ in ()).throw(RuntimeError(manticore_secret)))
+
+    report = system._reliability_report()
+
+    serialized_report = json.dumps(report)
+    assert report["checks"]["sqlite"] == {"ok": False, "error": "unavailable"}
+    assert report["checks"]["manticore"] == {"ok": False, "error": "unavailable"}
+    assert sqlite_secret not in serialized_report
+    assert manticore_secret not in serialized_report
 
 
 def test_replace_chunks_preserves_ids_and_records_outbox(tmp_path) -> None:
