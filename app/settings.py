@@ -154,7 +154,6 @@ class Settings(BaseSettings):
             "password",
             "change-me-to-a-secure-token",
             "change-me-to-something-secure",
-            "Master",
         ):
             raise ValueError("APP_ACCESS_TOKEN must be changed from default and be secure")
         return v

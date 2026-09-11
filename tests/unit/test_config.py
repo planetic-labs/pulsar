@@ -72,6 +72,17 @@ def test_short_access_token_is_allowed() -> None:
     assert settings.app_access_token == "1234"
 
 
+def test_master_access_token_is_allowed() -> None:
+    settings = Settings(
+        _env_file=None,
+        app_access_token="Master",
+        session_secret_key="session-secret-key-must-be-at-least-32-characters",
+        chunking_pause_threshold=5.0,
+    )
+
+    assert settings.app_access_token == "Master"
+
+
 def test_config_backwards_compatibility() -> None:
     """Проверяет, что функции в app/config.py возвращают корректные датаклассы."""
     app_s = config.get_app_settings()
