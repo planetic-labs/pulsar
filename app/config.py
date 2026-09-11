@@ -41,6 +41,7 @@ class DeepgramSettings:
 class EmbeddingSettings:
     api_url: str
     api_token: str
+    openrouter_api_key: str = ""
     model_id: str = "BAAI/bge-m3"
     dimension: int = 1024
     cache_lru_size: int = 20
@@ -126,6 +127,7 @@ def get_embedding_settings() -> EmbeddingSettings:
     return EmbeddingSettings(
         api_url=s.embedding_api_url,
         api_token=s.embedding_api_token,
+        openrouter_api_key=s.embedding_openrouter_api_key,
         model_id=s.embedding_model_id,
         dimension=s.embedding_dimension,
         cache_lru_size=s.embedding_cache_lru_size,

@@ -3,6 +3,7 @@ __pycache__/
 *.pyc
 
 .env
+.dev.vars
 token.json
 token.auth.json
 config/service-key.json

@@ -127,6 +127,7 @@ class Settings(BaseSettings):
     # --- Embedding settings ---
     embedding_api_url: str = Field(default="", validation_alias="EMBEDDING_API_URL")
     embedding_api_token: str = Field(default="", validation_alias="EMBEDDING_API_TOKEN")
+    embedding_openrouter_api_key: str = Field(default="", validation_alias="EMBEDDING_OPENROUTER_API_KEY")
     embedding_model_id: str = Field(default="BAAI/bge-m3", validation_alias="EMBEDDING_MODEL_ID")
     embedding_dimension: int = Field(default=1024, ge=1, validation_alias="EMBEDDING_DIMENSION")
     embedding_cache_lru_size: int = Field(default=20, ge=0, validation_alias="EMBEDDING_CACHE_LRU_SIZE")

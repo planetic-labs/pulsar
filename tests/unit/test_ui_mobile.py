@@ -4,7 +4,15 @@ import pytest
 from starlette.requests import Request
 
 from app.core import templates
-from app.routers.ui import is_mobile_request
+from app.routers.ui import get_search_results_limit, is_mobile_request
+
+
+@pytest.mark.parametrize(
+    "configured_limit,expected",
+    [(10, 10), (20, 20), (50, 20)],
+)
+def test_search_results_limit_is_capped_at_twenty(configured_limit: int, expected: int):
+    assert get_search_results_limit(configured_limit) == expected
 
 
 @pytest.mark.parametrize(
