@@ -3,6 +3,7 @@ from __future__ import annotations
 from app.ports import ScoredPoint
 from app.search.highlighter import build_quote_regex, quote_highlight, simple_highlight
 from app.search.ranking import rrf_merge
+from app.services.search import build_result_highlight
 
 
 def test_rrf_merge():
@@ -60,7 +61,47 @@ def test_quote_highlight():
 
     highlighted = quote_highlight(text, exact_phrases)
 
-    assert "<mark>Быстрый бурый</mark>" in highlighted
+    assert "<mark>Быстрый</mark> <mark>бурый</mark>" in highlighted
+
+
+def test_quote_highlight_does_not_mark_words_between_matches():
+    text = "Быстрый совершенно посторонний бурый лис."
+
+    highlighted = quote_highlight(text, ["быстрый бурый"])
+
+    assert highlighted == "<mark>Быстрый</mark> совершенно посторонний <mark>бурый</mark> лис."
+
+
+def test_word_search_uses_manticore_highlight():
+    manticore_highlight = "Текст с <mark>найденным</mark> словом"
+
+    highlighted = build_result_highlight("Текст с найденным словом", "найденное", "keyword", manticore_highlight)
+
+    assert highlighted == manticore_highlight
+
+
+def test_quote_search_uses_manticore_highlight():
+    manticore_highlight = "<mark>Быстрый</mark> совершенно посторонний <mark>бурый</mark> лис."
+
+    highlighted = build_result_highlight(
+        "Быстрый совершенно посторонний бурый лис.",
+        "быстрый бурый",
+        "quote",
+        manticore_highlight,
+    )
+
+    assert highlighted == manticore_highlight
+
+
+def test_quote_search_uses_python_highlight_as_fallback():
+    highlighted = build_result_highlight(
+        "Быстрый совершенно посторонний бурый лис.",
+        "быстрый бурый",
+        "quote",
+        None,
+    )
+
+    assert highlighted == "<mark>Быстрый</mark> совершенно посторонний <mark>бурый</mark> лис."
 
 
 def test_manticore_escape_string():

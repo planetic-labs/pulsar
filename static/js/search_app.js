@@ -357,6 +357,60 @@ window.addEventListener('click', function(e) {
 })();
 
 let activeChunkId = null;
+let pendingPlayback = null;
+let playbackRequestSequence = 0;
+
+async function playSearchResult(card) {
+    if (!card) return;
+
+    const chunkId = card.dataset.chunkId;
+    const fallbackStart = parseFloat(card.dataset.startSec) || 0;
+    const args = {
+        videoId: card.dataset.videoId,
+        title: card.dataset.title || '',
+        chunkId,
+    };
+
+    if (card.dataset.searchMode !== 'quote' || !card.dataset.query) {
+        playFragment(args.videoId, fallbackStart, args.title, card.dataset.startTs || '', chunkId);
+        return;
+    }
+
+    // Ignore a repeated click while this exact card is already resolving.
+    if (pendingPlayback && pendingPlayback.chunkId === chunkId) return;
+
+    if (pendingPlayback) {
+        pendingPlayback.controller.abort();
+    }
+
+    const controller = new AbortController();
+    const sequence = ++playbackRequestSequence;
+    pendingPlayback = { chunkId, controller, sequence };
+
+    let startSec = fallbackStart;
+    try {
+        const params = new URLSearchParams({ q: card.dataset.query });
+        const response = await fetch(`/api/chunks/${encodeURIComponent(chunkId)}/quote-start?${params}`, {
+            signal: controller.signal,
+        });
+        if (response.ok) {
+            const data = await response.json();
+            const resolvedStart = Number(data.start_sec);
+            if (Number.isFinite(resolvedStart) && resolvedStart >= 0) startSec = resolvedStart;
+        }
+    } catch (error) {
+        if (error.name === 'AbortError') return;
+        console.warn('Не удалось определить точный таймкод цитаты', error);
+    } finally {
+        if (pendingPlayback && pendingPlayback.sequence === sequence) {
+            pendingPlayback = null;
+        }
+    }
+
+    // A newer selection owns the player, even if abort arrived too late for this response.
+    if (sequence !== playbackRequestSequence) return;
+    playFragment(args.videoId, startSec, args.title, formatPlaybackTime(startSec), chunkId);
+}
 
 function playFragment(videoId, startSec, title, ts, chunkId) {
     // Highlight active card
@@ -621,4 +675,3 @@ window.removeHistoryItem = removeHistoryItem;
 window.clearSearchHistory = clearSearchHistory;
 window.showHistoryDropdown = showHistoryDropdown;
 window.hideHistoryDropdown = hideHistoryDropdown;
-

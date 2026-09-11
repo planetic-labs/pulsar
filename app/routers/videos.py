@@ -1,12 +1,13 @@
 from __future__ import annotations
 
+import asyncio
 import contextlib
 import logging
 from collections.abc import AsyncGenerator
 from typing import Any
 
 import httpx
-from fastapi import APIRouter, BackgroundTasks, Depends, Form, HTTPException, Path, Request, Response
+from fastapi import APIRouter, BackgroundTasks, Depends, Form, HTTPException, Path, Query, Request, Response
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
@@ -20,11 +21,41 @@ from app.dependencies import (
 from app.ports import FileStoragePort
 from app.repos.chunk_repo import ChunkRepository
 from app.repos.video_repo import VideoRepository
+from app.services.quote_timing import quote_timing_resolver
 from app.services.video import VideoService
+from app.settings import Settings, get_settings
 
 logger = logging.getLogger("app.routers.videos")
 
 router = APIRouter(tags=["Videos, Chunks & Speakers"])
+
+
+@router.get("/api/chunks/{chunk_id}/quote-start")
+async def api_quote_start(
+    chunk_id: int = Path(..., ge=1),
+    q: str = Query(..., min_length=1, max_length=1000),
+    chunk_repo: ChunkRepository = Depends(get_chunk_repo),
+    settings: Settings = Depends(get_settings),
+    _: str = Depends(require_access_token),
+) -> dict[str, float | bool]:
+    """Lazily resolve the first matched word timestamp for a selected quote result."""
+    chunk = await chunk_repo.get_with_video(chunk_id)
+    if not chunk:
+        raise HTTPException(status_code=404, detail="Chunk not found")
+
+    fallback = float(chunk["start_sec"])
+    source_file_id = chunk.get("source_file_id")
+    if not source_file_id:
+        return {"start_sec": fallback, "matched": False}
+
+    start_sec, matched = await asyncio.to_thread(
+        quote_timing_resolver.resolve,
+        settings.get_raw_transcript_path(str(source_file_id)),
+        q,
+        fallback,
+        float(chunk["end_sec"]),
+    )
+    return {"start_sec": start_sec, "matched": matched}
 
 
 @router.get("/api/videos/{video_id}/speakers")
