@@ -54,6 +54,12 @@ jobs:
           echo '### Release dependency freshness' >> "$GITHUB_STEP_SUMMARY"
           echo 'The latest-version check could not run. Review the workflow log.' >> "$GITHUB_STEP_SUMMARY"
 
+      - name: Verify release Buildx setup on PRs
+        if: github.event_name == 'pull_request'
+        run: |
+          docker buildx create --driver docker-container --use
+          docker buildx inspect --bootstrap
+
   build-and-push:
     if: github.event_name == 'release'
     needs: dependency-preflight
