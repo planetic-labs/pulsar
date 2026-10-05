@@ -53,7 +53,7 @@ Administrative utilities accessible via Docker:
 - **Clean Queue**: `docker compose exec app uv run python scripts/clear_queue.py`
 - **Integrity Check**: `docker compose exec -T pulsar python scripts/verify_integrity_readonly.py`
 - **Full Reindex**: `docker compose exec -T pulsar python scripts/reindex_search.py --full`
-- **Backup**: `./cron/restic_backup.sh`
+- **Backup**: `./cron/restic_backup.sh` (настройка Storage Box: [docs/storage-box-backup.md](docs/storage-box-backup.md))
 
 ## 🛡 Security
 

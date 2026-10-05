@@ -15,7 +15,6 @@ data/
 models_cache/
 core
 storage/
-.xxxx/
 backups/tmp/
 backups/local/
 tmp/
@@ -30,3 +29,4 @@ CRON_AUDIT.md
 CLAUDE.md
 AUDIT_2026-06-19.md
 AGENTS.md
+docs/*

@@ -6,6 +6,7 @@ set -eo pipefail
 # Get script and project directories
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+cd "$PROJECT_ROOT"
 
 # Load environment variables
 if [ -f "$PROJECT_ROOT/.env" ]; then
@@ -15,21 +16,21 @@ if [ -f "$PROJECT_ROOT/.env" ]; then
 fi
 
 # Validate configuration
-if [ -z "$RESTIC_REPOSITORY" ] || [ -z "$RESTIC_PASSWORD" ]; then
+if [ -z "${RESTIC_REPOSITORY:-}" ] || [ -z "${RESTIC_PASSWORD:-}" ]; then
     echo "❌ Error: RESTIC_REPOSITORY or RESTIC_PASSWORD is not set in .env" >&2
     exit 1
 fi
 
-if [ -z "$S3_ACCESS_KEY" ] || [ -z "$S3_SECRET_KEY" ]; then
-    echo "❌ Error: S3_ACCESS_KEY or S3_SECRET_KEY is not set in .env" >&2
-    exit 1
-fi
-
-# Map S3 configuration to AWS variables expected by Restic
-export AWS_ACCESS_KEY_ID="$S3_ACCESS_KEY"
-export AWS_SECRET_ACCESS_KEY="$S3_SECRET_KEY"
-if [ -n "$S3_REGION_NAME" ]; then
-    export AWS_DEFAULT_REGION="$S3_REGION_NAME"
+if [[ "$RESTIC_REPOSITORY" == s3:* ]]; then
+    if [ -z "${S3_ACCESS_KEY:-}" ] || [ -z "${S3_SECRET_KEY:-}" ]; then
+        echo "❌ Error: S3_ACCESS_KEY or S3_SECRET_KEY is not set in .env" >&2
+        exit 1
+    fi
+    export AWS_ACCESS_KEY_ID="$S3_ACCESS_KEY"
+    export AWS_SECRET_ACCESS_KEY="$S3_SECRET_KEY"
+    if [ -n "${S3_REGION_NAME:-}" ]; then
+        export AWS_DEFAULT_REGION="$S3_REGION_NAME"
+    fi
 fi
 
 # Check if restic CLI is installed
