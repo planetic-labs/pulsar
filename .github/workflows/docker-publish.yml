@@ -3,7 +3,13 @@ name: Docker Build and Publish
 on:
   release:
     types: [published]
-  workflow_dispatch: {}
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/**"
+      - "scripts/check_release_versions.py"
+      - "pyproject.toml"
+      - "uv.lock"
 
 env:
   REGISTRY: ghcr.io
