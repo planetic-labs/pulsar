@@ -1,6 +1,27 @@
 from pathlib import Path
+from unittest.mock import MagicMock
+from urllib.error import HTTPError
 
 from scripts import check_release_versions
+
+
+def test_github_api_retries_public_repository_without_token(monkeypatch) -> None:
+    calls = []
+    response = MagicMock()
+    response.__enter__.return_value = response
+    response.read.return_value = b'{"tag_name": "v1.0.0"}'
+
+    def fake_urlopen(request, timeout):
+        calls.append(request)
+        if len(calls) == 1:
+            raise HTTPError(request.full_url, 403, "Forbidden", {}, None)
+        return response
+
+    monkeypatch.setattr(check_release_versions, "urlopen", fake_urlopen)
+
+    assert check_release_versions.github_json("repos/example/action/releases/latest", "token") == {"tag_name": "v1.0.0"}
+    assert calls[0].get_header("Authorization") == "Bearer token"
+    assert calls[1].get_header("Authorization") is None
 
 
 def test_annotated_action_tag_resolves_to_commit(monkeypatch) -> None:
