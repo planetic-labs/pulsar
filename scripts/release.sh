@@ -100,6 +100,11 @@ else
     if [ "$UPDATE_DEPENDENCIES" = true ]; then
         uv lock --upgrade
         GITHUB_TOKEN="$(gh auth token)" uv run --locked python scripts/check_release_versions.py --update-workflows
+        echo "Running the complete local test suite after dependency updates..."
+        if ! uv run --locked pytest; then
+            echo "Local tests failed. Release changes remain on $RELEASE_BRANCH for inspection; nothing was pushed." >&2
+            exit 1
+        fi
     else
         uv lock
     fi
