@@ -45,6 +45,29 @@ gh auth status >/dev/null
 git fetch origin main --tags --force
 git pull --ff-only origin main
 
+echo "Checking available dependency updates before starting the release..."
+if ! VERSION_REPORT="$(GITHUB_TOKEN="$(gh auth token)" uv run --locked python scripts/check_release_versions.py)"; then
+    echo "Dependency version check failed; release was not started." >&2
+    exit 1
+fi
+printf '%s\n' "$VERSION_REPORT"
+
+UPDATE_DEPENDENCIES=false
+if [[ "$VERSION_REPORT" == *"::warning title=Outdated release dependencies::"* ]]; then
+    if [ ! -t 0 ]; then
+        echo "Dependency updates are available, but no interactive terminal is attached." >&2
+        exit 1
+    fi
+    while true; do
+        read -r -p "Update all listed dependencies before release? [u]pdate / [c]ontinue: " ANSWER
+        case "$ANSWER" in
+            u|U) UPDATE_DEPENDENCIES=true; break ;;
+            c|C) break ;;
+            *) echo "Enter u or c." ;;
+        esac
+    done
+fi
+
 DATE_TAG="$(date -u +'%Y.%m.%d')"
 LAST_TAG_TODAY="$(git tag -l "v${DATE_TAG}" "v${DATE_TAG}-patch*" | sort -V | tail -n 1)"
 
@@ -61,7 +84,7 @@ VERSION_NUM="${VERSION_NUM//-patch/.}"
 RELEASE_BRANCH="release/${VERSION}"
 CURRENT_VERSION="$(sed -n 's/^version = "\([^"]*\)"/\1/p' "$PYPROJECT_PATH" | head -n 1)"
 
-if [ "$CURRENT_VERSION" = "$VERSION_NUM" ]; then
+if [ "$CURRENT_VERSION" = "$VERSION_NUM" ] && [ "$UPDATE_DEPENDENCIES" = false ]; then
     echo "Version $VERSION_NUM is already in main; creating the missing release."
 else
     if git show-ref --verify --quiet "refs/heads/${RELEASE_BRANCH}" || \
@@ -74,9 +97,14 @@ else
     git switch -c "$RELEASE_BRANCH"
 
     sed -i 's/^version = "[^"]*"/version = "'"$VERSION_NUM"'"/' "$PYPROJECT_PATH"
-    uv lock
+    if [ "$UPDATE_DEPENDENCIES" = true ]; then
+        uv lock --upgrade
+        GITHUB_TOKEN="$(gh auth token)" uv run --locked python scripts/check_release_versions.py --update-workflows
+    else
+        uv lock
+    fi
 
-    git add "$PYPROJECT_PATH" "$PROJECT_ROOT/uv.lock"
+    git add "$PYPROJECT_PATH" "$PROJECT_ROOT/uv.lock" "$PROJECT_ROOT/.github/workflows"
     if git diff --cached --quiet; then
         git switch main
         git branch -D "$RELEASE_BRANCH"
