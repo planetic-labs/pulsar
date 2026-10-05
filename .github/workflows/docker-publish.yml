@@ -3,7 +3,13 @@ name: Docker Build and Publish
 on:
   release:
     types: [published]
-  workflow_dispatch: {}
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/**"
+      - "scripts/check_release_versions.py"
+      - "pyproject.toml"
+      - "uv.lock"
 
 env:
   REGISTRY: ghcr.io
@@ -48,6 +54,12 @@ jobs:
           echo '### Release dependency freshness' >> "$GITHUB_STEP_SUMMARY"
           echo 'The latest-version check could not run. Review the workflow log.' >> "$GITHUB_STEP_SUMMARY"
 
+      - name: Verify release Buildx setup on PRs
+        if: github.event_name == 'pull_request'
+        run: |
+          docker buildx create --driver docker-container --use
+          docker buildx inspect --bootstrap
+
   build-and-push:
     if: github.event_name == 'release'
     needs: dependency-preflight
@@ -62,7 +74,9 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+        run: |
+          docker buildx create --driver docker-container --use
+          docker buildx inspect --bootstrap
 
       - name: Log in to the Container registry
         uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4

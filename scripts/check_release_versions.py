@@ -14,13 +14,19 @@ TRIVY_VERSION = re.compile(r"^\s*version:\s*(v\d+\.\d+\.\d+)\s*$", re.MULTILINE)
 
 
 def github_json(path: str, token: str) -> dict[str, object]:
-    request = Request(
-        f"https://api.github.com/{path}",
-        headers={"Accept": "application/vnd.github+json", "Authorization": f"Bearer {token}"},
-    )
-    with urlopen(request, timeout=20) as response:
-        import json
+    import json
 
+    url = f"https://api.github.com/{path}"
+    headers = {"Accept": "application/vnd.github+json", "Authorization": f"Bearer {token}"}
+    try:
+        response = urlopen(Request(url, headers=headers), timeout=20)
+    except HTTPError as exc:
+        if exc.code != 403:
+            raise
+        # GITHUB_TOKEN can be restricted to its own repository. All queried
+        # action and scanner repositories are public, so retry anonymously.
+        response = urlopen(Request(url, headers={"Accept": headers["Accept"]}), timeout=20)
+    with response:
         return json.load(response)
 
 
