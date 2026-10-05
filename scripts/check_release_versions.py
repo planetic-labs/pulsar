@@ -1,5 +1,6 @@
 """Report dependencies that have newer releases before publishing an image."""
 
+import argparse
 import os
 import re
 import subprocess
@@ -47,7 +48,7 @@ def latest_action_commit(repository: str, token: str) -> tuple[str, str]:
     return tag, str(target["sha"])
 
 
-def workflow_versions(token: str) -> list[str]:
+def workflow_versions(token: str, update: bool = False) -> list[str]:
     findings: list[str] = []
     actions: dict[str, set[str]] = {}
     trivy_versions: set[str] = set()
@@ -58,8 +59,10 @@ def workflow_versions(token: str) -> list[str]:
         if "aquasecurity/trivy-action@" in source:
             trivy_versions.update(TRIVY_VERSION.findall(source))
 
+    replacements: dict[str, tuple[str, str]] = {}
     for repository, commits in sorted(actions.items()):
         latest_tag, latest_commit = latest_action_commit(repository, token)
+        replacements[repository] = (latest_tag, latest_commit)
         for commit in commits:
             if commit != latest_commit:
                 findings.append(
@@ -73,6 +76,24 @@ def workflow_versions(token: str) -> list[str]:
             findings.append(f"Trivy scanner: `{version}`; latest `{latest_trivy}`")
     if not trivy_versions:
         raise ValueError("Trivy scanner version is not pinned in a workflow")
+    if update:
+        for workflow in WORKFLOWS.glob("*.yml"):
+            source = workflow.read_text()
+
+            def replace_action(match: re.Match[str]) -> str:
+                repository = match.group(1)
+                latest_tag, latest_commit = replacements[repository]
+                return re.sub(
+                    rf"{re.escape(repository)}@[0-9a-f]{{40}}(?:\s*#.*)?$",
+                    f"{repository}@{latest_commit} # {latest_tag}",
+                    match.group(0),
+                )
+
+            updated = ACTION_REF.sub(replace_action, source)
+            if "aquasecurity/trivy-action@" in source:
+                updated = TRIVY_VERSION.sub(lambda match: match.group(0).replace(match.group(1), latest_trivy), updated)
+            if updated != source:
+                workflow.write_text(updated)
     return findings
 
 
@@ -87,13 +108,16 @@ def python_versions() -> list[str]:
 
 
 def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--update-workflows", action="store_true")
+    args = parser.parse_args()
     token = os.environ.get("GITHUB_TOKEN")
     if not token:
         print("GITHUB_TOKEN is required to check GitHub Action releases", file=sys.stderr)
         return 2
 
     try:
-        findings = python_versions() + workflow_versions(token)
+        findings = python_versions() + workflow_versions(token, update=args.update_workflows)
     except (HTTPError, URLError, KeyError, ValueError, subprocess.CalledProcessError) as exc:
         print(f"Version check failed: {exc}", file=sys.stderr)
         return 2
