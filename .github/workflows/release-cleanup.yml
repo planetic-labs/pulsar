@@ -1,0 +1,79 @@
+name: Release Cleanup
+
+on:
+  workflow_run:
+    workflows: ["Docker Build and Publish"]
+    types: [completed]
+
+concurrency:
+  group: release-cleanup
+  cancel-in-progress: false
+
+jobs:
+  package-versions:
+    if: github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'release'
+    runs-on: ubuntu-latest
+    permissions:
+      packages: write
+    steps:
+      - name: Delete old container versions
+        uses: actions/delete-package-versions@e5bc658cc4c965c472efe991f8beea3981499c55 # v5.0.0
+        with:
+          package-name: pulsar
+          package-type: container
+          min-versions-to-keep: 5
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+  release-history:
+    if: github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'release'
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+      contents: write
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      REPOSITORY: ${{ github.repository }}
+      MAX_RELEASES: ${{ vars.MAX_RELEASES || '10' }}
+    steps:
+      - name: Delete old releases, tags, and completed workflow runs
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+
+          if [[ ! "$MAX_RELEASES" =~ ^[1-9][0-9]*$ ]]; then
+            echo "MAX_RELEASES must be a positive integer." >&2
+            exit 1
+          fi
+
+          echo "Cleaning up old releases; keeping the newest $MAX_RELEASES..."
+          mapfile -t old_releases < <(
+            gh release list \
+              --repo "$REPOSITORY" \
+              --limit 100 \
+              --json tagName \
+              --jq ".[${MAX_RELEASES}:] | .[].tagName"
+          )
+
+          for old_tag in "${old_releases[@]}"; do
+            echo "Deleting old release and tag: $old_tag"
+            gh release delete "$old_tag" --repo "$REPOSITORY" --yes --cleanup-tag
+          done
+
+          today_date="$(date -u +'%Y-%m-%d')"
+          echo "Cleaning up completed workflow runs created before $today_date..."
+          mapfile -t old_runs < <(
+            gh run list \
+              --repo "$REPOSITORY" \
+              --limit 1000 \
+              --status completed \
+              --created "<$today_date" \
+              --json databaseId \
+              --jq '.[].databaseId'
+          )
+
+          for old_run_id in "${old_runs[@]}"; do
+            echo "Deleting old workflow run: $old_run_id"
+            gh run delete "$old_run_id" --repo "$REPOSITORY"
+          done
+
+          echo "Release cleanup completed."
