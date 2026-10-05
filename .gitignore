@@ -3,7 +3,6 @@ __pycache__/
 *.pyc
 
 .env
-.env.example
 .dev.vars
 token.json
 token.auth.json
