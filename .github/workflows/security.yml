@@ -34,6 +34,13 @@ jobs:
       - name: Build production image
         run: docker build --file Dockerfile.prod --tag pulsar:security-scan .
 
+      - name: Verify patched packages in production image
+        run: |
+          docker run --rm --entrypoint /bin/sh pulsar:security-scan -c '
+            /usr/local/bin/python -c "import urllib3; assert tuple(map(int, urllib3.__version__.split(\".\"))) >= (2, 8, 0)" &&
+            dpkg --compare-versions "$(dpkg-query -W -f="\${Version}" libpcre2-8-0)" ge "10.46-1~deb13u3"
+          '
+
       - name: Scan production image
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
