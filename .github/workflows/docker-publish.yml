@@ -3,7 +3,7 @@ name: Docker Build and Publish
 on:
   release:
     types: [published]
-  workflow_dispatch:
+  workflow_dispatch: {}
 
 env:
   REGISTRY: ghcr.io
@@ -35,14 +35,14 @@ jobs:
         run: uv run --locked pip-audit
 
       - name: Report outdated Python packages, Actions, and Trivy
-        id: version-report
+        id: version_report
         continue-on-error: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: uv run --locked python scripts/check_release_versions.py
 
       - name: Warn if the version report could not run
-        if: steps.version-report.outcome == 'failure'
+        if: steps.version_report.outcome == 'failure'
         run: |
           echo '::warning title=Version report unavailable::Could not check the latest releases; review the previous step.'
           echo '### Release dependency freshness' >> "$GITHUB_STEP_SUMMARY"
