@@ -1,3 +1,4 @@
+from email.message import Message
 from pathlib import Path
 from unittest.mock import MagicMock
 from urllib.error import HTTPError
@@ -14,7 +15,7 @@ def test_github_api_retries_public_repository_without_token(monkeypatch) -> None
     def fake_urlopen(request, timeout):
         calls.append(request)
         if len(calls) == 1:
-            raise HTTPError(request.full_url, 403, "Forbidden", {}, None)
+            raise HTTPError(request.full_url, 403, "Forbidden", Message(), None)
         return response
 
     monkeypatch.setattr(check_release_versions, "urlopen", fake_urlopen)
