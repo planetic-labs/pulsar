@@ -77,3 +77,48 @@ jobs:
           done
 
           echo "Release cleanup completed."
+
+  deployment-history:
+    if: github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'release'
+    runs-on: ubuntu-latest
+    permissions:
+      deployments: write
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      REPOSITORY: ${{ github.repository }}
+      MAX_DEPLOYMENTS: ${{ vars.MAX_DEPLOYMENTS || '10' }}
+    steps:
+      - name: Delete old production deployments
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+
+          if [[ ! "$MAX_DEPLOYMENTS" =~ ^[1-9][0-9]*$ ]]; then
+            echo "MAX_DEPLOYMENTS must be a positive integer." >&2
+            exit 1
+          fi
+
+          echo "Cleaning up production deployments; keeping the newest $MAX_DEPLOYMENTS..."
+          old_deployment_ids="$(
+            gh api --paginate \
+              "repos/$REPOSITORY/deployments?environment=production&per_page=100" \
+              | jq -sr "add | sort_by(.created_at, .id) | reverse | .[${MAX_DEPLOYMENTS}:] | .[].id"
+          )"
+
+          old_deployments=()
+          if [[ -n "$old_deployment_ids" ]]; then
+            mapfile -t old_deployments <<< "$old_deployment_ids"
+          fi
+
+          for deployment_id in "${old_deployments[@]}"; do
+            echo "Deleting old production deployment: $deployment_id"
+            gh api \
+              --method POST \
+              "repos/$REPOSITORY/deployments/$deployment_id/statuses" \
+              -f state=inactive > /dev/null
+            gh api \
+              --method DELETE \
+              "repos/$REPOSITORY/deployments/$deployment_id" > /dev/null
+          done
+
+          echo "Production deployment cleanup completed."
