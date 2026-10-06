@@ -24,17 +24,45 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Check whether the production image needs scanning
+        id: changes
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          set -Eeuo pipefail
+
+          if [[ "$GITHUB_EVENT_NAME" == "schedule" || -z "$BASE_SHA" || "$BASE_SHA" =~ ^0+$ ]]; then
+            echo "scan=true" >> "$GITHUB_OUTPUT"
+          elif git diff --quiet "$BASE_SHA" "$GITHUB_SHA" -- \
+            Dockerfile.prod \
+            .dockerignore \
+            docker-compose.yml \
+            docker-compose.prod.yml \
+            pyproject.toml \
+            uv.lock \
+            .github/workflows/security.yml; then
+            echo "scan=false" >> "$GITHUB_OUTPUT"
+            echo "No changes to the production image or its security scan."
+          else
+            echo "scan=true" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Validate Compose configuration
+        if: steps.changes.outputs.scan == 'true'
         run: |
           touch .env
           docker compose -f docker-compose.yml config --quiet
           docker compose -f docker-compose.prod.yml config --quiet
 
       - name: Build production image
+        if: steps.changes.outputs.scan == 'true'
         run: docker build --file Dockerfile.prod --tag pulsar:security-scan .
 
       - name: Verify patched packages in production image
+        if: steps.changes.outputs.scan == 'true'
         run: |
           docker run --rm --entrypoint /bin/sh pulsar:security-scan -c '
             /usr/local/bin/python -c "import urllib3; assert tuple(map(int, urllib3.__version__.split(\".\"))) >= (2, 8, 0)" &&
@@ -42,6 +70,7 @@ jobs:
           '
 
       - name: Scan production image
+        if: steps.changes.outputs.scan == 'true'
         id: trivy
         continue-on-error: true
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
@@ -54,7 +83,7 @@ jobs:
           exit-code: "1"
 
       - name: Report container vulnerabilities
-        if: steps.trivy.outcome == 'failure'
+        if: steps.changes.outputs.scan == 'true' && steps.trivy.outcome == 'failure'
         run: |
           echo '::warning title=Container vulnerabilities::Trivy found HIGH or CRITICAL vulnerabilities. Review the Scan production image step.'
           echo '### Container vulnerabilities found' >> "$GITHUB_STEP_SUMMARY"
