@@ -19,7 +19,7 @@ dependencies = [
     "pymorphy3-dicts-ru",
     "httpx>=0.28.1",
     "pydantic>=2.13.5",
-    "google-auth>=2.59.0",
+    "google-auth>=2.60.0",
     "requests>=2.34.2",
     "itsdangerous>=2.2.0",
     "pyjwt[crypto]>=2.15.1",
