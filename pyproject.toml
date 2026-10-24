@@ -10,7 +10,7 @@ authors = [
 keywords = ["rag", "fastapi", "manticore", "deepgram", "embeddings", "video-search"]
 requires-python = ">=3.14"
 dependencies = [
-    "fastapi>=0.143.0",
+    "fastapi>=0.150.0",
     "jinja2>=3.1.6",
     "python-dotenv>=1.2.4",
     "uvicorn>=0.54.0",
@@ -23,10 +23,10 @@ dependencies = [
     "requests>=2.34.2",
     "itsdangerous>=2.2.0",
     "pyjwt[crypto]>=2.15.1",
-    "pydantic-settings>=2.15.0",
+    "pydantic-settings>=2.16.0",
     "aiosqlite>=0.22.1",
     "slowapi>=0.1.10",
-    "websockets>=17.2",
+    "websockets>=17.3",
 ]
 
 [project.urls]
@@ -37,11 +37,11 @@ Issues = "https://github.com/planetic-labs/pulsar/issues"
 [dependency-groups]
 dev = [
     "pre-commit>=4.7.0",
-    "ruff>=0.17.0",
-    "ty>=0.0.86",
+    "ruff>=0.17.1",
+    "ty>=0.0.89",
     "pytest>=9.1.1",
     "pytest-asyncio>=1.4.0",
-    "pytest-mock>=3.16.0",
+    "pytest-mock>=3.17.0",
     "pip-audit>=2.10.1",
 ]
 
